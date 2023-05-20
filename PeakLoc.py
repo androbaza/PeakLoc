@@ -1,7 +1,7 @@
 from localization_scripts.imports import *
 
 '''
-if the sustem complains about memory, run the following command:
+if the system complains about memory, run the following command:
 sudo echo 1 > /proc/sys/vm/overcommit_memory
 '''
 
