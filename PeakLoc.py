@@ -45,7 +45,7 @@ def main(filename):
     min_y = events["y"].min()
     max_x = events["x"].max()
     max_y = events["y"].max()
-    # events = events[events['t'] < 10e6]
+    # events = events[events['t'] < 70e6]
 
     # Create coordinate lists
     y_coords, x_coords = [min_y, max_y], [min_x, max_x]
@@ -118,7 +118,7 @@ def main(filename):
 
 
 if __name__ == "__main__":
-    if sys.argv[1]:
+    if len(sys.argv) > 1:
         filename = sys.argv[1]
     else:
         filename = INPUT_FILE
