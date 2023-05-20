@@ -6,12 +6,26 @@ sudo echo 1 > /proc/sys/vm/overcommit_memory
 """
 
 NUM_CORES = multiprocessing.cpu_count()
+
+"""PROMINENCE is the prominence of the peaks in the convolved signals.
+Smaller value detects more peaks, increasing the evaluation time."""
 PROMINENCE = 25
+
+"""DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
 DATASEET_FWHM = 5.5
+
+"""PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
 PEAK_TIME_THRESHOLD = 50e3
+
+"""PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
 PEAK_NEIGHBORS = 6
+
+"""ROI_RADIUS is the radius of the generated ROI in pixels."""
 ROI_RADIUS = 6
-# WORKDIR = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/"
+
+"""RAW recording or converted events file location."""
+INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
 
 def main(filename):
@@ -107,6 +121,5 @@ if __name__ == "__main__":
     if sys.argv[1]:
         filename = sys.argv[1]
     else:
-        filename = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
-        # filename = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
+        filename = INPUT_FILE
     main(filename)
