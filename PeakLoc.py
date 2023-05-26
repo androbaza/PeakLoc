@@ -192,8 +192,8 @@ if __name__ == "__main__":
         events = np.load(filename)
     else:
         raise ValueError("File format not recognized!")
-    for time_slice in range(300e6, events["t"].max(), 300e6):
-        slice = events[(events["t"] > time_slice - 300e6) * (events["t"] < time_slice)]
+    for time_slice in range(400e6, events["t"].max(), 400e6):
+        slice = events[(events["t"] > time_slice - 400e6) * (events["t"] < time_slice)]
         main(slice, time_slice, filename)
 
     out_folder_localizations = filename[:-4] + "/"
