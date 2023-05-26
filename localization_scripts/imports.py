@@ -1,14 +1,19 @@
 import gc, multiprocessing, os, sys
 import numpy as np
 from localization_scripts.roi_generation import generate_rois
-from localization_scripts.peak_finding import find_peaks_parallel, find_local_max_peak, create_peak_lists, group_timestamps_by_coordinate
+from localization_scripts.peak_finding import (
+    find_peaks_parallel,
+    find_local_max_peak,
+    create_peak_lists,
+    group_timestamps_by_coordinate,
+)
 from localization_scripts.event_array_processing import (
     array_to_polarity_map,
     array_to_time_map,
     create_convolved_signals,
     raw_events_to_array,
     save_dict,
-    load_dict
+    load_dict,
 )
 from localization_scripts.roi_generation import generate_rois, generate_coord_lists
 from localization_scripts.localization_fitting import perfrom_localization_parallel
@@ -20,6 +25,7 @@ from numba.core.errors import (
     NumbaTypeSafetyWarning,
 )
 import time
+from natsort import natsorted
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)

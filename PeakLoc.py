@@ -25,59 +25,50 @@ ROI_RADIUS = 8
 
 """RAW recording or converted events file location."""
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-04-01.505Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-25-34.554Z.raw" 
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-04-01.505Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-25-34.554Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-44-30.494Z.raw" #crashes
 
-#MT
+# MT
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-54-31.417Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-33-27.882Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z.raw"
 
-#MT+CL
+# MT+CL
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-04-58.785Z.raw" #error in process conv list
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-18-39.156Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-39-44.577Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-04-58.785Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T09-45-55.674Z.raw" 
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-18-39.156Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-39-44.577Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-04-58.785Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T09-45-55.674Z.raw"
 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T10-22-18.002Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T10-44-21.770Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-10-27.991Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-29-21.251Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-47-31.679Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T12-03-37.655Z.raw" 
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T10-22-18.002Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T10-44-21.770Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-10-27.991Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-29-21.251Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T11-47-31.679Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/mt_cl/recording_2023-05-24T12-03-37.655Z.raw"
 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-01-15.299Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-33-08.518Z.raw" 
-INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T09-42-18.758Z.raw" 
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-01-15.299Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-33-08.518Z.raw"
+INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T09-42-18.758Z.raw"
 
-#CL
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/CL/recording_2023-05-25T08-32-14.720Z.raw" 
+# CL
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/CL/recording_2023-05-25T08-32-14.720Z.raw"
 
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
 
-def main(filename):
+def main(slice, time_slice, filename):
+    events = slice
     start_time = time.time()
-
-    if os.path.basename(filename)[-4:] == ".raw":
-        events = raw_events_to_array(filename).astype(
-            [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
-        )
-    elif os.path.basename(filename)[-4:] == ".npy":
-        events = np.load(filename)
-    else:
-        raise ValueError("File format not recognized!")
 
     # Get the minimum and maximum x and y coordinates
     min_x = events["x"].min()
     min_y = events["y"].min()
     max_x = events["x"].max()
     max_y = events["y"].max()
-    events = events[events['t'] < 600e6]
 
     # Create coordinate lists
     y_coords, x_coords = [min_y, max_y], [min_x, max_x]
@@ -115,7 +106,9 @@ def main(filename):
         spline_smooth=0.7,
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
-    peaks_dict = group_timestamps_by_coordinate(coordinates_peaks, peaks, prominences, on_times)
+    peaks_dict = group_timestamps_by_coordinate(
+        coordinates_peaks, peaks, prominences, on_times
+    )
 
     # possible to speed up with numba
     print(f"Filtering peaks... Elapsed time: {time.time() - start_time:.2f} seconds")
@@ -124,18 +117,24 @@ def main(filename):
     )
 
     out_folder_localizations = filename[:-4] + "/"
+    temp_files_localization = out_folder_localizations + "temp_files/"
     if not os.path.exists(out_folder_localizations):
         os.makedirs(out_folder_localizations)
+    if not os.path.exists(temp_files_localization):
+        os.makedirs(temp_files_localization)
 
-    save_dict(unique_peaks,
-        out_folder_localizations
-        + "unique_peaks_fwhm_" 
-        + str(DATASEET_FWHM) 
+    save_dict(
+        unique_peaks,
+        temp_files_localization
+        + "unique_peaks_fwhm_"
+        + str(DATASEET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
-        + ".pkl"
+        + "_time_slice_"
+        + str(time_slice)
+        + ".pkl",
     )
-    
+
     print(f"Generating ROIs... Elapsed time: {time.time() - start_time:.2f} seconds")
     rois = generate_rois(
         unique_peaks,
@@ -145,7 +144,7 @@ def main(filename):
         min_y=min_y,
         num_cores=NUM_CORES,
         max_x=max_x,
-        max_y=max_y
+        max_y=max_y,
     )
 
     print(
@@ -155,22 +154,25 @@ def main(filename):
 
     print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
 
-
     np.save(
-        out_folder_localizations
-        + "localizations_prominence_fwhm_" 
-        + str(DATASEET_FWHM) 
+        temp_files_localization
+        + "localizations_prominence_fwhm_"
+        + str(DATASEET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
+        + "_time_slice_"
+        + str(time_slice)
         + ".npy",
         localizations,
     )
     np.save(
-        out_folder_localizations
-        + "rois_prominence_fwhm_" 
-        + str(DATASEET_FWHM) 
+        temp_files_localization
+        + "rois_prominence_fwhm_"
+        + str(DATASEET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
+        + "_time_slice_"
+        + str(time_slice)
         + ".npy",
         rois,
     )
@@ -181,7 +183,7 @@ if __name__ == "__main__":
         filename = sys.argv[1]
     else:
         filename = INPUT_FILE
-    
+
     if os.path.basename(filename)[-4:] == ".raw":
         events = raw_events_to_array(filename).astype(
             [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
@@ -190,6 +192,50 @@ if __name__ == "__main__":
         events = np.load(filename)
     else:
         raise ValueError("File format not recognized!")
-    for time in range(0, eve)
-    events = events[events['t'] < 600e6]
-    main(filename)
+    for time_slice in range(300e6, events["t"].max(), 300e6):
+        slice = events[(events["t"] > time_slice - 300e6) * (events["t"] < time_slice)]
+        main(slice, time_slice, filename)
+
+    out_folder_localizations = filename[:-4] + "/"
+    temp_files_localization = out_folder_localizations + "temp_files/"
+
+    sorted_names = natsorted(os.listdir(temp_files_localization))
+
+    id, id2 = 0, 0
+    for loc_file in sorted_names:
+        if loc_file.startswith("localizations"):
+            locs_slice = np.load(temp_files_localization + loc_file)
+            if id != 0:
+                locs_slice["id"] += np.max(localizations_full_list["id"])
+            localizations_full_list = (
+                np.concatenate((localizations_full_list, rois_slice))
+                if id != 0
+                else rois_slice
+            )
+            id += 1
+        elif loc_file.startswith("rois"):
+            rois_slice = np.load(temp_files_localization + loc_file)
+            rois_full_list = (
+                np.concatenate((rois_full_list, rois_slice)) if id2 != 0 else rois_slice
+            )
+            id2 += 1
+
+    np.save(
+        out_folder_localizations
+        + "localizations_prominence_fwhm_"
+        + str(DATASEET_FWHM)
+        + "_prominence_"
+        + str(PROMINENCE)
+        + ".npy",
+        localizations_full_list,
+    )
+
+    np.save(
+        out_folder_localizations
+        + "rois_prominence_fwhm_"
+        + str(DATASEET_FWHM)
+        + "_prominence_"
+        + str(PROMINENCE)
+        + ".npy",
+        rois_full_list,
+    )
