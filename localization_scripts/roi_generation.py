@@ -13,6 +13,8 @@ def generate_rois(
     min_x: int,
     min_y: int,
     num_cores: int,
+    max_x: int,
+    max_y: int
 ) -> np.ndarray:
     """
     Generate ROIs from peak data.
@@ -30,6 +32,8 @@ def generate_rois(
         roi_rad,
         min_x=min_x,
         min_y=min_y,
+        max_x=max_x,
+        max_y=max_y
     )
 
 
@@ -92,7 +96,7 @@ def generate_coord_lists(start_y, fin_y, start_x, fin_x):
     )
 
 
-@njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True)
 def count_values_in_range(
     times_arr, polarities_arr, row_id, id_data, lower, upper, peak
 ):
@@ -115,7 +119,7 @@ def count_values_in_range(
     return count_positive, count_negative, t_1st, t_last
 
 
-@njit(cache=True, fastmath=True, nogil=True, parallel=True)
+@njit(cache=True, fastmath=True, parallel=True)
 def slice_t_p_dict(
     dict_indices,
     times_arr,
@@ -161,9 +165,9 @@ def slice_t_p_dict(
         new_roi[1:3],
         total_events_roi,
         total_events_roi_n,
-        0,
+        np.mean(new_roi[1]),
         t_peak,
-        np.max(new_roi[2]),
+        np.mean(new_roi[2]),
         center_coord,
         (center_coord[0] - image_start[0], center_coord[1] - image_start[1]),
     )
@@ -175,10 +179,12 @@ def gen_rois_from_peaks_dict(
     dict_indices,
     times_arr,
     polarities_arr,
+    max_x,
+    max_y,
     roi_rad=5,
     image_start=(0, 0),
     i=1,
-):
+    ):
     id_data = 0
     id_loc = 0
     rois_list = []
@@ -190,9 +196,11 @@ def gen_rois_from_peaks_dict(
     awk_polarities = ak.Array(polarities_arr)
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
-        if (id_data % 8e2 == 0 or id_data == all-1) and i == 1:
+        if (id_data % 2e3 == 0 or id_data == all-1) and i == 1:
             print("completed ", int(id_data / all * 100), " % --> ~", id_loc*10, " localizations found")
         y, x = center_coord
+        if y - roi_rad/2 < 0 or x - roi_rad/2 < 0 or y + roi_rad/2 > max_y or x + roi_rad/2 > max_x:
+            continue
         coord_list = generate_coord_lists(
             y - roi_rad, y + roi_rad, x - roi_rad, x + roi_rad
         )
@@ -227,24 +235,25 @@ def gen_rois_from_peaks_dict(
                 image_start=image_start,
             )
             id_loc += 1
-            mask = np.nonzero(full_rois_list[id]["roi_event_times"][0])
-            try:
-                full_rois_list[id]["t_1st"] = np.min(
-                    full_rois_list[id]["roi_event_times"][0][mask]
-                )
-            except:
-                np.delete(full_rois_list, id)
-                continue
+            # mask = np.nonzero(full_rois_list[id]["roi_event_times"][0])
+            # try:
+            #     full_rois_list[id]["t_1st"] = np.min(
+            #         full_rois_list[id]["roi_event_times"][0][mask]
+            #     )
+            # except:
+            #     np.delete(full_rois_list, id)
+            #     continue
             full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
                 full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
             )
-            if not full_rois_list[id]["roi"].any():
+            if np.sum(full_rois_list[id]["roi"]) < 15:
                 np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))
             if id_data != 0
             else full_rois_list
         )
+
         id_data += 1
     return rois_list
 
@@ -258,6 +267,8 @@ def generate_rois_parallel(
     roi_rad,
     min_x,
     min_y,
+    max_x,
+    max_y,
 ):
     RES = Parallel(n_jobs=num_cores, backend="loky")(
         delayed(gen_rois_from_peaks_dict)(
@@ -268,6 +279,8 @@ def generate_rois_parallel(
             i=i,
             roi_rad=roi_rad,
             image_start=(min_y, min_x),
+            max_x=max_x,
+            max_y=max_y
         )
         for i in range(len(sliced_dict))
     )

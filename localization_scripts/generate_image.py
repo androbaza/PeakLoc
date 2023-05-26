@@ -15,7 +15,7 @@ def neighbor_interpolation(
     loc_source="gaussian",
     take_negatives=0,
     take_positives=1,
-    interpolate=1,
+    interpolate=True,
     fixed_size=None,
     i_field="I",
 ):
@@ -292,27 +292,27 @@ def FRC_split(localizations, pixel_dim=0.3):
     )
 
 
-localizations = np.load(input_data)
-pixel_dim = 0.3
+# localizations = np.load(input_data)
+# pixel_dim = 0.3
 
-"""basic filtering"""
-localizations = localizations[~np.isnan(localizations["y"])]
-localizations = localizations[~np.isnan(localizations["x"])]
+# """basic filtering"""
+# localizations = localizations[~np.isnan(localizations["y"])]
+# localizations = localizations[~np.isnan(localizations["x"])]
 
-"""filter out PSFs that were not complete"""
-localizations = localizations[localizations["E_total"] > 70]
+# """filter out PSFs that were not complete"""
+# localizations = localizations[localizations["E_total"] > 70]
+# # localizations = localizations[:500000]
+# # localizations = localizations[-100000:]
+
+# # localizations = drift_correction(localizations, 10, 0.3)
+
+# """if all the localizations without drift correction are taken, the image is significantly blurred in y direction"""
+# # histogram_interpolated = neighbor_interpolation(localizations, pixel_dim=0.3)
+
+# """a slice of 5e5 localizations does not experience drift"""
 # localizations = localizations[:500000]
-# localizations = localizations[-100000:]
-
-# localizations = drift_correction(localizations, 10, 0.3)
-
-"""if all the localizations without drift correction are taken, the image is significantly blurred in y direction"""
 # histogram_interpolated = neighbor_interpolation(localizations, pixel_dim=0.3)
 
-"""a slice of 5e5 localizations does not experience drift"""
-localizations = localizations[:500000]
-histogram_interpolated = neighbor_interpolation(localizations, pixel_dim=0.3)
-
-tifffile.imwrite(
-    out_folder + "superres_image.tif", histogram_interpolated.T.astype("float32")
-)
+# tifffile.imwrite(
+#     out_folder + "superres_image.tif", histogram_interpolated.T.astype("float32")
+# )

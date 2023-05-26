@@ -28,7 +28,7 @@ def double_gaussian2D(
 def moments(data):
     x_mean = center_of_mass(data)[1]
     y_mean = center_of_mass(data)[0]
-    sigma = 1.5
+    sigma = 2.5
     height = data.max()
     return height, x_mean, y_mean, sigma
 
@@ -39,9 +39,10 @@ def fit_single_gaussian(data):
     bounds = ([0, 0, 0, 0], [params[0] + 0.01, data.shape[1], data.shape[0], 4])
     # print(bounds)
     # print(params)
-    return least_squares(
-        errorfunction, params, gtol=1e-6, ftol=1e-6, method="trf", bounds=bounds
-    )
+    # return least_squares(
+    #     errorfunction, params, gtol=1e-6, ftol=1e-6, method="trf", bounds=bounds
+    # )
+    return least_squares(errorfunction, params, method="lm")
 
 
 def fit_two_gaussians(data, lm=False):
@@ -57,11 +58,11 @@ def fit_two_gaussians(data, lm=False):
             params[0] + 1,
             data.shape[1],
             data.shape[0],
-            4,
+            6,
             params[0] + 1,
             data.shape[1],
             data.shape[0],
-            4,
+            6,
         ),
     )
     if lm:
@@ -80,13 +81,13 @@ def fit_gaussian(roi, dataset_FWHM=5.5):
     rms = res_rmse(fit_params.fun)
     # FWHM=2.35*sigma
     sigma_2_locs = dataset_FWHM / 2.35
-    if fit_params.x[3] > sigma_2_locs:
-        fit_params2 = fit_two_gaussians(roi)
-        rms2 = res_rmse(fit_params2.fun)
-        if rms2 > rms:
-            return fit_params.x, rms
-        else:
-            return fit_params2.x, rms2
+    # if fit_params.x[3] > sigma_2_locs:
+    #     fit_params2 = fit_two_gaussians(roi)
+    #     rms2 = res_rmse(fit_params2.fun)
+    #     if rms2 > rms:
+    #         return fit_params.x, rms
+    #     else:
+    #         return fit_params2.x, rms2
     return fit_params.x, rms
 
 

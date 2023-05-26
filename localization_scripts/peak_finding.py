@@ -59,17 +59,16 @@ def find_peaks_parallel(
         for i in range(len(times))
     )
 
+    return RES
+
+def create_peak_lists(RES):
     peaks, prominences, on_times, coordinates_peaks = [], [], [], []
     for i in np.arange(len(RES)):
         peaks.extend(RES[i][0])
         prominences.extend(RES[i][1])
         on_times.extend(RES[i][2])
         coordinates_peaks.extend(RES[i][3])
-
-    return group_timestamps_by_coordinate(
-        coordinates_peaks, peaks, prominences, on_times
-    )
-
+    return peaks, prominences, on_times, coordinates_peaks
 
 def interpolate_parallel(
     times,
@@ -77,7 +76,7 @@ def interpolate_parallel(
     coordinates,
     i,
     prominence=25,
-    interpolation_coefficient=5,
+    interpolation_coefficient=3,
     cutoff_event_count=2000,
     spline_smooth=0.8,
 ):

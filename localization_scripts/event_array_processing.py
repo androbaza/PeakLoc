@@ -2,12 +2,12 @@ from numba import njit, prange, types
 from numba.typed import List, Dict
 import numpy as np
 from localization_scripts.roi_generation import generate_coord_lists
-import gc
+import gc, pickle
 from joblib import Parallel, delayed
 
 
 def raw_events_to_array(filename):
-    buffer_size = 1e9
+    buffer_size = 4e9
     from metavision_core.event_io.raw_reader import RawReader
 
     record_raw = RawReader(filename, max_events=int(buffer_size))
@@ -41,8 +41,10 @@ def array_to_polarity_map(arr, coords):
     for id in prange(len(arr)):
         key = (arr[id]["y"], arr[id]["x"])
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
-        if len(dict_out[key][arr[id]["p"]]) > max_len:
-            max_len = len(dict_out[key][arr[id]["p"]])
+        if len(dict_out[key][1]) > max_len:
+            max_len = len(dict_out[key][1])
+        if len(dict_out[key][0]) > max_len:
+            max_len = len(dict_out[key][0])
     return dict_out, max_len
 
 
@@ -121,7 +123,8 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
                 coord_convolution_data, repeating_timestamps
             )
         coord_convolution_data[:, 1][coord_convolution_data[:, 1] == 0] = -1
-        times[coord_pair, : len(coord_convolution_data[:, 0])] = coord_convolution_data[
+        # print(coord_convolution_data.shape, times.shape)
+        times[coord_pair, :len(coord_convolution_data[:, 0])] = coord_convolution_data[
             :, 0
         ]
         cumsum[coord_pair, : len(coord_convolution_data[:, 0])] = np.cumsum(
@@ -139,7 +142,7 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
 # @njit(cache=True)
 def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
-    num_coords = 96
+    num_coords = 24
     for i in range(num_coords, len(coords), num_coords):
         output1, output2, output3 = process_conv_list_parallel(
             dict_events, coords[i - num_coords : i], max_len
@@ -228,3 +231,12 @@ def slice_data(data, nb_slices):
         ind = [np.compat.long(k * slice_size), np.compat.long((k + 1) * slice_size)]
         data_split.append(data[ind[0] : ind[1]])
     return data_split
+
+def save_dict(di_, filename_):
+    with open(filename_, 'wb') as f:
+        pickle.dump(di_, f)
+
+def load_dict(filename_):
+    with open(filename_, 'rb') as f:
+        ret_di = pickle.load(f)
+    return ret_di
