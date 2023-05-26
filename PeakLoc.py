@@ -181,4 +181,15 @@ if __name__ == "__main__":
         filename = sys.argv[1]
     else:
         filename = INPUT_FILE
+    
+    if os.path.basename(filename)[-4:] == ".raw":
+        events = raw_events_to_array(filename).astype(
+            [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
+        )
+    elif os.path.basename(filename)[-4:] == ".npy":
+        events = np.load(filename)
+    else:
+        raise ValueError("File format not recognized!")
+    for time in range(0, eve)
+    events = events[events['t'] < 600e6]
     main(filename)
