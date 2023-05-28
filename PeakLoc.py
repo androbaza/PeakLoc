@@ -9,7 +9,7 @@ NUM_CORES = multiprocessing.cpu_count()
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 12
+PROMINENCE = 10
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
 DATASEET_FWHM = 8
@@ -103,7 +103,7 @@ def main(slice, time_slice, filename):
         NUM_CORES,
         prominence=PROMINENCE,
         interpolation_coefficient=5,
-        spline_smooth=0.7,
+        spline_smooth=0.9,
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
     peaks_dict = group_timestamps_by_coordinate(
@@ -179,63 +179,71 @@ def main(slice, time_slice, filename):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]
-    else:
-        filename = INPUT_FILE
+    # if len(sys.argv) > 1:
+    #     filename = sys.argv[1]
+    # else:
+    #     filename = INPUT_FILE
+    # folder = '/home/smlm-workstation/event-smlm/Paris/process/'
+    folder = '/home/smlm-workstation/event-smlm/Paris/25.05/CL/'
+    for filename in natsorted(os.listdir(folder)):
+        filename = folder + filename
+        if os.path.basename(filename)[-4:] == ".raw":
+            events = raw_events_to_array(filename).astype(
+                [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
+            )
+        elif os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
+            continue
+        # elif os.path.basename(filename)[-4:] == ".npy":
+        #     events = np.load(filename)
+        # else:
+            #     raise ValueError("File format not recognized!")
+        for time_slice in range(int(150e6), events["t"].max(), int(150e6)):
+            slice = events[(events["t"] > time_slice - 150e6) * (events["t"] < time_slice)]
+            main(slice, time_slice, filename)
 
-    if os.path.basename(filename)[-4:] == ".raw":
-        events = raw_events_to_array(filename).astype(
-            [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
+        out_folder_localizations = filename[:-4] + "/"
+        temp_files_localization = out_folder_localizations + "temp_files/"
+
+        sorted_names = natsorted(os.listdir(temp_files_localization))
+
+        id, id2 = 0, 0
+        for loc_file in sorted_names:
+            if loc_file.startswith("localizations"):
+                locs_slice = np.load(temp_files_localization + loc_file)
+                if id != 0:
+                    locs_slice["id"] += np.max(localizations_full_list["id"])
+                localizations_full_list = (
+                    np.concatenate((localizations_full_list, locs_slice))
+                    if id != 0
+                    else locs_slice
+                )
+                id += 1
+                # np.delete(temp_files_localization + loc_file)
+            elif loc_file.startswith("rois"):
+                rois_slice = np.load(temp_files_localization + loc_file)
+                rois_full_list = (
+                    np.concatenate((rois_full_list, rois_slice)) if id2 != 0 else rois_slice
+                )
+                id2 += 1
+                # np.delete(temp_files_localization + loc_file)
+            
+
+        np.save(
+            out_folder_localizations
+            + "localizations_prominence_fwhm_"
+            + str(DATASEET_FWHM)
+            + "_prominence_"
+            + str(PROMINENCE)
+            + ".npy",
+            localizations_full_list,
         )
-    elif os.path.basename(filename)[-4:] == ".npy":
-        events = np.load(filename)
-    else:
-        raise ValueError("File format not recognized!")
-    for time_slice in range(400e6, events["t"].max(), 400e6):
-        slice = events[(events["t"] > time_slice - 400e6) * (events["t"] < time_slice)]
-        main(slice, time_slice, filename)
 
-    out_folder_localizations = filename[:-4] + "/"
-    temp_files_localization = out_folder_localizations + "temp_files/"
-
-    sorted_names = natsorted(os.listdir(temp_files_localization))
-
-    id, id2 = 0, 0
-    for loc_file in sorted_names:
-        if loc_file.startswith("localizations"):
-            locs_slice = np.load(temp_files_localization + loc_file)
-            if id != 0:
-                locs_slice["id"] += np.max(localizations_full_list["id"])
-            localizations_full_list = (
-                np.concatenate((localizations_full_list, rois_slice))
-                if id != 0
-                else rois_slice
-            )
-            id += 1
-        elif loc_file.startswith("rois"):
-            rois_slice = np.load(temp_files_localization + loc_file)
-            rois_full_list = (
-                np.concatenate((rois_full_list, rois_slice)) if id2 != 0 else rois_slice
-            )
-            id2 += 1
-
-    np.save(
-        out_folder_localizations
-        + "localizations_prominence_fwhm_"
-        + str(DATASEET_FWHM)
-        + "_prominence_"
-        + str(PROMINENCE)
-        + ".npy",
-        localizations_full_list,
-    )
-
-    np.save(
-        out_folder_localizations
-        + "rois_prominence_fwhm_"
-        + str(DATASEET_FWHM)
-        + "_prominence_"
-        + str(PROMINENCE)
-        + ".npy",
-        rois_full_list,
-    )
+        np.save(
+            out_folder_localizations
+            + "rois_prominence_fwhm_"
+            + str(DATASEET_FWHM)
+            + "_prominence_"
+            + str(PROMINENCE)
+            + ".npy",
+            rois_full_list,
+        )

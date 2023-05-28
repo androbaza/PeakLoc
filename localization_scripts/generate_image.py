@@ -124,14 +124,14 @@ def neighbor_interpolation(
                 )
 
             elif loc_source == "phasor":
-                coord_x, coord_y = round(localization["x_p"] / pixel_dim), round(
-                    localization["y_p"] / pixel_dim
+                coord_x, coord_y = round(localization["x_np"] / pixel_dim), round(
+                    localization["y_np"] / pixel_dim
                 )
 
                 # determine the subpixel position
                 sub_x, sub_y = (
-                    localization["x_p"] % pixel_dim - pixel_dim / 2,
-                    localization["y_p"] % pixel_dim - pixel_dim / 2,
+                    localization["x_np"] % pixel_dim - pixel_dim / 2,
+                    localization["y_np"] % pixel_dim - pixel_dim / 2,
                 )
 
             if interpolate:
@@ -188,24 +188,26 @@ def neighbor_interpolation(
 
 def histogram_binning(
     localizations,
-    image_max_x,
-    image_max_y,
-    pixel_dim=0.3,
+    pixel_recon_dim=0.3,
     take_negatives=0,
     take_positives=1,
 ):
     """useful for drift correction and FRC resolution calculation"""
+    image_max_x, image_max_y = (
+        int(np.ceil(np.max(localizations["x"]))) + 5,
+        int(np.ceil(np.max(localizations["y"]))) + 5,
+    )
     # image_max_x, image_max_y = int(np.ceil(np.max(localizations['x']))) + 1, int(np.ceil(np.max(localizations['y']))) + 1
     image, _, _ = np.histogram2d(
         localizations["x"],
         localizations["y"],
-        bins=[int(image_max_x / pixel_dim), int(image_max_y / pixel_dim)],
+        bins=[int(image_max_x / pixel_recon_dim), int(image_max_y / pixel_recon_dim)],
     )
     if take_negatives:
         image2, _, _ = np.histogram2d(
             localizations["x_n"],
             localizations["y_n"],
-            bins=[int(image_max_x / pixel_dim), int(image_max_y / pixel_dim)],
+            bins=[int(image_max_x / pixel_recon_dim), int(image_max_y / pixel_recon_dim)],
         )
         return image + image2
     return image

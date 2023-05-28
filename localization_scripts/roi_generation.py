@@ -246,7 +246,7 @@ def gen_rois_from_peaks_dict(
             full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
                 full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
             )
-            if np.sum(full_rois_list[id]["roi"]) < 15:
+            if np.sum(full_rois_list[id]["roi"]) < 10:
                 np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))

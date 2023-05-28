@@ -15,7 +15,7 @@ PROMINENCE = 12
 DATASEET_FWHM = 7
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
-PEAK_TIME_THRESHOLD = 20e3
+PEAK_TIME_THRESHOLD = 50e3
 
 """PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
 PEAK_NEIGHBORS = 8

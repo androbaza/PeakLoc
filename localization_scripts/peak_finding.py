@@ -112,7 +112,10 @@ def interpolate_parallel(
         peaks.append(tnew[p])
         prominences.append(p_props["prominences"])
         on_times.append(on_off)
-    coordinates = np.delete(np.asarray(coordinates), np.asarray(id_to_delete), axis=0)
+    try:
+        coordinates = np.delete(np.asarray(coordinates), np.asarray(id_to_delete, dtype=np.uint64), axis=0)
+    except:
+        pass
     assert len(peaks) == len(prominences) == len(on_times) == len(coordinates), f"Length check not passed: {len(peaks)}, {len(prominences)}, {len(on_times)}, {len(coordinates)}"
     return peaks, prominences, on_times, coordinates
 

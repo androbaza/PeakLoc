@@ -179,7 +179,7 @@ def plot_double_fit(fit_params, rms, fit, data):
     # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/double_gauss_fit.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
 
 
-def plot_rois(rois_list, subplotsize=4, sign=1, dataset_FWHM=5.5):
+def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     l = 0
     roi_rad = rois_list[0]["roi"].shape[0] // 2
     # data = data[data['E_total'] > 120]
@@ -272,7 +272,7 @@ def plot_rois(rois_list, subplotsize=4, sign=1, dataset_FWHM=5.5):
         cbar.outline.set_visible(False)
         l += 1
         # if l == subplotsize**2:
-        if l == 16:
+        if l == subplotsize*subplotsize:
             break
 
     scalebar = ScaleBar(
@@ -290,6 +290,69 @@ def plot_rois(rois_list, subplotsize=4, sign=1, dataset_FWHM=5.5):
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
 
+def plot_rois_from_locs(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
+    l = 0
+    roi_rad = rois_list["roi"][0].shape[0] // 2
+    fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20))
+    fig.tight_layout()
+    plt.axis("off")
+    padded_all = []
+    fits = []
+    for id in range(subplotsize*subplotsize):
+
+        ax = plt.subplot(
+            subplotsize,
+            subplotsize,
+            l + 1,
+        )
+        roi = rois_list["roi"][id]
+        plt.axis("off")
+        if rois_list["double"][id] == 1:
+            # 2 gaussians were fitted
+            pass
+            # fit = double_gaussian2D(rois_list["I"][id], rois_list["x"][id], rois_list["y"][id], rois_list["FWHM"][id], rois_list["I"][id], rois_list["x2"][id], rois_list["y2"][id], rois_list["FWHM"][id])
+            # plt.contour(fit(*np.indices(roi.shape)))
+            # plt.scatter(rois_list["y"][id], rois_list["x"][id], c="magenta", s=90, marker="x", zorder=100)
+            # plt.scatter(rois_list["y2"][id], rois_list["x2"][id], c="magenta", s=90, marker="x", zorder=100)
+            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
+            # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
+        else:
+            fit = gaussian2D(rois_list["I"][id], rois_list["sub_x"][id], rois_list["sub_y"][id], rois_list["FWHM"][id])
+            roi_ft = np.fft.fft2(roi)
+            y_posp, x_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
+                roi_ft, (0, 1), roi_rad
+            )
+            cmy, cmx = center_of_mass(roi)
+            plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
+            plt.scatter(cmy, cmx, c="r", s=140, marker="x")
+            plt.contour(fit(*np.indices(roi.shape)))
+            plt.scatter(rois_list["sub_y"][id], rois_list["sub_x"][id], c="magenta", s=90, marker="x", zorder=100)
+            # print(rois_list["y"][id], rois_list["x"][id], rois_list["y_p"][id], rois_list["x_p"][id])
+            # print(rois_list["y"][id] - rois_list["y_p"][id], rois_list["x"][id] - rois_list["x_p"][id])
+        # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
+        # ax.set_ylabel('#px__sum_px\n'+str(np.count_nonzero(padded)) +'__'+ str(np.sum(padded)), fontsize=17)
+        # plt.scatter(cmx, cmy, facecolors='red', marker='x', s=55)
+        imm = plt.imshow(roi, cmap="gray", interpolation="none")
+        
+        l += 1
+        # if l == subplotsize**2:
+        if l == subplotsize*subplotsize:
+            break
+
+    scalebar = ScaleBar(
+        65,
+        units="nm",
+        length_fraction=0.15,
+        location="lower right",
+        frameon=False,
+        color="white",
+        box_alpha=0.7,
+        font_properties={"size": 17},
+    )
+    plt.gca().add_artist(scalebar)
+    fig.tight_layout()
+    #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
+    return padded_all
 
 def plot_num_events_histogram(times):
     @njit(cache=True, nogil=True)
