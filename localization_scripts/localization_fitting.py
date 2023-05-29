@@ -97,6 +97,8 @@ def concatenate_locs(localized_data):
     id = localized_data[0]["id"][-1] + 1
     concatenated_data = localized_data[0]
     for i in range(1, len(localized_data)):
+        if localized_data[i] is None:
+            continue
         localized_data[i]["id"] += int(id)
         id = localized_data[i]["id"][-1] + 1
         concatenated_data = np.concatenate(
@@ -136,202 +138,206 @@ def est_coord(roi_ft, coord_type, roi_rad):
 
 
 def localize_MLE(rois_list, dataset_FWHM):
-    roi_rad = rois_list[0]["roi"].shape[0] // 2
-    localizations = np.zeros(
-        (len(rois_list)),
-        dtype=[
-            ("id", np.uint64),
-            ("t_peak", np.float64),
-            ("double", np.uint8),
-            # positives
-            ("x", np.float64),
-            ("x2", np.float64),
-            ("y", np.float64),
-            ("y2", np.float64),
-            ("x_p", np.float64),
-            ("y_p", np.float64),
-            ("I", np.float32),
-            ("FWHM", np.float32),
-            ("rms", np.float32),
-            ("E_total", np.uint16),
-            ("sub_x", np.float64),
-            ("sub_y", np.float64),
-            ("t_1st", np.float64),
-            # negatives
-            ("x_n", np.float64),
-            ("x_n2", np.float64),
-            ("y_n", np.float64),
-            ("y_n2", np.float64),
-            ("x_np", np.float64),
-            ("y_np", np.float64),
-            ("I_n", np.float32),
-            ("FWHM_n", np.float32),
-            ("rms_n", np.float32),
-            ("E_total_n", np.uint16),
-            ("sub_x_n", np.float64),
-            ("sub_y_n", np.float64),
-            ("t_last", np.float64),
-            # roi
-            ("roi_event_times", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-            ("roi_event_times_n", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-            ("roi", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-            ("roi_n", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-        ],
-    )
-
-    # print('Found '+str(len(rois_list))+' blinks, fitting...\n')
-    id_to_remove = []
-    for id in prange(len(rois_list)):
-        if not rois_list[id]["roi"].any() or not rois_list[id]["roi_n"].any():
-            continue
-        fit_result, rms = fit_gaussian(rois_list[id]["roi"], dataset_FWHM=dataset_FWHM)
-        fit_result_n, rms_n = fit_gaussian(
-            rois_list[id]["roi_n"], dataset_FWHM=dataset_FWHM
+    if rois_list.size == 0:
+        return None
+    else:
+        roi_rad = rois_list[0]["roi"].shape[0] // 2
+        localizations = np.zeros(
+            (len(rois_list)),
+            dtype=[
+                ("id", np.uint64),
+                ("t_peak", np.float64),
+                ("double", np.uint8),
+                # positives
+                ("x", np.float64),
+                ("x2", np.float64),
+                ("y", np.float64),
+                ("y2", np.float64),
+                ("x_p", np.float64),
+                ("y_p", np.float64),
+                ("I", np.float32),
+                ("FWHM", np.float32),
+                ("rms", np.float32),
+                ("E_total", np.uint16),
+                ("sub_x", np.float64),
+                ("sub_y", np.float64),
+                ("t_1st", np.float64),
+                # negatives
+                ("x_n", np.float64),
+                ("x_n2", np.float64),
+                ("y_n", np.float64),
+                ("y_n2", np.float64),
+                ("x_np", np.float64),
+                ("y_np", np.float64),
+                ("I_n", np.float32),
+                ("FWHM_n", np.float32),
+                ("rms_n", np.float32),
+                ("E_total_n", np.uint16),
+                ("sub_x_n", np.float64),
+                ("sub_y_n", np.float64),
+                ("t_last", np.float64),
+                # roi
+                ("roi_event_times", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+                ("roi_event_times_n", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+                ("roi", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+                ("roi_n", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+            ],
         )
 
-        roi_ft = np.fft.fft2(rois_list[id]["roi"])
-        roi_ft_n = np.fft.fft2(rois_list[id]["roi_n"])
-        if rms == 5:
-            id_to_remove.append(id)
-            continue
-        if fit_result.shape[0] == 8 and fit_result_n.shape[0] == 8:
-            fit_results_1 = fit_result[:4]
-            fit_results_2 = fit_result[4:]
-            fit_results_1_n = fit_result_n[:4]
-            fit_results_2_n = fit_result_n[4:]
-            y_pos, x_pos = (
-                rois_list[id]["rel_peak"][0] + fit_results_1[2] - roi_rad,
-                rois_list[id]["rel_peak"][0] + fit_results_2[2] - roi_rad,
-            ), (
-                rois_list[id]["rel_peak"][1] + fit_results_1[1] - roi_rad,
-                rois_list[id]["rel_peak"][1] + fit_results_2[1] - roi_rad,
-            )
-            y_pos_n, x_pos_n = (
-                rois_list[id]["rel_peak"][0] + fit_results_1_n[2] - roi_rad,
-                rois_list[id]["rel_peak"][0] + fit_results_2_n[2] - roi_rad,
-            ), (
-                rois_list[id]["rel_peak"][1] + fit_results_1_n[1] - roi_rad,
-                rois_list[id]["rel_peak"][1] + fit_results_2_n[1] - roi_rad,
-            )
-            y_posp, x_posp = (
-                rois_list[id]["rel_peak"][0]
-                + est_coord(roi_ft, (1, 0), roi_rad)
-                - roi_rad,
-                rois_list[id]["rel_peak"][1]
-                + est_coord(roi_ft, (0, 1), roi_rad)
-                - roi_rad,
-            )
-            y_pos_np, x_pos_np = (
-                rois_list[id]["rel_peak"][0]
-                + est_coord(roi_ft_n, (1, 0), roi_rad)
-                - roi_rad,
-                rois_list[id]["rel_peak"][1]
-                + est_coord(roi_ft_n, (0, 1), roi_rad)
-                - roi_rad,
+        # print('Found '+str(len(rois_list))+' blinks, fitting...\n')
+        id_to_remove = []
+        for id in prange(len(rois_list)):
+            if not rois_list[id]["roi"].any() or not rois_list[id]["roi_n"].any():
+                continue
+            fit_result, rms = fit_gaussian(rois_list[id]["roi"], dataset_FWHM=dataset_FWHM)
+            fit_result_n, rms_n = fit_gaussian(
+                rois_list[id]["roi_n"], dataset_FWHM=dataset_FWHM
             )
 
-            """write the localizations to ndarray"""
-            localizations[id] = (
-                id,
-                rois_list[id]["t_peak"],
-                1,
-                x_pos[0],
-                x_pos[1],
-                y_pos[0],
-                y_pos[1],
-                0,
-                0,
-                fit_result[0],
-                fit_result[3],
-                rms,
-                rois_list[id]["total_events_roi"],
-                fit_result[1],
-                fit_result[2],
-                rois_list[id]["t_1st"],
-                x_pos_n[0],
-                x_pos_n[1],
-                y_pos_n[0],
-                y_pos_n[1],
-                0,
-                0,
-                fit_result_n[0],
-                fit_result_n[3],
-                rms_n,
-                rois_list[id]["total_neg_events_roi"],
-                fit_result_n[1],
-                fit_result_n[2],
-                rois_list[id]["t_last"],
-                rois_list[id]["roi_event_times"][0],
-                rois_list[id]["roi_event_times"][1],
-                rois_list[id]["roi"],
-                rois_list[id]["roi_n"],
-            )
+            roi_ft = np.fft.fft2(rois_list[id]["roi"])
+            roi_ft_n = np.fft.fft2(rois_list[id]["roi_n"])
+            if rms == 5:
+                id_to_remove.append(id)
+                continue
+            if fit_result.shape[0] == 8 and fit_result_n.shape[0] == 8:
+                fit_results_1 = fit_result[:4]
+                fit_results_2 = fit_result[4:]
+                fit_results_1_n = fit_result_n[:4]
+                fit_results_2_n = fit_result_n[4:]
+                y_pos, x_pos = (
+                    rois_list[id]["rel_peak"][0] + fit_results_1[2] - roi_rad,
+                    rois_list[id]["rel_peak"][0] + fit_results_2[2] - roi_rad,
+                ), (
+                    rois_list[id]["rel_peak"][1] + fit_results_1[1] - roi_rad,
+                    rois_list[id]["rel_peak"][1] + fit_results_2[1] - roi_rad,
+                )
+                y_pos_n, x_pos_n = (
+                    rois_list[id]["rel_peak"][0] + fit_results_1_n[2] - roi_rad,
+                    rois_list[id]["rel_peak"][0] + fit_results_2_n[2] - roi_rad,
+                ), (
+                    rois_list[id]["rel_peak"][1] + fit_results_1_n[1] - roi_rad,
+                    rois_list[id]["rel_peak"][1] + fit_results_2_n[1] - roi_rad,
+                )
+                y_posp, x_posp = (
+                    rois_list[id]["rel_peak"][0]
+                    + est_coord(roi_ft, (1, 0), roi_rad)
+                    - roi_rad,
+                    rois_list[id]["rel_peak"][1]
+                    + est_coord(roi_ft, (0, 1), roi_rad)
+                    - roi_rad,
+                )
+                y_pos_np, x_pos_np = (
+                    rois_list[id]["rel_peak"][0]
+                    + est_coord(roi_ft_n, (1, 0), roi_rad)
+                    - roi_rad,
+                    rois_list[id]["rel_peak"][1]
+                    + est_coord(roi_ft_n, (0, 1), roi_rad)
+                    - roi_rad,
+                )
 
-        elif fit_result.shape[0] == 8 and fit_result_n.shape[0] != 8:
-            id_to_remove.append(id)
-            continue
-        else:
-            y_pos, x_pos = (
-                rois_list[id]["rel_peak"][0] + fit_result[2] - roi_rad,
-                rois_list[id]["rel_peak"][1] + fit_result[1] - roi_rad,
-            )
-            y_pos_n, x_pos_n = (
-                rois_list[id]["rel_peak"][0] + fit_result_n[2] - roi_rad,
-                rois_list[id]["rel_peak"][1] + fit_result_n[1] - roi_rad,
-            )
+                """write the localizations to ndarray"""
+                localizations[id] = (
+                    id,
+                    rois_list[id]["t_peak"],
+                    1,
+                    x_pos[0],
+                    x_pos[1],
+                    y_pos[0],
+                    y_pos[1],
+                    0,
+                    0,
+                    fit_result[0],
+                    fit_result[3],
+                    rms,
+                    rois_list[id]["total_events_roi"],
+                    fit_result[1],
+                    fit_result[2],
+                    rois_list[id]["t_1st"],
+                    x_pos_n[0],
+                    x_pos_n[1],
+                    y_pos_n[0],
+                    y_pos_n[1],
+                    0,
+                    0,
+                    fit_result_n[0],
+                    fit_result_n[3],
+                    rms_n,
+                    rois_list[id]["total_neg_events_roi"],
+                    fit_result_n[1],
+                    fit_result_n[2],
+                    rois_list[id]["t_last"],
+                    rois_list[id]["roi_event_times"][0],
+                    rois_list[id]["roi_event_times"][1],
+                    rois_list[id]["roi"],
+                    rois_list[id]["roi_n"],
+                )
 
-            y_posp, x_posp = (
-                rois_list[id]["rel_peak"][0]
-                + est_coord(roi_ft, (1, 0), roi_rad)
-                - roi_rad,
-                rois_list[id]["rel_peak"][1]
-                + est_coord(roi_ft, (0, 1), roi_rad)
-                - roi_rad,
-            )
-            y_pos_np, x_pos_np = (
-                rois_list[id]["rel_peak"][0]
-                + est_coord(roi_ft_n, (1, 0), roi_rad)
-                - roi_rad,
-                rois_list[id]["rel_peak"][1]
-                + est_coord(roi_ft_n, (0, 1), roi_rad)
-                - roi_rad,
-            )
+            elif fit_result.shape[0] == 8 and fit_result_n.shape[0] != 8:
+                id_to_remove.append(id)
+                continue
+            else:
+                y_pos, x_pos = (
+                    rois_list[id]["rel_peak"][0] + fit_result[2] - roi_rad,
+                    rois_list[id]["rel_peak"][1] + fit_result[1] - roi_rad,
+                )
+                y_pos_n, x_pos_n = (
+                    rois_list[id]["rel_peak"][0] + fit_result_n[2] - roi_rad,
+                    rois_list[id]["rel_peak"][1] + fit_result_n[1] - roi_rad,
+                )
 
-            """write the localizations to ndarray"""
-            localizations[id] = (
-                id,
-                rois_list[id]["t_peak"],
-                0,
-                x_pos,
-                0,
-                y_pos,
-                0,
-                x_posp,
-                y_posp,
-                fit_result[0],
-                fit_result[3],
-                rms,
-                rois_list[id]["total_events_roi"],
-                fit_result[1],
-                fit_result[2],
-                rois_list[id]["t_1st"],
-                x_pos_n,
-                0,
-                y_pos_n,
-                0,
-                x_pos_np,
-                y_pos_np,
-                fit_result_n[0],
-                fit_result_n[3],
-                rms_n,
-                rois_list[id]["total_neg_events_roi"],
-                fit_result_n[1],
-                fit_result_n[2],
-                rois_list[id]["t_last"],
-                rois_list[id]["roi_event_times"][0],
-                rois_list[id]["roi_event_times"][1],
-                rois_list[id]["roi"],
-                rois_list[id]["roi_n"],
-            )
-    localizations = np.delete(localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0)
+                y_posp, x_posp = (
+                    rois_list[id]["rel_peak"][0]
+                    + est_coord(roi_ft, (1, 0), roi_rad)
+                    - roi_rad,
+                    rois_list[id]["rel_peak"][1]
+                    + est_coord(roi_ft, (0, 1), roi_rad)
+                    - roi_rad,
+                )
+                y_pos_np, x_pos_np = (
+                    rois_list[id]["rel_peak"][0]
+                    + est_coord(roi_ft_n, (1, 0), roi_rad)
+                    - roi_rad,
+                    rois_list[id]["rel_peak"][1]
+                    + est_coord(roi_ft_n, (0, 1), roi_rad)
+                    - roi_rad,
+                )
+
+                """write the localizations to ndarray"""
+                localizations[id] = (
+                    id,
+                    rois_list[id]["t_peak"],
+                    0,
+                    x_pos,
+                    0,
+                    y_pos,
+                    0,
+                    x_posp,
+                    y_posp,
+                    fit_result[0],
+                    fit_result[3],
+                    rms,
+                    rois_list[id]["total_events_roi"],
+                    fit_result[1],
+                    fit_result[2],
+                    rois_list[id]["t_1st"],
+                    x_pos_n,
+                    0,
+                    y_pos_n,
+                    0,
+                    x_pos_np,
+                    y_pos_np,
+                    fit_result_n[0],
+                    fit_result_n[3],
+                    rms_n,
+                    rois_list[id]["total_neg_events_roi"],
+                    fit_result_n[1],
+                    fit_result_n[2],
+                    rois_list[id]["t_last"],
+                    rois_list[id]["roi_event_times"][0],
+                    rois_list[id]["roi_event_times"][1],
+                    rois_list[id]["roi"],
+                    rois_list[id]["roi_n"],
+                )
+        localizations = np.delete(localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0)
+
     return localizations

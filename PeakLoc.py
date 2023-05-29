@@ -153,7 +153,6 @@ def main(slice, time_slice, filename):
     localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASEET_FWHM)
 
     print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
-
     np.save(
         temp_files_localization
         + "localizations_prominence_fwhm_"
@@ -183,8 +182,8 @@ if __name__ == "__main__":
     #     filename = sys.argv[1]
     # else:
     #     filename = INPUT_FILE
-    # folder = '/home/smlm-workstation/event-smlm/Paris/process/'
-    folder = '/home/smlm-workstation/event-smlm/Paris/25.05/CL/'
+    folder = '/home/smlm-workstation/event-smlm/Paris/process/'
+    # folder = '/home/smlm-workstation/event-smlm/Paris/25.05/CL/'
     for filename in natsorted(os.listdir(folder)):
         filename = folder + filename
         if os.path.basename(filename)[-4:] == ".raw":
@@ -247,3 +246,6 @@ if __name__ == "__main__":
             + ".npy",
             rois_full_list,
         )
+
+        for loc_file in sorted_names:
+            os.remove(temp_files_localization + loc_file) if loc_file.startswith("localizations") or loc_file.startswith("rois") else None
