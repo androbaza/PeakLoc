@@ -65,6 +65,7 @@ def fit_two_gaussians(data, lm=False):
             10,
         ),
     )
+    
     if lm:
         return least_squares(errorfunction, params, method="lm")
     else:
@@ -84,7 +85,10 @@ def fit_gaussian(roi, dataset_FWHM=5.5):
     if fit_params.x[3] > sigma_2_locs*2.5:
         return np.asarray([0,0,0,0]), 5
     if fit_params.x[3] > sigma_2_locs:
-        fit_params2 = fit_two_gaussians(roi)
+        try:
+            fit_params2 = fit_two_gaussians(roi)
+        except:
+            return np.asarray([0,0,0,0]), 5
         rms2 = res_rmse(fit_params2.fun)
         if rms2 > rms:
             return fit_params.x, rms

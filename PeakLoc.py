@@ -9,13 +9,13 @@ NUM_CORES = multiprocessing.cpu_count()
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 10
+PROMINENCE = 12
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 8
+DATASEET_FWHM = 6
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
-PEAK_TIME_THRESHOLD = 30e3
+PEAK_TIME_THRESHOLD = 40e3
 
 """PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
 PEAK_NEIGHBORS = 9
@@ -88,7 +88,7 @@ def main(slice, time_slice, filename):
     print(
         f"Creating convolved signals... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    max_len = int(max_len * 9)
+    max_len = int(max_len * 2)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events, coords, max_len, NUM_CORES
     )
@@ -103,7 +103,7 @@ def main(slice, time_slice, filename):
         NUM_CORES,
         prominence=PROMINENCE,
         interpolation_coefficient=5,
-        spline_smooth=0.9,
+        spline_smooth=0.7,
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
     peaks_dict = group_timestamps_by_coordinate(
@@ -196,8 +196,8 @@ if __name__ == "__main__":
         #     events = np.load(filename)
         # else:
             #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(150e6), events["t"].max(), int(150e6)):
-            slice = events[(events["t"] > time_slice - 150e6) * (events["t"] < time_slice)]
+        for time_slice in range(int(300e6), events["t"].max(), int(100e6)):
+            slice = events[(events["t"] > time_slice - 100e6) * (events["t"] < time_slice)]
             main(slice, time_slice, filename)
 
         out_folder_localizations = filename[:-4] + "/"
