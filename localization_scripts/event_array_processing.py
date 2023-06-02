@@ -19,7 +19,6 @@ def raw_events_to_array(filename):
     events = record_raw.load_n_events(sums)
     return events
 
-
 @njit(cache=True, nogil=True, fastmath=True)
 def array_to_polarity_map(arr, coords):
     """
@@ -27,6 +26,7 @@ def array_to_polarity_map(arr, coords):
     values as a nested dictionary with keys from p and corresponding values from t as a list for that coordinate pair.
     """
     dict_out = {}
+    time_map = {}
     for id in prange(len(coords)):
         y, x = coords[id]
         key = (y, x)
@@ -36,16 +36,24 @@ def array_to_polarity_map(arr, coords):
             dict_out[key] = {
                 0: List.empty_list(types.uint64),
                 1: List.empty_list(types.uint64),
+                # 2: List.empty_list(types.uint64)
             }
     max_len = 0
     for id in prange(len(arr)):
         key = (arr[id]["y"], arr[id]["x"])
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
+        if key in time_map:
+            time_map[key][arr[id]["t"]] = arr[id]["p"]
+        else:
+            time_map[key] = {arr[id]["t"]: arr[id]["p"]}
         if len(dict_out[key][1]) > max_len:
             max_len = len(dict_out[key][1])
         if len(dict_out[key][0]) > max_len:
             max_len = len(dict_out[key][0])
-    return dict_out, max_len
+    # for key in dict_out.keys():
+    #     sum = len(dict_out[key][0]) + len(dict_out[key][1])
+    #     dict_out[key][2].append(sum)
+    return dict_out, time_map, max_len
 
 
 @njit(cache=True, nogil=True, fastmath=True)

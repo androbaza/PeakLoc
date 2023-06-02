@@ -232,12 +232,12 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
             (height, x, y, sigma) = fit_params
             fit = gaussian2D(*fit_params)
             roi_ft = np.fft.fft2(padded)
-            y_posp, x_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
+            x_posp, y_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
                 roi_ft, (0, 1), roi_rad
             )
             cmy, cmx = center_of_mass(padded)
-            plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
-            plt.scatter(cmy, cmx, c="r", s=140, marker="x")
+            plt.scatter(y_posp, x_posp,c="cyan", s=140, marker="x")
+            # plt.scatter(cmy, cmx, c="r", s=140, marker="x")
             plt.contour(fit(*np.indices(padded.shape)))
             plt.text(
                 0.97,

@@ -79,8 +79,7 @@ def main(slice, time_slice, filename):
     print(
         f"Converting events to dictionaries... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    dict_events, max_len = array_to_polarity_map(events, coords)
-    events_t_p_dict = array_to_time_map(events)
+    dict_events, events_t_p_dict, max_len = array_to_polarity_map(events, coords)
     del events
     gc.collect()
 
@@ -196,8 +195,8 @@ if __name__ == "__main__":
         #     events = np.load(filename)
         # else:
             #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(300e6), events["t"].max(), int(100e6)):
-            slice = events[(events["t"] > time_slice - 100e6) * (events["t"] < time_slice)]
+        for time_slice in range(int(1200e6), events["t"].max(), int(150e6)):
+            slice = events[(events["t"] > time_slice - 150e6) * (events["t"] < time_slice)]
             main(slice, time_slice, filename)
 
         out_folder_localizations = filename[:-4] + "/"

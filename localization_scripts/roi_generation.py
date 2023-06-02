@@ -246,7 +246,7 @@ def gen_rois_from_peaks_dict(
             full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
                 full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
             )
-            if np.sum(full_rois_list[id]["roi"]) < 10:
+            if np.sum(full_rois_list[id]["roi"]) < 30:
                 np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))
@@ -308,6 +308,7 @@ def median_filter_n_pixels_from_border(im):
     mask[im.nonzero()] = 0
     kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
     filtered_img = median_filter(im, footprint=kernel)
+    filtered_img = scipy.ndimage.filters.convolve(im, kernel)
     # Merge the filtered pixels with the unfiltered pixels outside the mask
     filtered_img = im + filtered_img * mask  # + im * (1 - mask)
     return filtered_img
