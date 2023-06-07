@@ -185,7 +185,6 @@ def neighbor_interpolation(
                 histogram_num_locs[coord_x, coord_y] += 1
     return histogram_interpolated, histogram_num_locs
 
-
 def histogram_binning(
     localizations,
     pixel_recon_dim=0.3,

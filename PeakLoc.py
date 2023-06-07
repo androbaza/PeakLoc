@@ -12,7 +12,7 @@ Smaller value detects more peaks, increasing the evaluation time."""
 PROMINENCE = 12
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 6
+DATASEET_FWHM = 7
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
 PEAK_TIME_THRESHOLD = 40e3
@@ -87,7 +87,7 @@ def main(slice, time_slice, filename):
     print(
         f"Creating convolved signals... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    max_len = int(max_len * 2)
+    max_len = int(max_len * 5)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events, coords, max_len, NUM_CORES
     )
@@ -195,10 +195,11 @@ if __name__ == "__main__":
         #     events = np.load(filename)
         # else:
             #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(1200e6), events["t"].max(), int(150e6)):
+        for time_slice in range(int(150e6), events["t"].max(), int(150e6)):
             slice = events[(events["t"] > time_slice - 150e6) * (events["t"] < time_slice)]
             main(slice, time_slice, filename)
-
+        if os.path.isdir(filename):
+            continue
         out_folder_localizations = filename[:-4] + "/"
         temp_files_localization = out_folder_localizations + "temp_files/"
 

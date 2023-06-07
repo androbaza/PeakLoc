@@ -308,7 +308,7 @@ def median_filter_n_pixels_from_border(im):
     mask[im.nonzero()] = 0
     kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
     filtered_img = median_filter(im, footprint=kernel)
-    filtered_img = scipy.ndimage.filters.convolve(im, kernel)
+    # filtered_img = scipy.ndimage.filters.convolve(im, kernel)
     # Merge the filtered pixels with the unfiltered pixels outside the mask
     filtered_img = im + filtered_img * mask  # + im * (1 - mask)
     return filtered_img

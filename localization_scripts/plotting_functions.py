@@ -309,7 +309,31 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
         plt.axis("off")
         if rois_list["double"][id] == 1:
             # 2 gaussians were fitted
-            pass
+            fit_params, rms = fit_gaussian(roi, dataset_FWHM=dataset_FWHM)
+            if fit_params.size == 4:
+                continue
+            fit = double_gaussian2D(*fit_params)
+            plt.contour(fit(*np.indices(roi.shape)))
+            (height, x, y, sigma, height2, x2, y2, sigma2) = fit_params
+            plt.text(
+                0.97,
+                0.78,
+                """
+            FWHM #1: %.2f
+            FWHM #2: %.2f
+            RMS Error: %.2f"""
+                % (sigma * 2.35, sigma2 * 2.35, rms),
+                fontsize=17,
+                horizontalalignment="right",
+                verticalalignment="baseline",
+                transform=ax.transAxes,
+                c="w",
+            )
+            plt.scatter(y, x, c="magenta", s=90, marker="x", zorder=100)
+            plt.scatter(y2, x2, c="magenta", s=90, marker="x", zorder=100)
+            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
+            # ax.set_title(f"t:{rois_list['t_peak']}, tot_events: {rois_list['E_total']}")
+            
             # fit = double_gaussian2D(rois_list["I"][id], rois_list["x"][id], rois_list["y"][id], rois_list["FWHM"][id], rois_list["I"][id], rois_list["x2"][id], rois_list["y2"][id], rois_list["FWHM"][id])
             # plt.contour(fit(*np.indices(roi.shape)))
             # plt.scatter(rois_list["y"][id], rois_list["x"][id], c="magenta", s=90, marker="x", zorder=100)

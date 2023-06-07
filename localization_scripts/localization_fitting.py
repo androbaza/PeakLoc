@@ -82,7 +82,7 @@ def fit_gaussian(roi, dataset_FWHM=5.5):
     rms = res_rmse(fit_params.fun)
     # FWHM=2.35*sigma
     sigma_2_locs = dataset_FWHM / 2.35
-    if fit_params.x[3] > sigma_2_locs*2.5:
+    if fit_params.x[3] > sigma_2_locs*1.5:
         return np.asarray([0,0,0,0]), 5
     if fit_params.x[3] > sigma_2_locs:
         try:
