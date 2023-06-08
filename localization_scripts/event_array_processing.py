@@ -58,64 +58,68 @@ def raw_events_to_array(filename):
 #     return dict_out, time_map, max_len
 
 @njit(cache=True, nogil=True, fastmath=True)
-def array_to_polarity_map2(arr, coords):
+def array_to_polarity_map(arr):
     """
     Converts a structured NumPy ndarray with fields x, y, p, t into a dictionary with keys as (x, y) pairs and
     values as a nested dictionary with keys from p and corresponding values from t as a list for that coordinate pair.
     """
     dict_out = {}
     time_map = {}
-    max_len = 0
+    # max_len = 0
     for id in prange(len(arr)):
         key = (arr[id]["y"], arr[id]["x"])
         if key in dict_out:
             dict_out[key][arr[id]["p"]].append(arr[id]["t"])
         else:
             dict_out[key] = {
-                0: List.empty_list(types.uint64),
-                1: List.empty_list(types.uint64),
-                2: List.empty_list(types.uint64),
-                3: List.empty_list(types.uint64),
-                4: List.empty_list(types.uint64)
+                0: List.empty_list(types.uint64), # negative
+                1: List.empty_list(types.uint64), # positive
+                2: List.empty_list(types.uint64), # sum of negative and positive num 
+                3: List.empty_list(types.uint64), # negative num
+                4: List.empty_list(types.uint64)  # positive num
             }
             dict_out[key][arr[id]["p"]].append(arr[id]["t"])
         if key in time_map:
             time_map[key][arr[id]["t"]] = arr[id]["p"]
         else:
             time_map[key] = {arr[id]["t"]: arr[id]["p"]}
-        if len(dict_out[key][1]) > max_len:
-            max_len = len(dict_out[key][1])
-        if len(dict_out[key][0]) > max_len:
-            max_len = len(dict_out[key][0])
+        # if len(dict_out[key][1]) > max_len:
+        #     max_len = len(dict_out[key][1])
+        # if len(dict_out[key][0]) > max_len:
+        #     max_len = len(dict_out[key][0])
     for key in dict_out.keys():
         dict_out[key][2].append(len(dict_out[key][0]) + len(dict_out[key][1]))
         dict_out[key][3].append(len(dict_out[key][0]))
         dict_out[key][4].append(len(dict_out[key][1]))
-    return dict_out, time_map, max_len
+    return dict_out, time_map
 
 @njit(cache=True, nogil=True, fastmath=True)
-def remove_coordinates(arr, my_dict):
+def remove_coordinates(arr, my_dict, time_map):
     for y in range(arr.shape[0]):
         for x in range(arr.shape[1]):
             if arr[y, x] == 0:
                 coord = (y, x)
                 if coord in my_dict:
                     del my_dict[coord]
-    return my_dict
+                if coord in time_map:
+                    del time_map[coord]
+    return my_dict, time_map
 
 @njit(cache=True, nogil=True, fastmath=True)
-def fill_widefield(dict_events):
+def fill_widefield(dict_events, max_x, max_y):
     widefield = np.zeros((max_y+1, max_x+1), dtype=np.uint64)
     for key in dict_events.keys():
         widefield[key[0], key[1]] = dict_events[key][2][0]
     return widefield
 
-def remove_background(dict_events, filename, sigma=9.5, radius=9):
-    widefield_filtered = gaussian_filter(fill_widefield(dict_events), sigma=sigma, radius=radius)
-    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 50), widefield, 0)
-    plt.imsave(filename[:-4]+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=150)
-    filtered_dict = remove_coordinates(useful_pixels, dict_events)
-    return filtered_dict
+def convert_to_hashmaps(events, filename, max_x, max_y, sigma=10.5, radius=11):
+    dict_events, time_map = array_to_polarity_map(events)
+    widefield = fill_widefield(dict_events, max_x, max_y)
+    widefield_filtered = gaussian_filter(widefield, sigma=sigma, radius=radius)
+    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 55), widefield, 0)
+    plt.imsave(filename[:-4]+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean())
+    dict_events, time_map = remove_coordinates(useful_pixels, dict_events, time_map)
+    return dict_events, time_map, list(dict_events.keys())
 
 @njit(cache=True, nogil=True, fastmath=True)
 def array_to_time_map(arr):

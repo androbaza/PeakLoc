@@ -8,8 +8,7 @@ from localization_scripts.peak_finding import (
     group_timestamps_by_coordinate,
 )
 from localization_scripts.event_array_processing import (
-    array_to_polarity_map,
-    array_to_time_map,
+    convert_to_hashmaps,
     create_convolved_signals,
     raw_events_to_array,
     save_dict,

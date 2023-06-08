@@ -72,14 +72,15 @@ def main(slice, time_slice, filename):
 
     # Create coordinate lists
     y_coords, x_coords = [min_y, max_y], [min_x, max_x]
-    coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
+    # coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
 
     # Generate dictionaries and calculate max length
     print(f"Analyzing the data using {NUM_CORES} cores... Events go brrrrrrrrrrrr!")
     print(
         f"Converting events to dictionaries... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    dict_events, events_t_p_dict, max_len = array_to_polarity_map(events, coords)
+    
+    dict_events, events_t_p_dict, coords = convert_to_hashmaps(events, filename, max_x, max_y)
     del events
     gc.collect()
 
