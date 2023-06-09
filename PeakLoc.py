@@ -9,7 +9,7 @@ NUM_CORES = multiprocessing.cpu_count()
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 12
+PROMINENCE = 15
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
 DATASEET_FWHM = 7
@@ -51,7 +51,7 @@ ROI_RADIUS = 8
 
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-01-15.299Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-33-08.518Z.raw"
-INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T09-42-18.758Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T09-42-18.758Z.raw"
 
 # CL
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw"
@@ -70,8 +70,14 @@ def main(slice, time_slice, filename):
     max_x = events["x"].max()
     max_y = events["y"].max()
 
+    out_folder_localizations = filename[:-4] + "/"
+    temp_files_localization = out_folder_localizations + "temp_files/"
+    if not os.path.exists(out_folder_localizations):
+        os.makedirs(out_folder_localizations)
+    if not os.path.exists(temp_files_localization):
+        os.makedirs(temp_files_localization)
     # Create coordinate lists
-    y_coords, x_coords = [min_y, max_y], [min_x, max_x]
+    # y_coords, x_coords = [min_y, max_y], [min_x, max_x]
     # coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
 
     # Generate dictionaries and calculate max length
@@ -80,7 +86,7 @@ def main(slice, time_slice, filename):
         f"Converting events to dictionaries... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
     
-    dict_events, events_t_p_dict, coords = convert_to_hashmaps(events, filename, max_x, max_y)
+    dict_events, events_t_p_dict, coords, max_length = convert_to_hashmaps(events, out_folder_localizations, max_x, max_y)
     del events
     gc.collect()
 
@@ -88,12 +94,12 @@ def main(slice, time_slice, filename):
     print(
         f"Creating convolved signals... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    max_len = int(max_len * 5)
+    
     times, cumsum, coordinates = create_convolved_signals(
-        dict_events, coords, max_len, NUM_CORES
+        dict_events, coords, max_len=max_length*3, num_cores=NUM_CORES
     )
 
-    del dict_events, max_len
+    del dict_events
 
     print(f"Finding peaks... Elapsed time: {time.time() - start_time:.2f} seconds")
     peak_list = find_peaks_parallel(
@@ -115,13 +121,6 @@ def main(slice, time_slice, filename):
     unique_peaks = find_local_max_peak(
         peaks_dict, threshold=PEAK_TIME_THRESHOLD, neighbors=PEAK_NEIGHBORS
     )
-
-    out_folder_localizations = filename[:-4] + "/"
-    temp_files_localization = out_folder_localizations + "temp_files/"
-    if not os.path.exists(out_folder_localizations):
-        os.makedirs(out_folder_localizations)
-    if not os.path.exists(temp_files_localization):
-        os.makedirs(temp_files_localization)
 
     save_dict(
         unique_peaks,
@@ -196,8 +195,8 @@ if __name__ == "__main__":
         #     events = np.load(filename)
         # else:
             #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(150e6), events["t"].max(), int(150e6)):
-            slice = events[(events["t"] > time_slice - 150e6) * (events["t"] < time_slice)]
+        for time_slice in range(int(100e6), events["t"].max(), int(100e6)):
+            slice = events[(events["t"] > time_slice - 100e6) * (events["t"] < time_slice)]
             main(slice, time_slice, filename)
         if os.path.isdir(filename):
             continue

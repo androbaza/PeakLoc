@@ -1,4 +1,4 @@
-from numba import njit, prange, types
+from numba import njit, prange, types, jit
 from numba.typed import List, Dict
 import numpy as np
 from localization_scripts.roi_generation import generate_coord_lists
@@ -106,20 +106,50 @@ def remove_coordinates(arr, my_dict, time_map):
     return my_dict, time_map
 
 @njit(cache=True, nogil=True, fastmath=True)
+def remove_coordinates_by_list(arr, my_dict, time_map):
+    for coord in arr:
+        (y, x) = coord
+        if (y, x) in my_dict:
+            del my_dict[(y, x)]
+        if (y, x) in time_map:
+            del time_map[(y, x)]
+    return my_dict, time_map
+
+@njit(cache=True, nogil=True, fastmath=True)
 def fill_widefield(dict_events, max_x, max_y):
     widefield = np.zeros((max_y+1, max_x+1), dtype=np.uint64)
     for key in dict_events.keys():
         widefield[key[0], key[1]] = dict_events[key][2][0]
     return widefield
 
-def convert_to_hashmaps(events, filename, max_x, max_y, sigma=10.5, radius=11):
+@njit(nogil=True, cache=True, fastmath=True)
+def detect_outlier(data):
+    q1, q3 = np.percentile(data, [40, 99.99])
+    iqr = q3 - q1
+    lower_bound = q1
+    upper_bound = q3 + (4 * iqr)
+    outliers_id = []
+    for id, x  in enumerate(data):
+        if x <= lower_bound or x >= upper_bound:
+            outliers_id.append(id)
+    return outliers_id
+
+def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, sigma=10.5, radius=11):
     dict_events, time_map = array_to_polarity_map(events)
     widefield = fill_widefield(dict_events, max_x, max_y)
+    plt.imsave(out_folder_localizations+"widefield.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*4)
     widefield_filtered = gaussian_filter(widefield, sigma=sigma, radius=radius)
     useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 55), widefield, 0)
-    plt.imsave(filename[:-4]+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean())
+    plt.imsave(out_folder_localizations+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean()*3)
     dict_events, time_map = remove_coordinates(useful_pixels, dict_events, time_map)
-    return dict_events, time_map, list(dict_events.keys())
+    lengths = np.asarray([np.array((val[0] ,val[1][2][0]), dtype=[("c", np.uint16, (2)), ("l", np.uint64)]) for val in list(dict_events.items())])
+    lengths = np.sort(lengths, order="l")
+    indices = detect_outlier(lengths['l'])
+    to_delete = lengths[indices]['c']
+    filtered = np.delete(lengths, indices, axis=0)
+    max_length = filtered[-1]['l']
+    dict_events, time_map = remove_coordinates_by_list(to_delete, dict_events, time_map)
+    return dict_events, time_map, np.asarray(list(dict_events.keys()), dtype=np.uint16), max_length
 
 @njit(cache=True, nogil=True, fastmath=True)
 def array_to_time_map(arr):
@@ -159,10 +189,8 @@ def append_conv_data(coord_pair, roi_rad, events_dict):
         coord_pair[1] + roi_rad,
     ):
         if (y, x) not in events_dict:
-            # if (y > 190 and x > 100) and (y < 719 and x < 1279):
-            #     print(y,x)
             continue
-        coord_convolution_data.extend(polarity_map_to_array(events_dict[(y, x)]))
+        coord_convolution_data.extend(polarity_map_to_array({key: events_dict[(y, x)][key] for key in [0,1]}))
     return coord_convolution_data
 
 
@@ -177,7 +205,8 @@ def check_monotonicity(lst):
     return inc_indices
 
 # requires a lot of memory. using an awkward array instead of a numpy array might help 
-@njit(parallel=True, cache=True, nogil=True)
+
+@njit(parallel=True, cache=True)
 def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
     cumsum = np.empty(shape=(len(coords_split), max_len), dtype=np.int32)
@@ -212,11 +241,11 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     )
 
 
-# @njit(cache=True)
+@njit(cache=True)
 def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
-    num_coords = 24
-    for i in range(num_coords, len(coords), num_coords):
+    num_coords = 240
+    for i in prange(num_coords, len(coords), num_coords):
         output1, output2, output3 = process_conv_list_parallel(
             dict_events, coords[i - num_coords : i], max_len
         )
@@ -230,7 +259,6 @@ def create_signal(dict_events, coords, max_len):
             times.extend(output1)
             cumsum.extend(output2)
             coordinates.extend(output3)
-    gc.collect()
     return times, cumsum, coordinates
 
 
@@ -242,7 +270,7 @@ def create_convolved_signals(
     Cals the create_signal function that gives the data to convolve in chucks.
     Then slices the data into the given number of cores.
     """
-    times, cumsum, coordinates = create_signal(dict_events, coords, max_len)
+    times, cumsum, coordinates = create_signal(dict_events, coords, max_len.astype(np.uint64))
     ind = []
     for i in range(len(times)):
         res = check_monotonicity(times[i])
