@@ -6,6 +6,7 @@ from collections import Counter
 from numba import njit, prange
 from localization_scripts.utils import *
 from csaps import CubicSmoothingSpline
+from scipy.ndimage import center_of_mass
 
 def plot_event_signals_2d(signal_and_peaks):
     fig = plt.figure(figsize=(15, 5), dpi=200)

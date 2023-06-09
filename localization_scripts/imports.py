@@ -1,5 +1,6 @@
 import gc, multiprocessing, os, sys
 import numpy as np
+from joblib import Parallel, delayed
 from localization_scripts.roi_generation import generate_rois
 from localization_scripts.peak_finding import (
     find_peaks_parallel,
@@ -26,8 +27,13 @@ from numba.core.errors import (
 import time
 from natsort import natsorted
 
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaTypeSafetyWarning
+import warnings
+
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaTypeSafetyWarning)
+
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
-warnings.filterwarnings("ignore", category=NumbaDeprecationWarning)
-warnings.filterwarnings("ignore", category=NumbaPendingDeprecationWarning)
 warnings.filterwarnings("ignore", category=NumbaTypeSafetyWarning)

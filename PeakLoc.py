@@ -1,5 +1,10 @@
 from localization_scripts.imports import *
 
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaTypeSafetyWarning
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaTypeSafetyWarning)
+
 """
 if the system complains about memory, run the following command:
 sudo echo 1 > /proc/sys/vm/overcommit_memory
@@ -9,7 +14,7 @@ NUM_CORES = multiprocessing.cpu_count()
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 15
+PROMINENCE = 12
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
 DATASEET_FWHM = 7
@@ -60,8 +65,9 @@ ROI_RADIUS = 8
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
 
-def main(slice, time_slice, filename):
+def main(slice, filename):
     events = slice
+    time_slice = slice["t"].max()//1e3
     start_time = time.time()
 
     # Get the minimum and maximum x and y coordinates
@@ -174,7 +180,7 @@ def main(slice, time_slice, filename):
         + ".npy",
         rois,
     )
-
+    return 
 
 if __name__ == "__main__":
     # if len(sys.argv) > 1:
@@ -191,13 +197,23 @@ if __name__ == "__main__":
             )
         elif os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
             continue
-        # elif os.path.basename(filename)[-4:] == ".npy":
-        #     events = np.load(filename)
-        # else:
-            #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(300e6), events["t"].max(), int(300e6)):
-            slice = events[(events["t"] > time_slice - 300e6) * (events["t"] < time_slice)]
-            main(slice, time_slice, filename)
+
+        event_slices = []
+        num_cores = multiprocessing.cpu_count() // 2
+        slice_size = int(len(events) / num_cores)
+        for i in range(slice_size, len(events), slice_size):
+            event_slices.append(events[i - slice_size : i])
+            if i + slice_size > len(events):
+                event_slices.append(events[i:])
+        del events
+        RES = Parallel(n_jobs=num_cores)(
+            delayed(main)(event_slices[i], filename)
+            for i in range(len(event_slices))
+        )
+
+        # for time_slice in range(int(200e6), events["t"].max(), int(200e6)):
+        #     slice = events[(events["t"] > time_slice - 200e6) * (events["t"] < time_slice)]
+        #     main(slice, time_slice, filename)
         if os.path.isdir(filename):
             continue
         out_folder_localizations = filename[:-4] + "/"
