@@ -1,11 +1,9 @@
-from scipy.ndimage import center_of_mass
 from scipy.optimize import least_squares
 import numpy as np
-from numba import jit, njit, prange
+from numba import jit, prange
 import multiprocessing
 from joblib import Parallel, delayed
 from localization_scripts.event_array_processing import slice_data
-
 
 def gaussian2D(height, center_x, center_y, width):
     width = float(width)
@@ -24,52 +22,36 @@ def double_gaussian2D(
         -(((center_x_2 - x) / width) ** 2 + ((center_y_2 - y) / width2) ** 2) / 2
     )
 
-
-# def moments(data):
-#     x_mean = center_of_mass(data)[1]
-#     y_mean = center_of_mass(data)[0]
-#     sigma = 2.5
-#     height = data.max()
-#     return height, x_mean, y_mean, sigma
-
-
 def fit_single_gaussian(data):
     params = [np.max(data), data.shape[1]//2, data.shape[1]//2, 2.5]
     errorfunction = lambda p: np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
-    bounds = ([0, 0, 0, 0], [3*params[0], data.shape[1], data.shape[0], 10])
-    # print(bounds)
-    # print(params)
+    bounds = ([0, 0, 0, 2], [3*params[0], data.shape[1], data.shape[0], 8])
     return least_squares(
         errorfunction, params, method="trf", bounds=bounds, ftol=1e-4, xtol=1e-4
     )
-    # return least_squares(errorfunction, params, method="lm")
 
 
 def fit_two_gaussians(data, lm=False):
-    params = [np.max(data), data.shape[1]//2, data.shape[1]//2, 2.5]
-    params2 = [np.max(data), data.shape[1]//2+1, data.shape[1]//2-1, 2.5]
+    params = [np.max(data), data.shape[1]//2, data.shape[1]//2, 3.5]
+    params2 = [np.max(data), data.shape[1]//2+1, data.shape[1]//2-1, 4]
     params = np.append(params, params2)
     errorfunction = lambda p: np.ravel(
         double_gaussian2D(*p)(*np.indices(data.shape)) - data
     )
     bounds = (
-        (0, 0, 0, 0, 0, 0, 0, 0),
+        (0, 0, 0, 3, 0, 0, 0, 3),
         (
             3*params[0] ,
             data.shape[1],
             data.shape[0],
-            10,
+            7,
             2*params[0],
             data.shape[1],
             data.shape[0],
-            10,
+            7,
         ),
     )
-    
-    if lm:
-        return least_squares(errorfunction, params, method="lm")
-    else:
-        return least_squares(errorfunction, params, method="trf", bounds=bounds, ftol=1e-4, xtol=1e-4)
+    return least_squares(errorfunction, params, method="trf", bounds=bounds, ftol=1e-4, xtol=1e-4)
 
 
 @jit(nopython=True, fastmath=True, cache=True)
@@ -83,7 +65,7 @@ def fit_gaussian(roi, dataset_FWHM=5.5):
     # FWHM=2.35*sigma
     sigma_2_locs = dataset_FWHM / 2.35
     if fit_params.x[3] > sigma_2_locs*1.5:
-        return np.asarray([0,0,0,0]), 5
+        return fit_params.x, 5
     if fit_params.x[3] > sigma_2_locs:
         try:
             fit_params2 = fit_two_gaussians(roi)

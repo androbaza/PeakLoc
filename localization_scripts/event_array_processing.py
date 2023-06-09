@@ -1,9 +1,8 @@
-from numba import njit, prange, types, jit
+from numba import njit, prange, types
 from numba.typed import List, Dict
 import numpy as np
 from localization_scripts.roi_generation import generate_coord_lists
 import gc, pickle
-from joblib import Parallel, delayed
 from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 
@@ -205,7 +204,6 @@ def check_monotonicity(lst):
     return inc_indices
 
 # requires a lot of memory. using an awkward array instead of a numpy array might help 
-
 @njit(parallel=True, cache=True)
 def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
@@ -225,7 +223,6 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
                 coord_convolution_data, repeating_timestamps
             )
         coord_convolution_data[:, 1][coord_convolution_data[:, 1] == 0] = -1
-        # print(coord_convolution_data.shape, times.shape)
         times[coord_pair, :len(coord_convolution_data[:, 0])] = coord_convolution_data[
             :, 0
         ]
@@ -244,7 +241,7 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
 @njit(cache=True)
 def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
-    num_coords = 240
+    num_coords = 480
     for i in prange(num_coords, len(coords), num_coords):
         output1, output2, output3 = process_conv_list_parallel(
             dict_events, coords[i - num_coords : i], max_len

@@ -195,8 +195,8 @@ if __name__ == "__main__":
         #     events = np.load(filename)
         # else:
             #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(100e6), events["t"].max(), int(100e6)):
-            slice = events[(events["t"] > time_slice - 100e6) * (events["t"] < time_slice)]
+        for time_slice in range(int(300e6), events["t"].max(), int(300e6)):
+            slice = events[(events["t"] > time_slice - 300e6) * (events["t"] < time_slice)]
             main(slice, time_slice, filename)
         if os.path.isdir(filename):
             continue

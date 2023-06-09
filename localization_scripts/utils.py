@@ -1,11 +1,7 @@
-from numba import njit, prange, jit, types
-from numba.typed import List, Dict
+from numba import njit, prange, jit
+from numba.typed import List
 import numpy as np
-from scipy.ndimage import median_filter
-from skimage.morphology import remove_small_objects
 from collections import defaultdict
-import gc
-
 
 def ndarray_to_dict_t_p_python(arr):
     """
