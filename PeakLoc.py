@@ -1,16 +1,11 @@
 from localization_scripts.imports import *
 
-from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaTypeSafetyWarning
-warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
-warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
-warnings.simplefilter('ignore', category=NumbaTypeSafetyWarning)
-
 """
 if the system complains about memory, run the following command:
 sudo echo 1 > /proc/sys/vm/overcommit_memory
 """
 
-NUM_CORES = multiprocessing.cpu_count()
+NUM_CORES = 8
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
@@ -20,13 +15,13 @@ PROMINENCE = 12
 DATASEET_FWHM = 7
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
-PEAK_TIME_THRESHOLD = 40e3
+PEAK_TIME_THRESHOLD = 30e3
 
 """PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
-PEAK_NEIGHBORS = 9
+PEAK_NEIGHBORS = 6
 
 """ROI_RADIUS is the radius of the generated ROI in pixels."""
-ROI_RADIUS = 8
+ROI_RADIUS = 7
 
 """RAW recording or converted events file location."""
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
@@ -102,11 +97,11 @@ def main(slice, filename):
     )
     
     times, cumsum, coordinates = create_convolved_signals(
-        dict_events, coords, max_len=max_length*3, num_cores=NUM_CORES
+        dict_events, coords, max_len=max_length*7, num_cores=NUM_CORES
     )
 
     del dict_events
-
+    gc.collect()
     print(f"Finding peaks... Elapsed time: {time.time() - start_time:.2f} seconds")
     peak_list = find_peaks_parallel(
         times,
@@ -117,6 +112,8 @@ def main(slice, filename):
         interpolation_coefficient=5,
         spline_smooth=0.7,
     )
+    del times, cumsum, coordinates
+    gc.collect()
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
     peaks_dict = group_timestamps_by_coordinate(
         coordinates_peaks, peaks, prominences, on_times
@@ -180,6 +177,8 @@ def main(slice, filename):
         + ".npy",
         rois,
     )
+    del localizations, rois
+    gc.collect()
     return 
 
 if __name__ == "__main__":
@@ -195,16 +194,14 @@ if __name__ == "__main__":
             events = raw_events_to_array(filename).astype(
                 [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
             )
-        elif os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
+        if os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
             continue
 
         event_slices = []
-        num_cores = multiprocessing.cpu_count() // 2
-        slice_size = int(len(events) / num_cores)
+        num_cores = 6
+        slice_size = int(len(events) // num_cores)
         for i in range(slice_size, len(events), slice_size):
             event_slices.append(events[i - slice_size : i])
-            if i + slice_size > len(events):
-                event_slices.append(events[i:])
         del events
         RES = Parallel(n_jobs=num_cores)(
             delayed(main)(event_slices[i], filename)

@@ -4,6 +4,9 @@ from numba import jit, prange
 import multiprocessing
 from joblib import Parallel, delayed
 from localization_scripts.event_array_processing import slice_data
+import warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore')
 
 def gaussian2D(height, center_x, center_y, width):
     width = float(width)
@@ -25,7 +28,7 @@ def double_gaussian2D(
 def fit_single_gaussian(data):
     params = [np.max(data), data.shape[1]//2, data.shape[1]//2, 2.5]
     errorfunction = lambda p: np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
-    bounds = ([0, 0, 0, 2], [3*params[0], data.shape[1], data.shape[0], 8])
+    bounds = ([0, 0, 0, 1], [3*params[0], data.shape[1], data.shape[0], 11])
     return least_squares(
         errorfunction, params, method="trf", bounds=bounds, ftol=1e-4, xtol=1e-4
     )
@@ -61,7 +64,9 @@ def res_rmse(residue):
 
 def fit_gaussian(roi, dataset_FWHM=5.5):
     fit_params = fit_single_gaussian(roi)
+    # rms = res_rmse(gaussian2D(*fit_params.x)(*np.indices(roi.shape)) - roi)
     rms = res_rmse(fit_params.fun)
+    # rms = calculate_fit_error(roi, gaussian2D(*fit_params.x)(*np.indices(roi.shape)))
     # FWHM=2.35*sigma
     sigma_2_locs = dataset_FWHM / 2.35
     if fit_params.x[3] > sigma_2_locs*1.5:

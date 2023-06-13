@@ -4,7 +4,9 @@ import copy
 from scipy.ndimage import median_filter
 from skimage.morphology import remove_small_objects
 from joblib import Parallel, delayed
-
+import warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore')
 
 def generate_rois(
     unique_peaks: np.ndarray,
@@ -119,7 +121,7 @@ def count_values_in_range(
     return count_positive, count_negative, t_1st, t_last
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True)
 def slice_t_p_dict(
     dict_indices,
     times_arr,
@@ -145,7 +147,6 @@ def slice_t_p_dict(
         positives, negatives, t_1st, t_last = count_values_in_range(
             times_arr, polarities_arr, row_id, id_data, time_back, time_advance, t_peak
         )
-        # print(positives, negatives, (y,x))
         new_roi[
             0, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
         ] += positives
@@ -235,18 +236,10 @@ def gen_rois_from_peaks_dict(
                 image_start=image_start,
             )
             id_loc += 1
-            # mask = np.nonzero(full_rois_list[id]["roi_event_times"][0])
-            # try:
-            #     full_rois_list[id]["t_1st"] = np.min(
-            #         full_rois_list[id]["roi_event_times"][0][mask]
-            #     )
-            # except:
-            #     np.delete(full_rois_list, id)
-            #     continue
             full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
                 full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
             )
-            if np.sum(full_rois_list[id]["roi"]) < 30:
+            if np.sum(full_rois_list[id]["roi"]) < 40:
                 np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))

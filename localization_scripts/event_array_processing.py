@@ -5,6 +5,9 @@ from localization_scripts.roi_generation import generate_coord_lists
 import gc, pickle
 from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
+import warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore')
 
 
 def raw_events_to_array(filename):
@@ -82,14 +85,10 @@ def array_to_polarity_map(arr):
             time_map[key][arr[id]["t"]] = arr[id]["p"]
         else:
             time_map[key] = {arr[id]["t"]: arr[id]["p"]}
-        # if len(dict_out[key][1]) > max_len:
-        #     max_len = len(dict_out[key][1])
-        # if len(dict_out[key][0]) > max_len:
-        #     max_len = len(dict_out[key][0])
     for key in dict_out.keys():
-        dict_out[key][2].append(len(dict_out[key][0]) + len(dict_out[key][1]))
-        dict_out[key][3].append(len(dict_out[key][0]))
-        dict_out[key][4].append(len(dict_out[key][1]))
+        dict_out[key][2].append(types.uint64(len(dict_out[key][0]) + len(dict_out[key][1])))
+        dict_out[key][3].append(types.uint64(len(dict_out[key][0])))
+        dict_out[key][4].append(types.uint64(len(dict_out[key][1])))
     return dict_out, time_map
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -123,23 +122,23 @@ def fill_widefield(dict_events, max_x, max_y):
 
 @njit(nogil=True, cache=True, fastmath=True)
 def detect_outlier(data):
-    q1, q3 = np.percentile(data, [60, 99.99])
+    q1, q3 = np.percentile(data, [40, 99.99])
     iqr = q3 - q1
     lower_bound = q1
-    upper_bound = q3 + (3 * iqr)
+    upper_bound = q3 + (4 * iqr)
     outliers_id = []
     for id, x  in enumerate(data):
         if x <= lower_bound or x >= upper_bound:
             outliers_id.append(id)
     return outliers_id
 
-def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, sigma=10.5, radius=11):
+def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, sigma=13.5, radius=11):
     dict_events, time_map = array_to_polarity_map(events)
     widefield = fill_widefield(dict_events, max_x, max_y)
     plt.imsave(out_folder_localizations+"widefield.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*4)
     widefield_filtered = gaussian_filter(widefield, sigma=sigma, radius=radius)
-    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 50), widefield, 0)
-    plt.imsave(out_folder_localizations+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean()*3)
+    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 45), widefield, 0)
+    plt.imsave(out_folder_localizations+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean()*4)
     dict_events, time_map = remove_coordinates(useful_pixels, dict_events, time_map)
     lengths = np.asarray([np.array((val[0] ,val[1][2][0]), dtype=[("c", np.uint16, (2)), ("l", np.uint64)]) for val in list(dict_events.items())])
     lengths = np.sort(lengths, order="l")
@@ -149,7 +148,7 @@ def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, sigma=10
     max_length = filtered[-1]['l']
     dict_events, time_map = remove_coordinates_by_list(to_delete, dict_events, time_map)
     widefield = fill_widefield(dict_events, max_x, max_y)
-    plt.imsave(out_folder_localizations+"widefield_filtered.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*3)
+    plt.imsave(out_folder_localizations+"widefield_filtered.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*4)
     return dict_events, time_map, np.asarray(list(dict_events.keys()), dtype=np.uint16), max_length
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -168,7 +167,7 @@ def array_to_time_map(arr):
     return dict_out
 
 
-@njit(cache=True, nogil=True)
+@njit(cache=True)
 def polarity_map_to_array(d):
     """
     Convert a dictionary of p:t key-value pairs to a NumPy ndarray with fields 't' and 'p'.
@@ -180,7 +179,7 @@ def polarity_map_to_array(d):
     return arr
 
 
-@njit(cache=True, nogil=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def append_conv_data(coord_pair, roi_rad, events_dict):
     coord_convolution_data = []
     for y, x in generate_coord_lists(
@@ -195,7 +194,7 @@ def append_conv_data(coord_pair, roi_rad, events_dict):
     return coord_convolution_data
 
 
-@njit(cache=True, nogil=True, fastmath=True)
+@njit(cache=True, fastmath=True)
 def check_monotonicity(lst):
     inc_indices = []
     if len(lst) == 0:
@@ -206,7 +205,7 @@ def check_monotonicity(lst):
     return inc_indices
 
 # requires a lot of memory. using an awkward array instead of a numpy array might help 
-@njit(parallel=True, cache=True)
+@njit(cache=True)
 def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
     cumsum = np.empty(shape=(len(coords_split), max_len), dtype=np.int32)
@@ -245,6 +244,7 @@ def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
     num_coords = 24
     for i in prange(num_coords, len(coords), num_coords):
+        # try:
         output1, output2, output3 = process_conv_list_parallel(
             dict_events, coords[i - num_coords : i], max_len
         )
@@ -258,6 +258,9 @@ def create_signal(dict_events, coords, max_len):
             times.extend(output1)
             cumsum.extend(output2)
             coordinates.extend(output3)
+        # except:
+        #     print("bad batch")
+        #     continue
     return times, cumsum, coordinates
 
 

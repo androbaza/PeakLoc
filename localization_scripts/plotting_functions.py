@@ -288,14 +288,13 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
 
-def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset_FWHM=7):
+def plot_rois_from_locs(rois_list, filename=None, subplotsize=5, sign=1, dataset_FWHM=7):
     l = 0
     roi_rad = rois_list["roi"][0].shape[0] // 2
-    fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20))
+    fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(17, 17), dpi=300)
+    # fig, axs = plt.figure(figsize=(14, 14))
     fig.tight_layout()
     plt.axis("off")
-    padded_all = []
-    fits = []
     for id in range(subplotsize*subplotsize):
 
         ax = plt.subplot(
@@ -305,32 +304,50 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
         )
         roi = rois_list["roi"][id]
         plt.axis("off")
+
         if rois_list["double"][id] == 1:
             # 2 gaussians were fitted
             fit_params, rms = fit_gaussian(roi, dataset_FWHM=dataset_FWHM)
             if fit_params.size == 4:
-                continue
-            fit = double_gaussian2D(*fit_params)
-            plt.contour(fit(*np.indices(roi.shape)))
-            (height, x, y, sigma, height2, x2, y2, sigma2) = fit_params
-            plt.text(
-                0.97,
-                0.78,
-                """
-            FWHM #1: %.2f
-            FWHM #2: %.2f
-            RMS Error: %.2f"""
-                % (sigma * 2.35, sigma2 * 2.35, rms),
-                fontsize=17,
-                horizontalalignment="right",
-                verticalalignment="baseline",
-                transform=ax.transAxes,
-                c="w",
-            )
-            plt.scatter(y, x, c="magenta", s=90, marker="x", zorder=100)
-            plt.scatter(y2, x2, c="magenta", s=90, marker="x", zorder=100)
+                ax.set_title('was double')
+                fit = gaussian2D(*fit_params)
+                plt.contour(fit(*np.indices(roi.shape)))
+                plt.scatter(rois_list["sub_y"][id], rois_list["sub_x"][id], c="magenta", s=90, marker="x", zorder=100)
+                plt.text(
+                    0.97,
+                    0.8,
+                    """
+                FWHM: %.2f
+                RMS Error: %.2f"""
+                    % (fit_params[3] * 2.35, rms),
+                    fontsize=17,
+                    horizontalalignment="right",
+                    verticalalignment="baseline",
+                    transform=ax.transAxes,
+                    c="w",
+                )
+            else: 
+                fit = double_gaussian2D(*fit_params)
+                plt.contour(fit(*np.indices(roi.shape)))
+                (height, x, y, sigma, height2, x2, y2, sigma2) = fit_params
+                plt.text(
+                    0.94,
+                    0.78,
+                    """
+                FWHM #1: %.2f
+                FWHM #2: %.2f
+                RMS Error: %.2f"""
+                    % (sigma * 2.35, sigma2 * 2.35, rms),
+                    fontsize=15,
+                    horizontalalignment="right",
+                    verticalalignment="baseline",
+                    transform=ax.transAxes,
+                    c="w",
+                )
+                plt.scatter(y, x, c="magenta", s=90, marker="x", zorder=100)
+                plt.scatter(y2, x2, c="magenta", s=90, marker="x", zorder=100)
             # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
-            # ax.set_title(f"t:{rois_list['t_peak']}, tot_events: {rois_list['E_total']}")
+            # imm = plt.imshow(roi, cmap="gray", interpolation="none")
             
             # fit = double_gaussian2D(rois_list["I"][id], rois_list["x"][id], rois_list["y"][id], rois_list["FWHM"][id], rois_list["I"][id], rois_list["x2"][id], rois_list["y2"][id], rois_list["FWHM"][id])
             # plt.contour(fit(*np.indices(roi.shape)))
@@ -339,23 +356,45 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
             # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
             # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
-            fit = gaussian2D(rois_list["I"][id], rois_list["sub_x"][id], rois_list["sub_y"][id], rois_list["FWHM"][id])
-            roi_ft = np.fft.fft2(roi)
-            y_posp, x_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
-                roi_ft, (0, 1), roi_rad
-            )
-            cmy, cmx = center_of_mass(roi)
-            plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
-            plt.scatter(cmy, cmx, c="r", s=140, marker="x")
+            # fit_params = fit_single_gaussian(roi)
+            # fit = gaussian2D(rois_list["I"][id], rois_list["sub_x"][id], rois_list["sub_y"][id], rois_list["FWHM"][id])
+            # imm = plt.imshow(roi - fit(*np.indices(roi.shape)), cmap="gray", interpolation="none")
+            fit_params, rms = fit_gaussian(roi, dataset_FWHM=dataset_FWHM)
+            fit = gaussian2D(*fit_params)
             plt.contour(fit(*np.indices(roi.shape)))
             plt.scatter(rois_list["sub_y"][id], rois_list["sub_x"][id], c="magenta", s=90, marker="x", zorder=100)
+            plt.text(
+                0.97,
+                0.8,
+                """
+            FWHM: %.2f
+            RMS Error: %.2f"""
+                % (fit_params[3] * 2.35, rms),
+                fontsize=17,
+                horizontalalignment="right",
+                verticalalignment="baseline",
+                transform=ax.transAxes,
+                c="w",
+            )
             # print(rois_list["y"][id], rois_list["x"][id], rois_list["y_p"][id], rois_list["x_p"][id])
             # print(rois_list["y"][id] - rois_list["y_p"][id], rois_list["x"][id] - rois_list["x_p"][id])
         # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
-        # ax.set_ylabel('#px__sum_px\n'+str(np.count_nonzero(padded)) +'__'+ str(np.sum(padded)), fontsize=17)
+        
         # plt.scatter(cmx, cmy, facecolors='red', marker='x', s=55)
         imm = plt.imshow(roi, cmap="gray", interpolation="none")
-        
+        ax.set_title(f"tot_events: {rois_list['E_total'][id]}, sum: {np.sum(roi)}")
+        # ax.set_title('#px__sum_px\n'+str(np.count_nonzero(roi)) +'__'+ str(np.sum(roi)), fontsize=17)
+
+        cbar = fig.colorbar(
+            imm,
+            fraction=0.0322,
+            pad=-0.0001,
+            aspect=30,
+            ticks=np.arange(np.min(roi), np.max(roi) + 1, 2),
+        )
+        cbar.ax.tick_params(size=4, labelsize=17, pad=1)
+        # cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
+        cbar.outline.set_visible(False)
         l += 1
         # if l == subplotsize**2:
         if l == subplotsize*subplotsize:
@@ -375,7 +414,6 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
     fig.tight_layout()
     # plt.savefig(filename[:-4] + '_rois_examples.png', dpi=300, transparent=True, bbox_inches = 'tight')
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
-    return padded_all
 
 def plot_num_events_histogram(times):
     @njit(cache=True, nogil=True)

@@ -1,3 +1,6 @@
+import warnings
+warnings.simplefilter('ignore')
+warnings.filterwarnings('ignore')
 import gc, multiprocessing, os, sys
 import numpy as np
 from joblib import Parallel, delayed
@@ -28,11 +31,12 @@ import time
 from natsort import natsorted
 
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaTypeSafetyWarning
-import warnings
+
 
 warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 warnings.simplefilter('ignore', category=NumbaTypeSafetyWarning)
+
 
 warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
