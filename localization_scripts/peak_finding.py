@@ -77,7 +77,7 @@ def interpolate_parallel(
     i,
     prominence=25,
     interpolation_coefficient=3,
-    cutoff_event_count=2000,
+    cutoff_event_count=1000,
     spline_smooth=0.8,
 ):
     peaks, prominences, on_times, id_to_delete = [], [], [], []

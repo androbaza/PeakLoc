@@ -288,7 +288,7 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
 
-def plot_rois_from_locs(rois_list, filename=None, subplotsize=5, sign=1, dataset_FWHM=7):
+def plot_rois_from_locs(rois_list, filename=None, subplotsize=5, sign=1, dataset_FWHM=8):
     l = 0
     roi_rad = rois_list["roi"][0].shape[0] // 2
     fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(17, 17), dpi=300)

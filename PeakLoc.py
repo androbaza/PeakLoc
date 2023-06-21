@@ -5,20 +5,20 @@ if the system complains about memory, run the following command:
 sudo echo 1 > /proc/sys/vm/overcommit_memory
 """
 
-NUM_CORES = 8
+NUM_CORES = 6
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
 PROMINENCE = 12
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 7
+DATASEET_FWHM = 9
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
 PEAK_TIME_THRESHOLD = 30e3
 
 """PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
-PEAK_NEIGHBORS = 6
+PEAK_NEIGHBORS = 7
 
 """ROI_RADIUS is the radius of the generated ROI in pixels."""
 ROI_RADIUS = 7
@@ -97,7 +97,7 @@ def main(slice, filename):
     )
     
     times, cumsum, coordinates = create_convolved_signals(
-        dict_events, coords, max_len=max_length*7, num_cores=NUM_CORES
+        dict_events, coords, max_len=max_length*8, num_cores=NUM_CORES
     )
 
     del dict_events
@@ -186,7 +186,8 @@ if __name__ == "__main__":
     #     filename = sys.argv[1]
     # else:
     #     filename = INPUT_FILE
-    folder = '/home/smlm-workstation/event-smlm/Paris/process/'
+    # folder = '/home/smlm-workstation/event-smlm/Paris/process/'
+    folder = '/media/smlm-workstation/data/process_folder/'
     # folder = '/home/smlm-workstation/event-smlm/Paris/25.05/CL/'
     for filename in natsorted(os.listdir(folder)):
         filename = folder + filename
@@ -194,19 +195,20 @@ if __name__ == "__main__":
             events = raw_events_to_array(filename).astype(
                 [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
             )
+        else: continue
         if os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
             continue
 
         event_slices = []
-        num_cores = 6
-        slice_size = int(len(events) // num_cores)
+        num_slices = 5
+        num_cores = 5
+        slice_size = int(len(events) // num_slices)
         for i in range(slice_size, len(events), slice_size):
             event_slices.append(events[i - slice_size : i])
         del events
         RES = Parallel(n_jobs=num_cores)(
-            delayed(main)(event_slices[i], filename)
-            for i in range(len(event_slices))
-        )
+            delayed(main)(slice, filename)
+            for slice in event_slices)
 
         # for time_slice in range(int(200e6), events["t"].max(), int(200e6)):
         #     slice = events[(events["t"] > time_slice - 200e6) * (events["t"] < time_slice)]

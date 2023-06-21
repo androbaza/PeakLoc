@@ -2,7 +2,7 @@ from numba import njit, prange, types
 from numba.typed import List, Dict
 import numpy as np
 from localization_scripts.roi_generation import generate_coord_lists
-import gc, pickle
+import gc, pickle, os
 from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 import warnings
@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 
 def raw_events_to_array(filename):
-    buffer_size = 4e9
+    buffer_size = 5e9
     from metavision_core.event_io.raw_reader import RawReader
 
     record_raw = RawReader(filename, max_events=int(buffer_size))
@@ -122,7 +122,7 @@ def fill_widefield(dict_events, max_x, max_y):
 
 @njit(nogil=True, cache=True, fastmath=True)
 def detect_outlier(data):
-    q1, q3 = np.percentile(data, [40, 99.99])
+    q1, q3 = np.percentile(data, [20, 99.99])
     iqr = q3 - q1
     lower_bound = q1
     upper_bound = q3 + (4 * iqr)
@@ -132,23 +132,25 @@ def detect_outlier(data):
             outliers_id.append(id)
     return outliers_id
 
-def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, sigma=13.5, radius=11):
+def convert_to_hashmaps(events, out_folder_localizations, max_x, max_y, remove_outliers=True, sigma=13.5, radius=11):
     dict_events, time_map = array_to_polarity_map(events)
     widefield = fill_widefield(dict_events, max_x, max_y)
-    plt.imsave(out_folder_localizations+"widefield.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*4)
+    plt.imsave(out_folder_localizations+"widefield.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*5)
     widefield_filtered = gaussian_filter(widefield, sigma=sigma, radius=radius)
-    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 45), widefield, 0)
-    plt.imsave(out_folder_localizations+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean()*4)
+    useful_pixels = np.where(widefield_filtered >= np.percentile(widefield_filtered, 30), widefield, 0)
+    plt.imsave(out_folder_localizations+"useful_pixels.png", dpi=300, arr=useful_pixels, cmap="gray", vmax=useful_pixels.mean()*5)
     dict_events, time_map = remove_coordinates(useful_pixels, dict_events, time_map)
     lengths = np.asarray([np.array((val[0] ,val[1][2][0]), dtype=[("c", np.uint16, (2)), ("l", np.uint64)]) for val in list(dict_events.items())])
     lengths = np.sort(lengths, order="l")
-    indices = detect_outlier(lengths['l'])
-    to_delete = lengths[indices]['c']
-    filtered = np.delete(lengths, indices, axis=0)
-    max_length = filtered[-1]['l']
-    dict_events, time_map = remove_coordinates_by_list(to_delete, dict_events, time_map)
-    widefield = fill_widefield(dict_events, max_x, max_y)
-    plt.imsave(out_folder_localizations+"widefield_filtered.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*4)
+    max_length = lengths[-1]['l']
+    if remove_outliers:
+        indices = detect_outlier(lengths['l'])
+        to_delete = lengths[indices]['c']
+        filtered = np.delete(lengths, indices, axis=0)
+        max_length = filtered[-1]['l']
+        dict_events, time_map = remove_coordinates_by_list(to_delete, dict_events, time_map)
+        widefield = fill_widefield(dict_events, max_x, max_y)
+        plt.imsave(out_folder_localizations+"widefield_filtered.png", dpi=300, arr=widefield, cmap="gray", vmax=widefield.mean()*5)
     return dict_events, time_map, np.asarray(list(dict_events.keys()), dtype=np.uint16), max_length
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -205,7 +207,7 @@ def check_monotonicity(lst):
     return inc_indices
 
 # requires a lot of memory. using an awkward array instead of a numpy array might help 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
     cumsum = np.empty(shape=(len(coords_split), max_len), dtype=np.int32)
