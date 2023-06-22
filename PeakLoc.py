@@ -21,7 +21,7 @@ PEAK_TIME_THRESHOLD = 30e3
 PEAK_NEIGHBORS = 7
 
 """ROI_RADIUS is the radius of the generated ROI in pixels."""
-ROI_RADIUS = 7
+ROI_RADIUS = 8
 
 """RAW recording or converted events file location."""
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"

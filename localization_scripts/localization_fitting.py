@@ -127,6 +127,20 @@ def est_coord(roi_ft, coord_type, roi_rad):
     phase_angle = np.arctan(roi_ft[coord_type].imag / roi_ft[coord_type].real) - np.pi
     return np.abs(phase_angle) / (2 * np.pi / (roi_rad * 2 + 1))
 
+def calculate_mean_and_subtract(data, filter=True):
+    on = data['roi_event_times']
+    off = data['roi_event_times_n']
+    t_peak = data['t_peak']
+    if filter:
+        on = on*(data['roi']>1)
+        off = off*(data['roi_n']>1)
+    mean_value_on = np.mean(on[on != 0])
+    mean_value_off = np.mean(off[off != 0])
+    result = np.zeros(3)
+    result[0] = (t_peak - mean_value_on)/1e3
+    result[1] = (mean_value_off - t_peak)/1e3
+    result[2] = (mean_value_off - mean_value_on)/1e3
+    return result
 
 def localize_MLE(rois_list, dataset_FWHM):
     if rois_list.size == 0:
@@ -138,6 +152,9 @@ def localize_MLE(rois_list, dataset_FWHM):
             dtype=[
                 ("id", np.uint64),
                 ("t_peak", np.float64),
+                ("t_on", np.float64),
+                ("t_off", np.float64),
+                ("ON_t", np.float64),
                 ("double", np.uint8),
                 # positives
                 ("x", np.float64),
@@ -193,6 +210,9 @@ def localize_MLE(rois_list, dataset_FWHM):
             if rms == 5:
                 id_to_remove.append(id)
                 continue
+
+            time_stats = calculate_mean_and_subtract(rois_list[id], filter=True)
+                
             if fit_result.shape[0] == 8 and fit_result_n.shape[0] == 8:
                 fit_results_1 = fit_result[:4]
                 fit_results_2 = fit_result[4:]
@@ -233,6 +253,9 @@ def localize_MLE(rois_list, dataset_FWHM):
                 localizations[id] = (
                     id,
                     rois_list[id]["t_peak"],
+                    time_stats[0],
+                    time_stats[1],
+                    time_stats[2],
                     1,
                     x_pos[0],
                     x_pos[1],
@@ -300,6 +323,9 @@ def localize_MLE(rois_list, dataset_FWHM):
                 localizations[id] = (
                     id,
                     rois_list[id]["t_peak"],
+                    time_stats[0],
+                    time_stats[1],
+                    time_stats[2],
                     0,
                     x_pos,
                     0,
