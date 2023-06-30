@@ -9,10 +9,10 @@ NUM_CORES = 6
 
 """PROMINENCE is the prominence of the peaks in the convolved signals.
 Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 12
+PROMINENCE = 20
 
 """DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 9
+DATASEET_FWHM = 9.5
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
 PEAK_TIME_THRESHOLD = 30e3
@@ -241,7 +241,6 @@ if __name__ == "__main__":
                 id2 += 1
                 # np.delete(temp_files_localization + loc_file)
             
-
         np.save(
             out_folder_localizations
             + "localizations_prominence_fwhm_"
@@ -261,6 +260,50 @@ if __name__ == "__main__":
             + ".npy",
             rois_full_list,
         )
+        
+        #save superres images
+        nice_rois = localizations_full_list[localizations_full_list['E_total']>40]
+        plot_rois_from_locs(nice_rois[1000:], sign=1, dataset_FWHM=DATASEET_FWHM)
+        plt.rcParams['figure.dpi'] = 300
+        plt.savefig(out_folder_localizations 
+                    + "/localizations_prominence_fwhm_"
+                    + str(DATASEET_FWHM)
+                    + "_prominence_"
+                    + str(PROMINENCE) 
+                    + '_rois_examples.png', dpi=300, transparent=True, bbox_inches = 'tight')
+        pixel_recon_dim=0.3
+        hist_2d, _ = neighbor_interpolation(localizations_full_list, pixel_recon_dim, take_negatives=1, take_positives=1, loc_source='gaussian', i_field='I', interpolate=True)
+        plt.figure(figsize=(20,20), dpi=300)
+        plt.rcParams['figure.dpi'] = 300
+        plt.imshow(hist_2d.T, vmax=6, cmap='gray', interpolation='none')
+        plt.axis('off') 
+        plt.savefig(out_folder_localizations 
+                    + "/localizations_prominence_fwhm_"
+                    + str(DATASEET_FWHM)
+                    + "_prominence_"
+                    + str(PROMINENCE) 
+                    + '_supres_nocbar.png', dpi=300, transparent=True, bbox_inches = 'tight')
+        localizations_full_list = localizations_full_list[localizations_full_list['rms'] < 1.5]
+        localizations_full_list = localizations_full_list[localizations_full_list['double']==0]
+        hist_2d, _ = neighbor_interpolation(localizations_full_list, pixel_recon_dim, take_negatives=1, take_positives=1, loc_source='gaussian', i_field='I', interpolate=True)
+        plt.figure(figsize=(20,20), dpi=300)
+        plt.axis('off') 
+        plt.imshow(hist_2d.T, vmax=4, cmap='gray', interpolation='gaussian')
+        plt.savefig(out_folder_localizations 
+                    + "/localizations_prominence_fwhm_"
+                    + str(DATASEET_FWHM)
+                    + "_prominence_"
+                    + str(PROMINENCE) 
+                    + '_supres_no_doubles.png', dpi=300, transparent=True, bbox_inches = 'tight')
+        plt.figure(figsize=(20,20), dpi=300)
+        plt.axis('off') 
+        plt.imshow(hist_2d.T, vmax=4, cmap='gray', interpolation='none')
+        plt.savefig(out_folder_localizations 
+                    + "/localizations_prominence_fwhm_"
+                    + str(DATASEET_FWHM)
+                    + "_prominence_"
+                    + str(PROMINENCE) 
+                    + '_supres_no_interp_no_doubles.png', dpi=300, transparent=True, bbox_inches = 'tight')
 
         for loc_file in sorted_names:
             os.remove(temp_files_localization + loc_file) if loc_file.startswith("localizations") or loc_file.startswith("rois") else None

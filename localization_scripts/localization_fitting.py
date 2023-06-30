@@ -128,8 +128,8 @@ def est_coord(roi_ft, coord_type, roi_rad):
     return np.abs(phase_angle) / (2 * np.pi / (roi_rad * 2 + 1))
 
 def calculate_mean_and_subtract(data, filter=True):
-    on = data['roi_event_times']
-    off = data['roi_event_times_n']
+    on = data['roi_event_times'][0]
+    off = data['roi_event_times'][1]
     t_peak = data['t_peak']
     if filter:
         on = on*(data['roi']>1)

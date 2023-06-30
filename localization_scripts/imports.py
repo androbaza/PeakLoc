@@ -20,6 +20,8 @@ from localization_scripts.event_array_processing import (
 )
 from localization_scripts.roi_generation import generate_rois, generate_coord_lists
 from localization_scripts.localization_fitting import perfrom_localization_parallel
+from localization_scripts.generate_image import neighbor_interpolation
+from localization_scripts.plotting_functions import plot_rois_from_locs
 import warnings
 from cryptography.utils import CryptographyDeprecationWarning
 from numba.core.errors import (
@@ -28,6 +30,7 @@ from numba.core.errors import (
     NumbaTypeSafetyWarning,
 )
 import time
+import matplotlib.pyplot as plt
 from natsort import natsorted
 
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaTypeSafetyWarning
