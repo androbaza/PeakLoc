@@ -16,7 +16,7 @@ PeakLoc.py is the main script. Input the path to the data. The script will creat
 
 ## Results
 
-The blinks are detected from each pixel's graph from the cumulative sum of events. Theoretically, the methods extracts all blinks from the recording, not affected by psf overlaps and the blinking duration. It precisely identifies the 'Turning_ON' and 'Turning_OFF' timestamps as well, based on a spline interpolation of the signal. 
+The blinks are detected from each pixel's graph from the cumulative sum of events. Theoretically, the method extracts all blinks from the recording, not affected by psf overlaps and the blinking duration. It precisely identifies the 'Turning_ON' and 'Turning_OFF' timestamps as well, based on a spline interpolation of the signal. 
 
 ![peaks](figures/roi_cumsum_on_off.png)
 
