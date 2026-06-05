@@ -1,7 +1,7 @@
 from scipy.ndimage import center_of_mass
 from scipy.optimize import least_squares
 import numpy as np
-from numba import jit, njit, prange
+from numba import jit, prange
 import multiprocessing
 from joblib import Parallel, delayed
 from localization_scripts.event_array_processing import slice_data

@@ -207,7 +207,7 @@ def find_local_max_peak(
         # Check if the coordinate is iterable
         try:
             some_object_iterator = iter(coord)
-        except TypeError as te:
+        except TypeError:
             print(coord, " is not iterable")
             continue
         # Unpack the coordinate

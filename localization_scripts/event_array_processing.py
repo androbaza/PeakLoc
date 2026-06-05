@@ -2,8 +2,8 @@ from numba import njit, prange, types
 from numba.typed import List, Dict
 import numpy as np
 from localization_scripts.roi_generation import generate_coord_lists
-import gc, pickle
-from joblib import Parallel, delayed
+import gc
+import pickle
 
 
 def raw_events_to_array(filename, max_events=1_000_000):

@@ -1,7 +1,5 @@
 from matplotlib_scalebar.scalebar import ScaleBar
 import matplotlib.pyplot as plt
-import scipy
-from scipy.ndimage import median_filter
 import numpy as np
 from localization_scripts.localization_fitting import *
 from collections import Counter

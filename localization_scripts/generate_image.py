@@ -1,6 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import os, tifffile
+import tifffile
 from scipy.interpolate import interp1d
 
 input_data = "/home/smlm-workstation/event-smlm/generated_data/localizations/npy/tubulin300x400[7, 1800]_localizations_full.npy"

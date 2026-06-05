@@ -1,10 +1,7 @@
-from numba import njit, prange, jit, types
-from numba.typed import List, Dict
+from numba import njit, prange, jit
+from numba.typed import List
 import numpy as np
-from scipy.ndimage import median_filter
-from skimage.morphology import remove_small_objects
 from collections import defaultdict
-import gc
 
 
 def ndarray_to_dict_t_p_python(arr):
@@ -81,10 +78,6 @@ def subarray_lengths_histogram(arr):
     return subarray_lengths
 
 
-from csaps import CubicSmoothingSpline
-from scipy.signal import find_peaks
-from scipy.interpolate import interp1d
-from interpolation import interp
 
 
 @njit(cache=True, fastmath=True, nogil=True)
@@ -139,7 +132,6 @@ def find_on_off_plot(p, der_2, tnew, ynew):
     return on_off, on_off_t
 
 
-import copy
 
 
 @njit(cache=True, fastmath=True, nogil=True)
