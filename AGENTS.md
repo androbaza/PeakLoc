@@ -21,7 +21,7 @@ pixi run ty check
 `PeakLoc.py` runs the full pipeline; update paths and parameters before launch. Review `input_dir` before using `clean_temp_files.py`; it deletes generated arrays.
 
 ## Coding Policies & Style
-Target Python 3.13. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
+Target Python 3.12. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
 
 Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `snake_case` for functions and variables, `UPPER_CASE` for constants, and clear names: prefer `coefficients` over `coeffs`. Sort imports with ruff/isort. Comments should explain why, not what. Preserve event fields `x`, `y`, `p`, and `t` unless all consumers are updated together.
 
