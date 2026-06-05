@@ -23,6 +23,10 @@ PEAK_NEIGHBORS = 9
 """ROI_RADIUS is the radius of the generated ROI in pixels."""
 ROI_RADIUS = 8
 
+DEFAULT_INPUT_FOLDER = "/home/smlm-workstation/event-smlm/Paris/process/"
+SLICE_START = int(float(os.environ.get("PEAKLOC_SLICE_START", 300e6)))
+SLICE_DURATION = int(float(os.environ.get("PEAKLOC_SLICE_DURATION", 100e6)))
+
 """RAW recording or converted events file location."""
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw"
@@ -182,28 +186,50 @@ if __name__ == "__main__":
     #     filename = sys.argv[1]
     # else:
     #     filename = INPUT_FILE
-    folder = '/home/smlm-workstation/event-smlm/Paris/process/'
+    folder = os.environ.get("PEAKLOC_INPUT_FOLDER", DEFAULT_INPUT_FOLDER)
     # folder = '/home/smlm-workstation/event-smlm/Paris/25.05/CL/'
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(
+            f"Input folder does not exist: {folder}. Set PEAKLOC_INPUT_FOLDER."
+        )
+    if not folder.endswith(os.sep):
+        folder += os.sep
     for filename in natsorted(os.listdir(folder)):
         filename = folder + filename
-        if os.path.basename(filename)[-4:] == ".raw":
+        basename = os.path.basename(filename)
+        if basename[-4:] == ".raw":
             events = raw_events_to_array(filename).astype(
                 [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
             )
-        elif os.path.basename(filename)[-5:] == '.bias' or os.path.isdir(filename):
+        elif basename[-4:] == ".npy":
+            events = np.load(filename)
+        elif basename[-5:] == ".bias" or os.path.isdir(filename):
             continue
-        # elif os.path.basename(filename)[-4:] == ".npy":
-        #     events = np.load(filename)
-        # else:
-            #     raise ValueError("File format not recognized!")
-        for time_slice in range(int(300e6), events["t"].max(), int(100e6)):
-            slice = events[(events["t"] > time_slice - 100e6) * (events["t"] < time_slice)]
+        else:
+            continue
+        time_slices = range(SLICE_START, int(events["t"].max()), SLICE_DURATION)
+        if len(time_slices) == 0:
+            print(f"No time slices to process for {filename}")
+            continue
+        for time_slice in time_slices:
+            slice = events[
+                (events["t"] > time_slice - SLICE_DURATION)
+                * (events["t"] < time_slice)
+            ]
             main(slice, time_slice, filename)
 
         out_folder_localizations = filename[:-4] + "/"
         temp_files_localization = out_folder_localizations + "temp_files/"
 
+        if not os.path.isdir(temp_files_localization):
+            print(f"No temporary localization folder found for {filename}")
+            continue
         sorted_names = natsorted(os.listdir(temp_files_localization))
+        loc_names = [name for name in sorted_names if name.startswith("localizations")]
+        roi_names = [name for name in sorted_names if name.startswith("rois")]
+        if not loc_names or not roi_names:
+            print(f"No localization outputs found for {filename}")
+            continue
 
         id, id2 = 0, 0
         for loc_file in sorted_names:

@@ -6,18 +6,19 @@ import gc, pickle
 from joblib import Parallel, delayed
 
 
-def raw_events_to_array(filename):
-    buffer_size = 4e9
+def raw_events_to_array(filename, max_events=1_000_000):
     from metavision_core.event_io.raw_reader import RawReader
+    from metavision_sdk_base import EventCD
 
-    record_raw = RawReader(filename, max_events=int(buffer_size))
-    sums = 0
-    while not record_raw.is_done() and record_raw.current_event_index() < buffer_size:
+    record_raw = RawReader(filename, max_events=max_events)
+    event_chunks = []
+    while not record_raw.is_done():
         events = record_raw.load_delta_t(50000)
-        sums += events.size
-    record_raw.reset()
-    events = record_raw.load_n_events(sums)
-    return events
+        if events.size:
+            event_chunks.append(events.copy())
+    if not event_chunks:
+        return np.empty(0, dtype=EventCD)
+    return np.concatenate(event_chunks)
 
 
 @njit(cache=True, nogil=True, fastmath=True)
