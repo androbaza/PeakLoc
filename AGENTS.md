@@ -1,28 +1,36 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-PeakLoc is a Python 3.10 event-camera SMLM analysis pipeline. `PeakLoc.py` is the main batch entry point and writes per-recording outputs into a sibling folder plus `temp_files/`. `localization_scripts/` contains reusable processing code for event loading, peak finding, ROI generation, localization fitting, plotting, and simulation. `interface/` holds exploratory UI scripts. `figures/` stores README images. `peaks_dict_to_locs.py` reruns ROI generation/localization from an existing peaks pickle, and `clean_temp_files.py` removes generated localization/ROI arrays for a configured data directory.
+PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch workflow. `localization_scripts/` contains event parsing, peak detection, ROI generation, fitting, plotting, and simulation code. `interface/` contains exploratory UI scripts. `figures/` stores README assets. Root scripts such as `peaks_dict_to_locs.py` and `clean_temp_files.py` should stay thin.
 
-Keep raw recordings, `.bias` files, generated `.npy`/`.pkl` outputs, and machine-specific data folders out of commits.
+Keep raw recordings, `.bias` files, generated `.npy`/`.pkl` outputs, temp folders, and machine-specific paths out of commits.
 
-## Build, Test, and Development Commands
+## Environment & Commands
+Use pixi. Add dependencies with `pixi add <package>`.
+
 ```bash
-conda env create -f environment.yml -n peakloc
-conda activate peakloc
-python PeakLoc.py
-python peaks_dict_to_locs.py
-python clean_temp_files.py
-python -m compileall PeakLoc.py peaks_dict_to_locs.py clean_temp_files.py localization_scripts interface
+pixi install
+pixi run python PeakLoc.py
+pixi run python peaks_dict_to_locs.py
+pixi run pytest
+pixi run ruff check --fix .
+pixi run ruff format .
+pixi run ty check
 ```
-Use the conda commands to create and activate the pinned environment. `PeakLoc.py` runs the full pipeline; update the script-level `folder` or `INPUT_FILE` values before launching. `peaks_dict_to_locs.py` expects `INPUT_FILE` and `INPUT_FILE_PEAKS` to point to local data. Review `input_dir` before running `clean_temp_files.py`, because it deletes generated arrays. `compileall` is the current lightweight syntax check.
 
-## Coding Style & Naming Conventions
-Use 4-space indentation and PEP 8-style Python. Follow existing naming: `snake_case` for functions and variables, uppercase constants for tunable pipeline parameters such as `PROMINENCE`, `ROI_RADIUS`, and `PEAK_TIME_THRESHOLD`. Keep reusable logic in `localization_scripts/`; root-level scripts should mainly orchestrate workflows and define run-specific configuration. Preserve structured event array fields `x`, `y`, `p`, and `t` unless updating all consumers.
+`PeakLoc.py` runs the full pipeline; update paths and parameters before launch. Review `input_dir` before using `clean_temp_files.py`; it deletes generated arrays.
 
-## Testing Guidelines
-No automated test suite is currently committed. Before submitting changes, run `python -m compileall ...` and validate affected code on a small or sliced event sample. For new tests, add a `tests/` directory with `pytest` files named `test_<module>.py`; prefer tiny synthetic arrays or helpers from `localization_scripts/event_sim.py` so tests do not depend on lab-specific absolute paths.
+## Coding Policies & Style
+Target Python 3.13. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
 
-## Commit & Pull Request Guidelines
-The history uses short imperative summaries such as `add segmentation`, `fix bugs`, and `fix typo`. Keep commits concise, but make them specific enough to identify the changed behavior, for example `fix ROI bounds handling`.
+Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `snake_case` for functions and variables, `UPPER_CASE` for constants, and clear names: prefer `coefficients` over `coeffs`. Sort imports with ruff/isort. Comments should explain why, not what. Preserve event fields `x`, `y`, `p`, and `t` unless all consumers are updated together.
 
-Pull requests should include a short description, changed parameters or data assumptions, validation commands/results, and before/after figures or screenshots for visualization changes. Link related issues when available and call out any required local data paths.
+## Testing & Validation
+Use pytest. Place tests next to the module they cover, for example `localization_scripts/tests/test_peak_finding.py`; do not add a top-level `tests/` directory. New features need tests using tiny synthetic arrays or `localization_scripts/event_sim.py`. Tests must not require absolute lab paths or large raw recordings.
+
+Before finishing, run `pixi run ruff check --fix .`, `pixi run ruff format .`, and `pixi run ty check`. Run `pixi run pytest` when tests are relevant; note any known broken tests in the PR.
+
+## Workflow, Commits & PRs
+For substantial planning, write the plan as Markdown in `plans/` and include focused, atomic commits. After executing a plan, write a merge-request description in `mr-descriptions/`.
+
+Use conventional commits such as `fix: repair ROI bounds` or `feat: add sliced localization`. Apply tidy-first: separate structural cleanup from behavior changes, prefix tidy commits with `tidy:`, and do not mix tidy and behavior edits. PRs should include motivation, changed parameters or assumptions, validation results, and before/after figures for visual output changes.
