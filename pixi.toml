@@ -1,7 +1,7 @@
 [workspace]
 name = "peakloc"
 version = "0.1.0"
-description = "Minimal PeakLoc environment for Metavision OpenEB RAW reader smoke tests"
+description = "Event-camera SMLM localization pipeline"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
@@ -10,8 +10,42 @@ PYTHONPATH = "/usr/lib/python3/dist-packages"
 
 [dependencies]
 python = "3.12.*"
+awkward = "*"
+cryptography = "*"
+csaps = "*"
+h5py = "*"
+interpolation = "*"
+joblib = "*"
+matplotlib = "*"
+matplotlib-scalebar = "*"
+natsort = "*"
+numba = "*"
 numpy = "*"
-h5py = ">=3.16.0,<4"
+scikit-image = "*"
+scipy = "*"
+tifffile = "*"
+
+[feature.dev.dependencies]
+pytest = "*"
+ruff = "*"
+ty = "*"
+
+[feature.dev.tasks]
+test = "pytest"
+lint = "ruff check ."
+format = "ruff format ."
+typecheck = "ty check"
+
+[feature.ui.pypi-dependencies]
+customtkinter = "*"
+tkinter-tooltip = "*"
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+ui = { features = ["ui"], solve-group = "default" }
+all = { features = ["dev", "ui"], solve-group = "default" }
 
 [tasks]
 import-test = "python import_test.py"
+peakloc = "PEAKLOC_INPUT_FOLDER=data python PeakLoc.py"
