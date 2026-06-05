@@ -2,15 +2,27 @@
 A framework for Single Molecule Localization Microscopy using an event-based camera.
 
 ## Installation
-Clone the repository and create a conda environment with the dependencies.
+Clone the repository and install the pixi environment.
 
 `git clone https://github.com/androbaza/PeakLoc.git`
 
-`conda env create -f environment.yml -n peakloc`
+`pixi install`
+
+PeakLoc uses the Ubuntu `metavision-openeb` Python bindings for RAW file reading. On
+Ubuntu 24 these are expected under `/usr/lib/python3/dist-packages`; `pixi.toml`
+bridges that path into the pixi Python 3.12 environment.
 
 ## Usage
 
-PeakLoc.py is the main script. Input the path to the data. The script will create a folder with the same name as the file and save the localizations there. 
+PeakLoc.py is the main script. Run it through pixi:
+
+`pixi run peakloc`
+
+By default, the pixi task reads from `data/`. To process another directory, run:
+
+`PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run python PeakLoc.py`
+
+The script creates a folder with the same name as each input file and saves the localizations there. Configure `PEAKLOC_SLICE_START` and `PEAKLOC_SLICE_DURATION` to adjust time slicing.
 
 128Gb of RAM is recommended. For a full-schip (1280x720) recording of 600 seconds, the script will take about 10 minutes to run on a 24-core machine.
 

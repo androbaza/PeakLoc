@@ -10,15 +10,15 @@ Use pixi. Add dependencies with `pixi add <package>`.
 
 ```bash
 pixi install
-pixi run python PeakLoc.py
+pixi run peakloc
 pixi run python peaks_dict_to_locs.py
-pixi run pytest
-pixi run ruff check --fix .
-pixi run ruff format .
-pixi run ty check
+pixi run -e dev pytest
+pixi run -e dev ruff check --fix .
+pixi run -e dev ruff format .
+pixi run -e all ty check
 ```
 
-`PeakLoc.py` runs the full pipeline; update paths and parameters before launch. Review `input_dir` before using `clean_temp_files.py`; it deletes generated arrays.
+`PeakLoc.py` runs the full pipeline; set `PEAKLOC_INPUT_FOLDER`, `PEAKLOC_SLICE_START`, or `PEAKLOC_SLICE_DURATION` when needed. Review `input_dir` before using `clean_temp_files.py`; it deletes generated arrays.
 
 ## Coding Policies & Style
 Target Python 3.12. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
@@ -28,7 +28,7 @@ Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `sna
 ## Testing & Validation
 Use pytest. Place tests next to the module they cover, for example `localization_scripts/tests/test_peak_finding.py`; do not add a top-level `tests/` directory. New features need tests using tiny synthetic arrays or `localization_scripts/event_sim.py`. Tests must not require absolute lab paths or large raw recordings.
 
-Before finishing, run `pixi run ruff check --fix .`, `pixi run ruff format .`, and `pixi run ty check`. Run `pixi run pytest` when tests are relevant; note any known broken tests in the PR.
+Before finishing, run `pixi run -e dev ruff check --fix .`, `pixi run -e dev ruff format .`, and `pixi run -e all ty check`. Run `pixi run -e dev pytest` when tests are relevant; note any known broken tests in the PR.
 
 ## Workflow, Commits & PRs
 For substantial planning, write the plan as Markdown in `plans/` and include focused, atomic commits. After executing a plan, write a merge-request description in `mr-descriptions/`.
