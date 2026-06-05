@@ -9,7 +9,9 @@ Clone the repository and install the pixi environment.
 `pixi install`
 
 PeakLoc uses the Ubuntu `metavision-openeb` Python bindings for RAW file reading. On
-Ubuntu 24 these are expected under `/usr/lib/python3/dist-packages`; `pixi.toml`
+Ubuntu 24 these are expected under `/usr/lib/python3/dist-packages`; Installation steps: [docs.prophesee.ai](https://docs.prophesee.ai/stable/installation/linux_openeb_with_packages.html)
+
+`pixi.toml`
 bridges that path into the pixi Python 3.12 environment.
 
 ## Usage
