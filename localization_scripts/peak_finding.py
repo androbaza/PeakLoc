@@ -15,7 +15,7 @@ def find_peaks_parallel(
     num_cores: int,
     prominence: float,
     interpolation_coefficient: int,
-    spline_smooth: int,
+    spline_smooth: float,
 ):
     """
     Finds the peaks of the cumulative sum of the data and returns the ON times of the peaks, the coordinates of the peaks, and the prominences of the peaks.
@@ -61,6 +61,7 @@ def find_peaks_parallel(
 
     return RES
 
+
 def create_peak_lists(RES):
     peaks, prominences, on_times, coordinates_peaks = [], [], [], []
     for i in np.arange(len(RES)):
@@ -69,6 +70,7 @@ def create_peak_lists(RES):
         on_times.extend(RES[i][2])
         coordinates_peaks.extend(RES[i][3])
     return peaks, prominences, on_times, coordinates_peaks
+
 
 def interpolate_parallel(
     times,
@@ -86,8 +88,14 @@ def interpolate_parallel(
         if len(times[id]) < cutoff_event_count:
             id_to_delete.append(id)
             continue
-        if (id % 1e4 == 0 or id == len(times)-1) and i == 1:
-            print("completed ", int(id / len(times) * 100), " % --> ", id_peak, " peaks found in 1 of 24 slices")
+        if (id % 1e4 == 0 or id == len(times) - 1) and i == 1:
+            print(
+                "completed ",
+                int(id / len(times) * 100),
+                " % --> ",
+                id_peak,
+                " peaks found in 1 of 24 slices",
+            )
 
         """Interpolate linearly, find peaks"""
         tnew = np.linspace(
@@ -113,10 +121,14 @@ def interpolate_parallel(
         prominences.append(p_props["prominences"])
         on_times.append(on_off)
     try:
-        coordinates = np.delete(np.asarray(coordinates), np.asarray(id_to_delete, dtype=np.uint64), axis=0)
-    except:
+        coordinates = np.delete(
+            np.asarray(coordinates), np.asarray(id_to_delete, dtype=np.uint64), axis=0
+        )
+    except Exception:
         pass
-    assert len(peaks) == len(prominences) == len(on_times) == len(coordinates), f"Length check not passed: {len(peaks)}, {len(prominences)}, {len(on_times)}, {len(coordinates)}"
+    assert len(peaks) == len(prominences) == len(on_times) == len(coordinates), (
+        f"Length check not passed: {len(peaks)}, {len(prominences)}, {len(on_times)}, {len(coordinates)}"
+    )
     return peaks, prominences, on_times, coordinates
 
 
@@ -206,7 +218,7 @@ def find_local_max_peak(
     for coord, data in coords_dict.items():
         # Check if the coordinate is iterable
         try:
-            some_object_iterator = iter(coord)
+            iter(coord)
         except TypeError:
             print(coord, " is not iterable")
             continue

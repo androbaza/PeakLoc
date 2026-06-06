@@ -1,20 +1,29 @@
-import numpy as np
-from numba import njit, jit, prange
 import copy
+from typing import TYPE_CHECKING
+
+import awkward as ak
+import numpy as np
+from joblib import Parallel, delayed
+from numba import jit, njit
+from numba.typed import Dict
 from scipy.ndimage import median_filter
 from skimage.morphology import remove_small_objects
-from joblib import Parallel, delayed
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 def generate_rois(
-    unique_peaks: np.ndarray,
+    unique_peaks: dict[tuple[int, int], object],
     events_t_p_dict: dict,
     roi_rad: int,
     min_x: int,
     min_y: int,
     num_cores: int,
     max_x: int,
-    max_y: int
+    max_y: int,
 ) -> np.ndarray:
     """
     Generate ROIs from peak data.
@@ -33,7 +42,7 @@ def generate_rois(
         min_x=min_x,
         min_y=min_y,
         max_x=max_x,
-        max_y=max_y
+        max_y=max_y,
     )
 
 
@@ -92,7 +101,8 @@ def get_times_polarities(coords_dict, events_t_p_dict):
 @jit(nopython=True, cache=True)
 def generate_coord_lists(start_y, fin_y, start_x, fin_x):
     return np.array(
-        [(y, x) for x in range(start_x, fin_x + 1) for y in range(start_y, fin_y + 1)], dtype=np.uint16
+        [(y, x) for x in range(start_x, fin_x + 1) for y in range(start_y, fin_y + 1)],
+        dtype=np.uint16,
     )
 
 
@@ -133,8 +143,9 @@ def slice_t_p_dict(
     roi_rad,
     image_start,
 ):
-    new_roi, new_roi_neg = np.zeros((3, roi_rad * 2 + 1, roi_rad * 2 + 1)), np.zeros(
-        (roi_rad * 2 + 1, roi_rad * 2 + 1)
+    new_roi, new_roi_neg = (
+        np.zeros((3, roi_rad * 2 + 1, roi_rad * 2 + 1)),
+        np.zeros((roi_rad * 2 + 1, roi_rad * 2 + 1)),
     )
     total_events_roi, total_events_roi_n = 0, 0
     for id in prange(len(coord_lists)):
@@ -146,16 +157,16 @@ def slice_t_p_dict(
             times_arr, polarities_arr, row_id, id_data, time_back, time_advance, t_peak
         )
         # print(positives, negatives, (y,x))
-        new_roi[
-            0, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] += positives
+        new_roi[0, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] += (
+            positives
+        )
         new_roi[1, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] = t_1st
-        new_roi[
-            2, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] = t_last
-        new_roi_neg[
-            y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] += negatives
+        new_roi[2, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] = (
+            t_last
+        )
+        new_roi_neg[y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] += (
+            negatives
+        )
         total_events_roi += positives
         total_events_roi_n += negatives
     new_roi[1:3]
@@ -172,8 +183,7 @@ def slice_t_p_dict(
         (center_coord[0] - image_start[0], center_coord[1] - image_start[1]),
     )
 
-from numba.typed import Dict
-import awkward as ak
+
 def gen_rois_from_peaks_dict(
     coords_dict,
     dict_indices,
@@ -184,7 +194,7 @@ def gen_rois_from_peaks_dict(
     roi_rad=5,
     image_start=(0, 0),
     i=1,
-    ):
+):
     id_data = 0
     id_loc = 0
     rois_list = []
@@ -196,10 +206,21 @@ def gen_rois_from_peaks_dict(
     awk_polarities = ak.Array(polarities_arr)
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
-        if (id_data % 2e3 == 0 or id_data == all-1) and i == 1:
-            print("completed ", int(id_data / all * 100), " % --> ~", id_loc*10, " localizations found")
+        if (id_data % 2e3 == 0 or id_data == all - 1) and i == 1:
+            print(
+                "completed ",
+                int(id_data / all * 100),
+                " % --> ~",
+                id_loc * 10,
+                " localizations found",
+            )
         y, x = center_coord
-        if y - roi_rad/2 < 0 or x - roi_rad/2 < 0 or y + roi_rad/2 > max_y or x + roi_rad/2 > max_x:
+        if (
+            y - roi_rad / 2 < 0
+            or x - roi_rad / 2 < 0
+            or y + roi_rad / 2 > max_y
+            or x + roi_rad / 2 > max_x
+        ):
             continue
         coord_list = generate_coord_lists(
             y - roi_rad, y + roi_rad, x - roi_rad, x + roi_rad
@@ -280,7 +301,7 @@ def generate_rois_parallel(
             roi_rad=roi_rad,
             image_start=(min_y, min_x),
             max_x=max_x,
-            max_y=max_y
+            max_y=max_y,
         )
         for i in range(len(sliced_dict))
     )
