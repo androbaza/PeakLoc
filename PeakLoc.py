@@ -235,8 +235,7 @@ if __name__ == "__main__":
             continue
         for time_slice in time_slices:
             slice = events[
-                (events["t"] > time_slice - SLICE_DURATION)
-                * (events["t"] < time_slice)
+                (events["t"] > time_slice - SLICE_DURATION) * (events["t"] < time_slice)
             ]
             main(slice, time_slice, filename)
 
@@ -253,27 +252,31 @@ if __name__ == "__main__":
             print(f"No localization outputs found for {filename}")
             continue
 
-        id, id2 = 0, 0
+        localizations_full_list = None
+        rois_full_list = None
         for loc_file in sorted_names:
             if loc_file.startswith("localizations"):
                 locs_slice = np.load(temp_files_localization + loc_file)
-                if id != 0:
+                if localizations_full_list is not None:
                     locs_slice["id"] += np.max(localizations_full_list["id"])
                 localizations_full_list = (
                     np.concatenate((localizations_full_list, locs_slice))
-                    if id != 0
+                    if localizations_full_list is not None
                     else locs_slice
                 )
-                id += 1
                 # np.delete(temp_files_localization + loc_file)
             elif loc_file.startswith("rois"):
                 rois_slice = np.load(temp_files_localization + loc_file)
                 rois_full_list = (
-                    np.concatenate((rois_full_list, rois_slice)) if id2 != 0 else rois_slice
+                    np.concatenate((rois_full_list, rois_slice))
+                    if rois_full_list is not None
+                    else rois_slice
                 )
-                id2 += 1
                 # np.delete(temp_files_localization + loc_file)
-            
+
+        if localizations_full_list is None or rois_full_list is None:
+            print(f"No localization outputs found for {filename}")
+            continue
 
         np.save(
             out_folder_localizations
@@ -296,4 +299,6 @@ if __name__ == "__main__":
         )
 
         for loc_file in sorted_names:
-            os.remove(temp_files_localization + loc_file) if loc_file.startswith("localizations") or loc_file.startswith("rois") else None
+            os.remove(temp_files_localization + loc_file) if loc_file.startswith(
+                "localizations"
+            ) or loc_file.startswith("rois") else None
