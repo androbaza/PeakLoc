@@ -60,7 +60,7 @@ If `PeakLoc.py` remains path-configured internally, document that `folder` or in
 Use import-level checks before running expensive localization:
 
 ```bash
-pixi run python -c "from localization_scripts.imports import *"
+pixi run python -c "import PeakLoc"
 pixi run python -m py_compile PeakLoc.py peaks_dict_to_locs.py localization_scripts/*.py
 pixi run import-test
 ```
@@ -94,7 +94,7 @@ After `pixi run peakloc` reaches the same import/runtime point as the conda envi
 ## Validation Checklist
 - `pixi install`
 - `pixi run import-test`
-- `pixi run python -c "from localization_scripts.imports import *"`
+- `pixi run python -c "import PeakLoc"`
 - `pixi run python -m py_compile PeakLoc.py peaks_dict_to_locs.py clean_temp_files.py localization_scripts/*.py`
 - `pixi run peakloc` against a known small RAW file or a short sliced dataset
 - `pixi run ruff check .`

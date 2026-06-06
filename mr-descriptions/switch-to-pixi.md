@@ -14,7 +14,7 @@ Passed:
 ```bash
 pixi install
 pixi run import-test
-pixi run python -c "from localization_scripts.imports import *; print('peakloc imports ok')"
+pixi run python -c "import PeakLoc; print('peakloc imports ok')"
 pixi run python -m py_compile PeakLoc.py peaks_dict_to_locs.py clean_temp_files.py import_test.py localization_scripts/*.py
 pixi run peakloc
 ```

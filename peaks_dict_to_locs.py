@@ -1,4 +1,17 @@
-from localization_scripts.imports import *
+import gc
+import multiprocessing
+import os
+import time
+
+import numpy as np
+
+from localization_scripts.event_array_processing import (
+    array_to_time_map,
+    load_dict,
+    raw_events_to_array,
+)
+from localization_scripts.localization_fitting import perfrom_localization_parallel
+from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 
 """
 if the system complains about memory, run the following command:
@@ -25,12 +38,12 @@ ROI_RADIUS = 8
 
 """RAW recording or converted events file location."""
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-04-01.505Z.raw" 
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-25-34.554Z.raw" 
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-04-01.505Z.raw"
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-25-34.554Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-44-30.494Z.raw" #crashes
 
-#MT
+# MT
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-54-31.417Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-33-27.882Z.raw"
 
@@ -38,14 +51,14 @@ ROI_RADIUS = 8
 # INPUT_FILE_PEAKS = '/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z/unique_peaks_fwhm_7_prominence_12.pkl'
 
 INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-33-27.882Z.raw"
-INPUT_FILE_PEAKS = '/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z/unique_peaks_fwhm_7_prominence_15.pkl'
+INPUT_FILE_PEAKS = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z/unique_peaks_fwhm_7_prominence_15.pkl"
 
-#MT+CL
+# MT+CL
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-04-58.785Z.raw" #error in process conv list
 
 
-#CL
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw" 
+# CL
+# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw"
 
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
@@ -69,7 +82,7 @@ min_x = events["x"].min()
 min_y = events["y"].min()
 max_x = events["x"].max()
 max_y = events["y"].max()
-events = events[events['t'] < 550e6]
+events = events[events["t"] < 550e6]
 
 # Create coordinate lists
 y_coords, x_coords = [min_y, max_y], [min_x, max_x]
@@ -98,8 +111,8 @@ rois = generate_rois(
     min_x=min_x,
     min_y=min_y,
     num_cores=NUM_CORES,
-    max_x = max_x,
-    max_y = max_y,
+    max_x=max_x,
+    max_y=max_y,
 )
 
 print(
@@ -112,8 +125,8 @@ print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
 
 np.save(
     out_folder_localizations
-    + "localizations_prominence_fwhm_" 
-    + str(DATASEET_FWHM) 
+    + "localizations_prominence_fwhm_"
+    + str(DATASEET_FWHM)
     + "_prominence_"
     + str(PROMINENCE)
     + ".npy",
@@ -121,8 +134,8 @@ np.save(
 )
 np.save(
     out_folder_localizations
-    + "rois_prominence_fwhm_" 
-    + str(DATASEET_FWHM) 
+    + "rois_prominence_fwhm_"
+    + str(DATASEET_FWHM)
     + "_prominence_"
     + str(PROMINENCE)
     + ".npy",
