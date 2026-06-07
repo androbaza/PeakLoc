@@ -31,9 +31,9 @@ def generate_rois(
     Generate ROIs from peak data.
     """
     sliced_dict = split_dict_to_multiple(unique_peaks, num_cores)
-    coords_dicts = list(unique_peaks.keys())
-    dict_indices = tuples_to_dict(coords_dicts)
-    times_arr, polarities_arr = get_times_polarities(coords_dicts, events_t_p_dict)
+    event_coords = list(events_t_p_dict.keys())
+    dict_indices = tuples_to_dict(event_coords)
+    times_arr, polarities_arr = get_times_polarities(event_coords, events_t_p_dict)
     return generate_rois_parallel(
         sliced_dict,
         num_cores,
@@ -165,7 +165,7 @@ def slice_t_p_dict(
     t_first_roi, t_last_roi = 0, 0
     for id in range(len(coord_lists)):
         y, x = coord_lists[id]
-        if (y, x) not in dict_indices:  # peaks, but need other pixels too
+        if (y, x) not in dict_indices:
             continue
         row_id = dict_indices[(y, x)]
         positives, negatives, t_1st, t_last = count_values_in_range(
