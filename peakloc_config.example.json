@@ -1,0 +1,17 @@
+{
+  "input_folder": "data",
+  "slice_start": 0,
+  "slice_duration": 100000000,
+  "num_cores": 24,
+  "prominence": 12.0,
+  "dataset_fwhm": 6.0,
+  "peak_time_threshold": 40000.0,
+  "peak_neighbors": 9,
+  "roi_radius": 8,
+  "convolution_roi_radius": 1,
+  "interpolation_coefficient": 5,
+  "spline_smooth": 0.7,
+  "plot_subplotsize": 6,
+  "max_raw_events": 1000000,
+  "cleanup_temp_outputs": true
+}
