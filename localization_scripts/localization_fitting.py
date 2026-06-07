@@ -129,7 +129,9 @@ def concatenate_locs(localized_data):
     return concatenated_data
 
 
-def perfrom_localization_parallel(rois: np.ndarray, dataset_FWHM: float = 5.5):
+def perfrom_localization_parallel(
+    rois: np.ndarray, dataset_FWHM: float = 5.5, num_cores: int | None = None
+):
     """
     Performs localization of ROIs on a given image.
 
@@ -142,9 +144,9 @@ def perfrom_localization_parallel(rois: np.ndarray, dataset_FWHM: float = 5.5):
     -------
     list of ROIs (each ROI is a list of coordinates)
     """
-    num_cores = multiprocessing.cpu_count()
-    rois = slice_data(rois, num_cores)
-    RES = Parallel(n_jobs=num_cores)(
+    n_jobs = multiprocessing.cpu_count() if num_cores is None else num_cores
+    rois = slice_data(rois, n_jobs)
+    RES = Parallel(n_jobs=n_jobs)(
         delayed(localize_MLE)(rois[i], dataset_FWHM=dataset_FWHM)
         for i in range(len(rois))
     )
