@@ -33,8 +33,8 @@ NUM_CORES = multiprocessing.cpu_count()
 Smaller value detects more peaks, increasing the evaluation time."""
 PROMINENCE = 12
 
-"""DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 6
+"""DATASET_FWHM is the FWHM of the PSF in the dataset in pixels."""
+DATASET_FWHM = 6
 
 """PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
 PEAK_TIME_THRESHOLD = 40e3
@@ -46,7 +46,7 @@ PEAK_NEIGHBORS = 9
 ROI_RADIUS = 8
 
 DEFAULT_INPUT_FOLDER = "/home/smlm-workstation/event-smlm/Paris/process/"
-SLICE_START = int(float(os.environ.get("PEAKLOC_SLICE_START", 300e6)))
+SLICE_START = int(float(os.environ.get("PEAKLOC_SLICE_START", 0)))
 SLICE_DURATION = int(float(os.environ.get("PEAKLOC_SLICE_DURATION", 100e6)))
 
 """RAW recording or converted events file location."""
@@ -77,7 +77,7 @@ SLICE_DURATION = int(float(os.environ.get("PEAKLOC_SLICE_DURATION", 100e6)))
 
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-01-15.299Z.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T10-33-08.518Z.raw"
-INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/25.05/MT_CL/recording_2023-05-25T09-42-18.758Z.raw"
+INPUT_FILE = "data/AF647_coverslip.raw"
 
 # CL
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw"
@@ -153,7 +153,7 @@ def main(slice, time_slice, filename):
         unique_peaks,
         temp_files_localization
         + "unique_peaks_fwhm_"
-        + str(DATASEET_FWHM)
+        + str(DATASET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
         + "_time_slice_"
@@ -176,13 +176,13 @@ def main(slice, time_slice, filename):
     print(
         f"Performing localization... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASEET_FWHM)
+    localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASET_FWHM)
 
     print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
     np.save(
         temp_files_localization
         + "localizations_prominence_fwhm_"
-        + str(DATASEET_FWHM)
+        + str(DATASET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
         + "_time_slice_"
@@ -193,7 +193,7 @@ def main(slice, time_slice, filename):
     np.save(
         temp_files_localization
         + "rois_prominence_fwhm_"
-        + str(DATASEET_FWHM)
+        + str(DATASET_FWHM)
         + "_prominence_"
         + str(PROMINENCE)
         + "_time_slice_"
@@ -281,7 +281,7 @@ if __name__ == "__main__":
         np.save(
             out_folder_localizations
             + "localizations_prominence_fwhm_"
-            + str(DATASEET_FWHM)
+            + str(DATASET_FWHM)
             + "_prominence_"
             + str(PROMINENCE)
             + ".npy",
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         np.save(
             out_folder_localizations
             + "rois_prominence_fwhm_"
-            + str(DATASEET_FWHM)
+            + str(DATASET_FWHM)
             + "_prominence_"
             + str(PROMINENCE)
             + ".npy",
