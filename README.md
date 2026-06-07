@@ -68,7 +68,7 @@ The main result file is
 structured NumPy array with one fitted event-localization row per blink. The main
 coordinate fields are `x` and `y` in camera pixels. If `double == 1`, the
 secondary fitted component is stored in `x2` and `y2`. Convert coordinates to nm
-with `config.json` field `optical_pixel_size_nm` (67 nm by default). Other useful
+with `config.json` field `optical_pixel_size` (67 nm by default). Other useful
 fields include `t_peak`, `t_1st`, `t_last`, `I`, `FWHM`, `rms`, `E_total`, and the
 corresponding negative-polarity fit fields ending in `_n`.
 

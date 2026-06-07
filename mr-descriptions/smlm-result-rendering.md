@@ -9,7 +9,7 @@ coordinate conversion.
 
 ## Changes
 
-- Added `optical_pixel_size_nm` to `config.json` and `PeakLocConfig`, defaulting
+- Added `optical_pixel_size` to `config.json` and `PeakLocConfig`, defaulting
   to 67 nm.
 - Added `plot_result` to `config.json` and `PeakLocConfig`, defaulting to `true`.
 - Added reusable SMLM rendering helpers in

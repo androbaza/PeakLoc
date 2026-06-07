@@ -35,7 +35,7 @@ class PeakLocConfig:
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
     plot_result: bool = True
-    optical_pixel_size_nm: float = 67.0
+    optical_pixel_size: float = 67.0
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
 
@@ -89,7 +89,7 @@ class PeakLocConfig:
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
-        _require_positive("optical_pixel_size_nm", self.optical_pixel_size_nm)
+        _require_positive("optical_pixel_size", self.optical_pixel_size)
         _require_positive("max_raw_events", self.max_raw_events)
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
@@ -98,6 +98,10 @@ class PeakLocConfig:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def optical_pixel_size_nm(self) -> float:
+        return self.optical_pixel_size
 
 
 def load_peakloc_config(
