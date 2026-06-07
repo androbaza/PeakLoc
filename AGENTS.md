@@ -33,4 +33,4 @@ Before finishing, run `pixi run -e dev ruff check --fix .`, `pixi run -e dev ruf
 ## Workflow, Commits & PRs
 For substantial planning, write the plan as Markdown in `plans/` and include focused, atomic commits. After executing a plan, write a merge-request description in `mr-descriptions/`.
 
-Use conventional commits such as `fix: repair ROI bounds` or `feat: add sliced localization`. Apply tidy-first: separate structural cleanup from behavior changes, prefix tidy commits with `tidy:`, and do not mix tidy and behavior edits. PRs should include motivation, changed parameters or assumptions, validation results, and before/after figures for visual output changes.
+Use conventional commits such as `fix: repair ROI bounds` or `feat: add sliced localization`. Apply tidy-first: separate structural cleanup from behavior changes, prefix tidy commits with `tidy:`, and do not mix tidy and behavior edits. PRs should include motivation, changed parameters or assumptions, validation results, and before/after figures for visual output changes. Always commit the changes, unless asked not to.

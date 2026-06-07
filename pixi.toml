@@ -30,7 +30,7 @@ ty = "*"
 
 [feature.dev.tasks]
 test = "pytest"
-lint = "ruff check ."
+lint = "ruff check --fix ."
 format = "ruff format ."
 typecheck = "ty check"
 
