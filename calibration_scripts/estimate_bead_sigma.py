@@ -69,7 +69,11 @@ def main() -> None:
         description="Estimate empirical PeakLoc sigma_psf_px from isolated bead ROIs."
     )
     parser.add_argument("rois_path", type=Path)
-    parser.add_argument("--output", type=Path, default=Path("calibration_scripts/bead_sigma_estimate.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("calibration_scripts/bead_sigma_estimate.json"),
+    )
     parser.add_argument(
         "--dataset-name", default="Beads40nm_coverslip_standard_sensitivity"
     )
