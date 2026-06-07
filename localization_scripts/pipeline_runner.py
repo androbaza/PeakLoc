@@ -172,6 +172,7 @@ def process_time_slice(
         num_cores=config.num_cores,
         max_x=max_x,
         max_y=max_y,
+        polarity_time_gate_us=config.polarity_time_gate_us,
     )
 
     logger.info(

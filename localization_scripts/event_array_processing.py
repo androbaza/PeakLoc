@@ -52,7 +52,7 @@ def array_to_polarity_map(arr, coords):
     dict_out = {}
     for id in prange(len(coords)):
         y, x = coords[id]
-        key = (y, x)
+        key = (np.int32(y), np.int32(x))
         if key in dict_out:
             continue
         else:
@@ -62,7 +62,7 @@ def array_to_polarity_map(arr, coords):
             }
     max_len = 0
     for id in prange(len(arr)):
-        key = (arr[id]["y"], arr[id]["x"])
+        key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
         if len(dict_out[key][1]) > max_len:
             max_len = len(dict_out[key][1])
@@ -79,7 +79,7 @@ def array_to_time_map(arr):
     """
     dict_out = {}
     for id in prange(len(arr)):
-        key = (arr[id]["y"], arr[id]["x"])
+        key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
         if key in dict_out:
             dict_out[key][arr[id]["t"]] = arr[id]["p"]
         else:
@@ -133,7 +133,7 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
     cumsum = np.empty(shape=(len(coords_split), max_len), dtype=np.int32)
     lengths = np.empty(shape=(len(coords_split)), dtype=np.uint32)
-    coords = np.empty(shape=(len(coords_split), 2), dtype=np.uint16)
+    coords = np.empty(shape=(len(coords_split), 2), dtype=np.int32)
     for coord_pair in prange(len(coords_split)):
         coord_convolution_events = append_conv_data(
             coords_split[coord_pair], roi_rad, events_dict

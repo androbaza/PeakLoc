@@ -186,7 +186,7 @@ def localize_MLE(rois_list, dataset_FWHM):
                 ("I", np.float32),
                 ("FWHM", np.float32),
                 ("rms", np.float32),
-                ("E_total", np.uint16),
+                ("E_total", np.uint64),
                 ("sub_x", np.float64),
                 ("sub_y", np.float64),
                 ("t_1st", np.float64),
@@ -200,15 +200,15 @@ def localize_MLE(rois_list, dataset_FWHM):
                 ("I_n", np.float32),
                 ("FWHM_n", np.float32),
                 ("rms_n", np.float32),
-                ("E_total_n", np.uint16),
+                ("E_total_n", np.uint64),
                 ("sub_x_n", np.float64),
                 ("sub_y_n", np.float64),
                 ("t_last", np.float64),
                 # roi
                 ("roi_event_times", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
                 ("roi_event_times_n", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi_n", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+                ("roi", np.uint32, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
+                ("roi_n", np.uint32, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
             ],
         )
 

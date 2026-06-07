@@ -28,6 +28,7 @@ class PeakLocConfig:
     prominence: float = 12.0
     dataset_fwhm: float = 6.0
     peak_time_threshold: float = 40e3
+    polarity_time_gate_us: float = 5e3
     peak_neighbors: int = 9
     roi_radius: int = 8
     convolution_roi_radius: int = 1
@@ -95,6 +96,7 @@ class PeakLocConfig:
         _require_positive("prominence", self.prominence)
         _require_positive("dataset_fwhm", self.dataset_fwhm)
         _require_positive("peak_time_threshold", self.peak_time_threshold)
+        _require_non_negative("polarity_time_gate_us", self.polarity_time_gate_us)
         _require_positive("peak_neighbors", self.peak_neighbors)
         _require_positive("roi_radius", self.roi_radius)
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
