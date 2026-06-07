@@ -307,7 +307,7 @@ def process_recording(
         if loc_file.startswith("localizations"):
             locs_slice = np.load(loc_path)
             if localizations_full_list is not None:
-                locs_slice["id"] += np.max(localizations_full_list["id"])
+                locs_slice["id"] += int(np.max(localizations_full_list["id"])) + 1
             localizations_full_list = (
                 np.concatenate((localizations_full_list, locs_slice))
                 if localizations_full_list is not None
