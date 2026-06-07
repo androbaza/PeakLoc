@@ -30,7 +30,7 @@ from localization_scripts.peak_finding import (
     group_timestamps_by_coordinate,
 )
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
-from localization_scripts.plotting_functions import plot_3d_time, plot_rois_from_locs
+from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 
 
@@ -353,29 +353,6 @@ def save_processed_plots(
         artifacts.append(roi_fit_path)
         logger.info("Saved ROI fit plot to {}", roi_fit_path)
 
-    localization = next(
-        (
-            loc
-            for loc in localizations
-            if np.any(loc["roi_event_times"]) and np.any(loc["roi_event_times_n"])
-        ),
-        None,
-    )
-    if localization is None:
-        logger.info("Skipping ROI event-time plot because no timed ROI data was found")
-        return artifacts
-
-    roi_time_figure = plot_3d_time(
-        localization["roi_event_times"],
-        localization["roi_event_times_n"],
-    )
-    if roi_time_figure is None:
-        return artifacts
-    roi_time_path = figure_folder / f"roi_event_times_{timestamp}.png"
-    roi_time_figure.savefig(roi_time_path, dpi=300, bbox_inches="tight")
-    plt.close(roi_time_figure)
-    artifacts.append(roi_time_path)
-    logger.info("Saved ROI event-time plot to {}", roi_time_path)
     return artifacts
 
 

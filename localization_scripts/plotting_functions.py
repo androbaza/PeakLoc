@@ -288,7 +288,6 @@ def plot_rois_from_locs(
         return None
 
     subplot_index = 0
-    roi_rad = rois_list["roi"][0].shape[0] // 2
     fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20), squeeze=False)
     fig.tight_layout()
     for ax in axs.ravel():
@@ -315,14 +314,6 @@ def plot_rois_from_locs(
                 rois_list["sub_y"][id],
                 rois_list["FWHM"][id],
             )
-            roi_ft = np.fft.fft2(roi)
-            y_posp, x_posp = (
-                est_coord(roi_ft, (1, 0), roi_rad),
-                est_coord(roi_ft, (0, 1), roi_rad),
-            )
-            cmy, cmx = center_of_mass(roi)
-            plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
-            plt.scatter(cmy, cmx, c="r", s=140, marker="x")
             plt.contour(fit(*np.indices(roi.shape)))
             plt.scatter(
                 rois_list["sub_y"][id],
