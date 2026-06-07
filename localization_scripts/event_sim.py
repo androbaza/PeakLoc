@@ -1,6 +1,7 @@
-import numpy as np
 from types import SimpleNamespace
+
 import matplotlib.pyplot as plt
+import numpy as np
 # from numba import njit, prange, set_num_threads
 
 EVENT_TYPE = np.dtype([("t", "f8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True)
@@ -87,10 +88,12 @@ def plot_bar3d_from_2d_image(intensities):
     dx = 0.5 * np.ones_like(zpos)
     dy = dx.copy()
     dz = intensities.flatten()
-    colors = plt.cm.viridis(dz / dz.max())
-    img = ax.bar3d(
-        xpos, ypos, zpos, dx, dy, dz, alpha=1, color=colors, edgecolor="gray"
+    max_intensity = dz.max()
+    normalized_intensities = (
+        np.zeros_like(dz) if max_intensity <= 0 else dz / max_intensity
     )
+    colors = plt.get_cmap("viridis")(normalized_intensities)
+    ax.bar3d(xpos, ypos, zpos, dx, dy, dz, alpha=1, color=colors, edgecolor="gray")
 
     # set axis labels and title
     ax.set_xlabel("x position, (a.u.)")
@@ -126,7 +129,7 @@ def esim(
 ):
     count = 0
     # max_spikes = int(delta_time / (refractory_period_ns * 1e-3))
-    max_spikes = 10e6
+    max_spikes = 10_000_000
     for x in np.arange(x_end):
         itdt = np.log(current_image[x])
         it = np.log(previous_image[x])
@@ -271,14 +274,14 @@ def plot_event_sim_to_2gaussian(image_sequence, time_sequence, EventSimulator):
     plt.rcParams["axes.grid"] = False
     EventSimulator.image_callback(np.zeros_like(image_sequence[0]) + 0.001, 0)
 
-    l = 0
-    for id, i in enumerate(image_sequence):
-        plt.subplot(2, 4, l + 1)
-        maxval = np.amax(i)
+    subplot_index = 0
+    for id, image in enumerate(image_sequence):
+        plt.subplot(2, 4, subplot_index + 1)
+        maxval = np.amax(image)
         if maxval < 1:
             maxval = 100
         # if id==2: imm = plt.imshow(i, cmap='gray', vmax=60, vmin=0)
-        imm = plt.imshow(i, cmap="gray", vmax=maxval, vmin=0)
+        imm = plt.imshow(image, cmap="gray", vmax=maxval, vmin=0)
         plt.xticks(np.arange(0, 21, 5))
         plt.yticks(np.arange(0, 21, 5))
 
@@ -286,12 +289,11 @@ def plot_event_sim_to_2gaussian(image_sequence, time_sequence, EventSimulator):
             cbar = fig.colorbar(imm, fraction=0.029, pad=-0.0001, aspect=33.5)
             cbar.ax.get_yaxis().labelpad = 11
             cbar.ax.set_ylabel("Intensity, (a.u.)", rotation=270)
-            cbar.outline.set_visible(False)
 
-        event_img, events = EventSimulator.image_callback(i, time_sequence[id])
-        plt.subplot(2, 4, l + 1 + 4)
+        _, events = EventSimulator.image_callback(image, time_sequence[id])
+        plt.subplot(2, 4, subplot_index + 1 + 4)
         if events is not None:
-            im_ev2 = generate_single_frame(events, i)
+            im_ev2 = generate_single_frame(events, image)
             mask = im_ev2 < 0
             im_ev2[mask] -= 40
 
@@ -312,7 +314,6 @@ def plot_event_sim_to_2gaussian(image_sequence, time_sequence, EventSimulator):
                 cbar = fig.colorbar(imm2, fraction=0.029, pad=-0.0001, aspect=33.5)
                 cbar.ax.get_yaxis().labelpad = 11
                 cbar.ax.set_ylabel("# of events, (a.u.)", rotation=270)
-                cbar.outline.set_visible(False)
-        l += 1
+        subplot_index += 1
 
     return fig

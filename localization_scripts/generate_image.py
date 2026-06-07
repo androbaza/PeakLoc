@@ -261,6 +261,10 @@ def drift_correction(
         shifts[:, -1], shifts[:, 1], kind="quadratic", fill_value="extrapolate"
     )
     if mode == "crop":
+        if out_loc is None:
+            raise ValueError(
+                "out_loc must be provided when drift correction mode is 'crop'"
+            )
         localizations = np.copy(out_loc)
         pixel_dim = pixel_dim_out
     data_interp = np.arange(0, len(localizations), 1)
@@ -286,7 +290,8 @@ def drift_correction(
 
 
 def FRC_split(localizations, pixel_dim=0.3):
-    data_shuffle = np.random.shuffle(localizations)
+    data_shuffle = np.copy(localizations)
+    np.random.shuffle(data_shuffle)
     s1, s2 = (
         data_shuffle[len(localizations) // 2 :],
         data_shuffle[: len(localizations) // 2],
