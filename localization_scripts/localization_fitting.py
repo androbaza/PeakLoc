@@ -1,10 +1,18 @@
+import multiprocessing
+from typing import TYPE_CHECKING
+
+import numpy as np
+from joblib import Parallel, delayed
+from numba import jit
 from scipy.ndimage import center_of_mass
 from scipy.optimize import least_squares
-import numpy as np
-from numba import jit, prange
-import multiprocessing
-from joblib import Parallel, delayed
+
 from localization_scripts.event_array_processing import slice_data
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 def gaussian2D(height, center_x, center_y, width):

@@ -1,13 +1,20 @@
 import gc
+from importlib import import_module
 import pickle
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-from numba import njit, prange, types
+from numba import njit, types
 from numba.typed import Dict, List
 
 from localization_scripts.roi_generation import generate_coord_lists
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 OPENEB_SYSTEM_SITE_PACKAGES = Path("/usr/lib/python3/dist-packages")
@@ -22,8 +29,8 @@ def add_openeb_system_site_packages() -> None:
 def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
     add_openeb_system_site_packages()
 
-    from metavision_core.event_io.raw_reader import RawReader
-    from metavision_sdk_base import EventCD
+    RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
+    EventCD = import_module("metavision_sdk_base").EventCD
 
     record_raw = RawReader(filename, max_events=max_events)
     event_chunks = []

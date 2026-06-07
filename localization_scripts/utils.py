@@ -1,7 +1,14 @@
-from numba import njit, prange, jit
-from numba.typed import List
-import numpy as np
 from collections import defaultdict
+from typing import TYPE_CHECKING
+
+import numpy as np
+from numba import jit, njit
+from numba.typed import List
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 def ndarray_to_dict_t_p_python(arr):
