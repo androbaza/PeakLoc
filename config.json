@@ -4,7 +4,7 @@
   "slice_duration": 100000000,
   "num_cores": 4,
   "prominence": 12.0,
-  "dataset_fwhm": 6.0,
+  "dataset_fwhm": 4.01,
   "peak_time_threshold": 40000.0,
   "peak_neighbors": 9,
   "roi_radius": 8,
