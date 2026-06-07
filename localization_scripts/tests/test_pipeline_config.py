@@ -38,6 +38,20 @@ def test_load_peakloc_config_from_json_and_environment_override(tmp_path):
     assert config.num_cores == 2
 
 
+def test_load_peakloc_config_uses_root_config_by_default(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"input_folder": "from-default-config", "num_cores": 1}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    config = load_peakloc_config(environ={})
+
+    assert config.input_folder == "from-default-config"
+    assert config.num_cores == 1
+
+
 def test_peakloc_config_rejects_unknown_settings():
     with pytest.raises(ValueError, match="Unknown PeakLoc config setting"):
         PeakLocConfig.from_mapping({"not_a_setting": 1})

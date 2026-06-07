@@ -10,6 +10,7 @@ from typing import Any, Mapping, Self
 
 DEFAULT_INPUT_FOLDER = "/home/smlm-workstation/event-smlm/Paris/process/"
 DEFAULT_SLICE_DURATION = int(100e6)
+DEFAULT_CONFIG_PATH = Path("config.json")
 
 ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_INPUT_FOLDER": "input_folder",
@@ -101,6 +102,8 @@ def load_peakloc_config(
     path = Path(config_path) if config_path is not None else None
     if path is None and source.get("PEAKLOC_CONFIG"):
         path = Path(source["PEAKLOC_CONFIG"])
+    if path is None and DEFAULT_CONFIG_PATH.is_file():
+        path = DEFAULT_CONFIG_PATH
     config = PeakLocConfig.from_json(path) if path is not None else PeakLocConfig()
     return config.with_environment_overrides(source)
 

@@ -11,7 +11,8 @@ artifacts.
 ## Changes
 
 - Added `PeakLocConfig` in `localization_scripts/pipeline_config.py`.
-- Added `--config <path>` and `PEAKLOC_CONFIG` support for JSON configuration.
+- Added default root `config.json`, `--config <path>`, and `PEAKLOC_CONFIG`
+  support for JSON configuration.
 - Preserved existing environment overrides for `PEAKLOC_INPUT_FOLDER`,
   `PEAKLOC_SLICE_START`, and `PEAKLOC_SLICE_DURATION`.
 - Refactored `PeakLoc.py` to pass configuration into peak finding, ROI
@@ -19,7 +20,7 @@ artifacts.
 - Added per-recording Markdown reports in `reports/` with settings, counts,
   timings, and artifact paths.
 - Added effective settings snapshots in `reports/` as pretty-printed JSON.
-- Added `peakloc_config.example.json` and focused config tests.
+- Added root `config.json` and focused config tests.
 
 ## Assumptions
 
