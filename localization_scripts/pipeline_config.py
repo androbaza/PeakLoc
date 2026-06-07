@@ -38,6 +38,17 @@ class PeakLocConfig:
     optical_pixel_size: float = 67.0
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
+    fit_model: str = "legacy_lsq"
+    allow_uncalibrated: bool = True
+    calibration_path: str | None = None
+    sigma_psf_px: float | None = None
+    fit_sigma: bool = False
+    psf_model: str = "pixel_integrated_gaussian"
+    background_mode: str = "calibrated_plus_local"
+    hot_pixel_policy: str = "mask"
+    min_events_pos: int = 3
+    min_events_neg: int = 3
+    max_fit_cond: float = 1e10
 
     @classmethod
     def from_json(cls, path: str | Path) -> Self:
@@ -91,10 +102,31 @@ class PeakLocConfig:
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)
         _require_positive("max_raw_events", self.max_raw_events)
+        _require_positive("min_events_pos", self.min_events_pos)
+        _require_positive("min_events_neg", self.min_events_neg)
+        _require_positive("max_fit_cond", self.max_fit_cond)
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
+        _require_bool("allow_uncalibrated", self.allow_uncalibrated)
+        _require_bool("fit_sigma", self.fit_sigma)
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
+        if self.fit_model not in {"legacy_lsq", "poisson_joint"}:
+            raise ValueError("fit_model must be 'legacy_lsq' or 'poisson_joint'")
+        if self.psf_model != "pixel_integrated_gaussian":
+            raise ValueError("psf_model must be 'pixel_integrated_gaussian'")
+        if self.background_mode not in {"calibrated_plus_local", "local_only"}:
+            raise ValueError(
+                "background_mode must be 'calibrated_plus_local' or 'local_only'"
+            )
+        if self.hot_pixel_policy != "mask":
+            raise ValueError("hot_pixel_policy must be 'mask'")
+        if self.sigma_psf_px is not None:
+            _require_positive("sigma_psf_px", self.sigma_psf_px)
+        if self.calibration_path is None and not self.allow_uncalibrated:
+            raise ValueError(
+                "calibration_path is required when allow_uncalibrated is false"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

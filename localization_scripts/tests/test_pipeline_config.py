@@ -73,6 +73,17 @@ def test_peakloc_config_validates_boolean_parameters():
         PeakLocConfig.from_mapping({"plot_result": "yes"})
 
 
+def test_peakloc_config_validates_event_model_settings():
+    with pytest.raises(ValueError, match="fit_model must be"):
+        PeakLocConfig.from_mapping({"fit_model": "not-a-model"})
+
+    with pytest.raises(ValueError, match="calibration_path is required"):
+        PeakLocConfig.from_mapping({"allow_uncalibrated": False})
+
+    with pytest.raises(ValueError, match="sigma_psf_px must be positive"):
+        PeakLocConfig.from_mapping({"sigma_psf_px": 0})
+
+
 def test_write_effective_config_is_human_readable_json(tmp_path):
     output_path = tmp_path / "reports" / "settings.json"
     config = PeakLocConfig(input_folder="data", num_cores=1)
