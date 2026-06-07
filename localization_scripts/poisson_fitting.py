@@ -7,7 +7,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import gammaln
 
-from localization_scripts.calibration import EventCalibration
+from localization_scripts.calibration import EventCalibration, RoiCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.psf_model import (
     finite_difference_psf_derivatives,
@@ -70,6 +70,14 @@ def fit_joint_poisson_roi(
         dt_neg_s,
     )
     valid_mask = roi_calibration.valid_mask
+    if roi_calibration.valid_pixel_count < config.min_valid_pixels:
+        return _failed_fit_result(
+            status="too_few_valid_pixels",
+            sigma_psf_px=sigma_psf_px,
+            roi_calibration=roi_calibration,
+            calibration=calibration,
+            config=config,
+        )
     initial = _initial_parameters(
         roi_pos,
         roi_neg,
@@ -77,6 +85,7 @@ def fit_joint_poisson_roi(
         roi_calibration.bg_neg,
         sigma_psf_px,
         valid_mask,
+        config.background_mode,
     )
     bounds = [
         (0.0, float(roi_pos.shape[1] - 1)),
@@ -92,7 +101,11 @@ def fit_joint_poisson_roi(
             _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
         )
         mu_pos, mu_neg = _mean_maps(
-            params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
+            params,
+            psf,
+            roi_calibration.bg_pos,
+            roi_calibration.bg_neg,
+            config.background_mode,
         )
         return _poisson_nll(roi_pos, mu_pos, valid_mask) + _poisson_nll(
             roi_neg,
@@ -106,7 +119,11 @@ def fit_joint_poisson_roi(
         _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
     )
     mu_pos, mu_neg = _mean_maps(
-        params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
+        params,
+        psf,
+        roi_calibration.bg_pos,
+        roi_calibration.bg_neg,
+        config.background_mode,
     )
     nll = objective(params)
     event_count = max(
@@ -120,10 +137,12 @@ def fit_joint_poisson_roi(
         valid_mask,
         sigma_psf_px,
         config.max_fit_cond,
+        config.background_mode,
     )
     status = str(result.message)
     if condition > config.max_fit_cond:
         status = f"{status}; fisher condition exceeded {config.max_fit_cond:g}"
+    fit_success = bool(result.success and condition <= config.max_fit_cond)
     return JointPoissonFitResult(
         x=roi_x0 + float(params[0]),
         y=roi_y0 + float(params[1]),
@@ -139,14 +158,16 @@ def fit_joint_poisson_roi(
         sigma_psf_px=sigma_psf_px,
         nll=float(nll),
         nll_per_event=float(nll / event_count),
-        fit_success=bool(result.success),
+        fit_success=fit_success,
         fit_status=status,
         fit_cond=float(condition),
         calibration_id=calibration.calibration_id,
-        calibrated_background=bool(calibration.calibrated),
+        calibrated_background=bool(
+            calibration.calibrated and config.background_mode != "local_only"
+        ),
         uncertainty_mode=(
             "model_based_calibrated"
-            if calibration.calibrated
+            if calibration.calibrated and config.background_mode != "local_only"
             else "model_based_uncalibrated"
         ),
         hot_pixel_count=roi_calibration.hot_pixel_count,
@@ -161,9 +182,14 @@ def _initial_parameters(
     bg_neg_cal: np.ndarray,
     sigma_psf_px: float,
     valid_mask: np.ndarray,
+    background_mode: str,
 ) -> np.ndarray:
-    corrected_pos = np.clip(roi_pos - bg_pos_cal, 0, None)
-    corrected_neg = np.clip(roi_neg - bg_neg_cal, 0, None)
+    if background_mode == "local_only":
+        corrected_pos = roi_pos
+        corrected_neg = roi_neg
+    else:
+        corrected_pos = np.clip(roi_pos - bg_pos_cal, 0, None)
+        corrected_neg = np.clip(roi_neg - bg_neg_cal, 0, None)
     combined = np.where(valid_mask, corrected_pos + corrected_neg, 0.0)
     local_x, local_y = _center_of_mass(combined)
     bg_pos = max(_border_median(corrected_pos), MIN_PARAM)
@@ -192,14 +218,31 @@ def _mean_maps(
     psf: np.ndarray,
     bg_pos_cal: np.ndarray,
     bg_neg_cal: np.ndarray,
+    background_mode: str,
 ) -> tuple[np.ndarray, np.ndarray]:
     amp_pos = np.exp(params[2])
     amp_neg = np.exp(params[3])
     bg_pos_local = np.exp(params[4])
     bg_neg_local = np.exp(params[5])
-    mu_pos = bg_pos_cal + bg_pos_local + amp_pos * psf
-    mu_neg = bg_neg_cal + bg_neg_local + amp_neg * psf
+    bg_pos = _background_map(bg_pos_cal, bg_pos_local, background_mode)
+    bg_neg = _background_map(bg_neg_cal, bg_neg_local, background_mode)
+    mu_pos = bg_pos + amp_pos * psf
+    mu_neg = bg_neg + amp_neg * psf
     return np.maximum(mu_pos, MIN_MU), np.maximum(mu_neg, MIN_MU)
+
+
+def _background_map(
+    bg_cal: np.ndarray,
+    bg_local: float,
+    background_mode: str,
+) -> np.ndarray:
+    if background_mode == "calibrated_only":
+        return bg_cal
+    if background_mode == "local_only":
+        return np.full_like(bg_cal, bg_local)
+    if background_mode == "calibrated_plus_local":
+        return bg_cal + bg_local
+    raise ValueError(f"Unsupported background_mode: {background_mode}")
 
 
 def _estimate_covariance(
@@ -210,6 +253,7 @@ def _estimate_covariance(
     valid_mask: np.ndarray,
     sigma_psf_px: float,
     max_fit_cond: float,
+    background_mode: str,
 ) -> tuple[np.ndarray, float]:
     dpsf_dx, dpsf_dy = finite_difference_psf_derivatives(
         _shape_2d(psf),
@@ -221,12 +265,22 @@ def _estimate_covariance(
     amp_neg = np.exp(params[3])
     bg_pos = np.exp(params[4])
     bg_neg = np.exp(params[5])
+    pos_bg_derivative = (
+        np.zeros_like(psf)
+        if background_mode == "calibrated_only"
+        else np.full_like(psf, bg_pos)
+    )
+    neg_bg_derivative = (
+        np.zeros_like(psf)
+        if background_mode == "calibrated_only"
+        else np.full_like(psf, bg_neg)
+    )
     derivs_pos = [
         amp_pos * dpsf_dx,
         amp_pos * dpsf_dy,
         amp_pos * psf,
         np.zeros_like(psf),
-        np.full_like(psf, bg_pos),
+        pos_bg_derivative,
         np.zeros_like(psf),
     ]
     derivs_neg = [
@@ -235,7 +289,7 @@ def _estimate_covariance(
         np.zeros_like(psf),
         amp_neg * psf,
         np.zeros_like(psf),
-        np.full_like(psf, bg_neg),
+        neg_bg_derivative,
     ]
     fisher = np.zeros((6, 6), dtype=np.float64)
     for row in range(6):
@@ -250,9 +304,60 @@ def _estimate_covariance(
                 * derivs_neg[col][valid_mask]
                 / mu_neg[valid_mask]
             )
-    condition = float(np.linalg.cond(fisher))
+    active_indices = _active_fisher_indices(background_mode)
+    active_fisher = fisher[np.ix_(active_indices, active_indices)]
+    condition = float(np.linalg.cond(active_fisher))
     covariance = np.linalg.pinv(fisher, rcond=1.0 / max_fit_cond)
     return covariance, condition
+
+
+def _active_fisher_indices(background_mode: str) -> list[int]:
+    if background_mode == "calibrated_only":
+        return [0, 1, 2, 3]
+    if background_mode in {"calibrated_plus_local", "local_only"}:
+        return [0, 1, 2, 3, 4, 5]
+    raise ValueError(f"Unsupported background_mode: {background_mode}")
+
+
+def _failed_fit_result(
+    *,
+    status: str,
+    sigma_psf_px: float,
+    roi_calibration: RoiCalibration,
+    calibration: EventCalibration,
+    config: PeakLocConfig,
+) -> JointPoissonFitResult:
+    valid_mask = roi_calibration.valid_mask
+    return JointPoissonFitResult(
+        x=np.nan,
+        y=np.nan,
+        sigma_x=np.nan,
+        sigma_y=np.nan,
+        cov_xy=np.nan,
+        A_pos=np.nan,
+        A_neg=np.nan,
+        bg_pos_local=np.nan,
+        bg_neg_local=np.nan,
+        bg_pos_cal_sum=float(np.sum(roi_calibration.bg_pos[valid_mask])),
+        bg_neg_cal_sum=float(np.sum(roi_calibration.bg_neg[valid_mask])),
+        sigma_psf_px=sigma_psf_px,
+        nll=np.nan,
+        nll_per_event=np.nan,
+        fit_success=False,
+        fit_status=status,
+        fit_cond=np.inf,
+        calibration_id=calibration.calibration_id,
+        calibrated_background=bool(
+            calibration.calibrated and config.background_mode != "local_only"
+        ),
+        uncertainty_mode=(
+            "model_based_calibrated"
+            if calibration.calibrated and config.background_mode != "local_only"
+            else "model_based_uncalibrated"
+        ),
+        hot_pixel_count=roi_calibration.hot_pixel_count,
+        valid_pixel_count=roi_calibration.valid_pixel_count,
+    )
 
 
 def _poisson_nll(

@@ -125,9 +125,14 @@ class PeakLocConfig:
             raise ValueError("fit_model must be 'legacy_lsq' or 'poisson_joint'")
         if self.psf_model != "pixel_integrated_gaussian":
             raise ValueError("psf_model must be 'pixel_integrated_gaussian'")
-        if self.background_mode not in {"calibrated_plus_local", "local_only"}:
+        if self.background_mode not in {
+            "calibrated_only",
+            "calibrated_plus_local",
+            "local_only",
+        }:
             raise ValueError(
-                "background_mode must be 'calibrated_plus_local' or 'local_only'"
+                "background_mode must be 'calibrated_only', "
+                "'calibrated_plus_local', or 'local_only'"
             )
         if self.hot_pixel_policy != "mask":
             raise ValueError("hot_pixel_policy must be 'mask'")

@@ -95,6 +95,11 @@ def test_peakloc_config_validates_event_model_settings():
     with pytest.raises(ValueError, match="min_valid_pixels must be positive"):
         PeakLocConfig.from_mapping({"min_valid_pixels": 0})
 
+    assert PeakLocConfig.from_mapping({"background_mode": "calibrated_only"})
+
+    with pytest.raises(ValueError, match="background_mode must be"):
+        PeakLocConfig.from_mapping({"background_mode": "not-a-mode"})
+
 
 def test_write_effective_config_is_human_readable_json(tmp_path):
     output_path = tmp_path / "reports" / "settings.json"
