@@ -43,7 +43,9 @@ def estimate_sigma_from_rois(
         sigmas.append(result)
 
     if not sigmas:
-        raise ValueError("No bead ROIs passed the minimum-event and fit-quality filters")
+        raise ValueError(
+            "No bead ROIs passed the minimum-event and fit-quality filters"
+        )
 
     sigma_values = np.asarray(sigmas, dtype=np.float64)
     median_sigma = float(np.median(sigma_values))
@@ -68,7 +70,9 @@ def main() -> None:
     )
     parser.add_argument("rois_path", type=Path)
     parser.add_argument("--output", type=Path, default=Path("bead_sigma_estimate.json"))
-    parser.add_argument("--dataset-name", default="Beads40nm_coverslip_standard_sensitivity")
+    parser.add_argument(
+        "--dataset-name", default="Beads40nm_coverslip_standard_sensitivity"
+    )
     parser.add_argument("--sensitivity", default="standard")
     parser.add_argument("--pixel-size-nm", type=float, default=67.0)
     parser.add_argument("--min-total-events", type=float, default=10.0)

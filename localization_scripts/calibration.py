@@ -170,7 +170,9 @@ def _background_rate(dark_rate: np.ndarray, blank_rate: np.ndarray) -> np.ndarra
 def _validate_common_shape(*arrays: np.ndarray) -> None:
     shapes = {array.shape for array in arrays}
     if len(shapes) != 1:
-        raise ValueError(f"Calibration arrays must have one shape, got {sorted(shapes)}")
+        raise ValueError(
+            f"Calibration arrays must have one shape, got {sorted(shapes)}"
+        )
     shape = arrays[0].shape
     if len(shape) != 2:
         raise ValueError(f"Calibration maps must be 2D arrays, got shape {shape}")

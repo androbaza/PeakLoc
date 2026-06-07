@@ -74,7 +74,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build PeakLoc dark and laser-on blank calibration maps."
     )
-    parser.add_argument("--output", type=Path, default=Path("calibration_event_model.npz"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("calibration_event_model.npz")
+    )
     parser.add_argument("--pixel-size-nm", type=float, default=67.0)
     parser.add_argument("--sensor-model", default="unknown")
     parser.add_argument("--calibration-id", default="event-model-calibration")
@@ -84,7 +86,9 @@ def main() -> None:
     args = parser.parse_args()
 
     dark_path = Path(input("Dark .raw recording path: ").strip()).expanduser()
-    blank_path = Path(input("Laser-on blank .raw recording path: ").strip()).expanduser()
+    blank_path = Path(
+        input("Laser-on blank .raw recording path: ").strip()
+    ).expanduser()
     dark_events = raw_events_to_array(str(dark_path), max_events=args.max_events)
     blank_events = raw_events_to_array(str(blank_path), max_events=args.max_events)
     sensor_shape = _resolve_sensor_shape(
@@ -117,7 +121,9 @@ def _resolve_sensor_shape(
         return height, width
     events = np.concatenate([dark_events, blank_events])
     if events.size == 0:
-        raise ValueError("Provide --height and --width when calibration recordings are empty")
+        raise ValueError(
+            "Provide --height and --width when calibration recordings are empty"
+        )
     return int(events["y"].max()) + 1, int(events["x"].max()) + 1
 
 

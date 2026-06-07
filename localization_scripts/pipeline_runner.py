@@ -85,7 +85,9 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
         recording = process_recording(filename, config, run_timestamp)
         report_folder = recording.output_folder / "reports"
         settings_path = report_folder / f"peakloc_settings_{run_timestamp}.json"
-        write_effective_run_settings(config, recording.calibration_metadata, settings_path)
+        write_effective_run_settings(
+            config, recording.calibration_metadata, settings_path
+        )
         recording.artifacts.append(settings_path)
         write_run_report(recording, config, run_timestamp)
         results.append(recording)
@@ -423,7 +425,9 @@ def summarize_fit_qc(
     if {"hot_pixel_count", "valid_pixel_count"}.issubset(names):
         valid_count = int(np.sum(localizations["valid_pixel_count"]))
         if valid_count > 0:
-            hot_pixel_fraction = float(np.sum(localizations["hot_pixel_count"]) / valid_count)
+            hot_pixel_fraction = float(
+                np.sum(localizations["hot_pixel_count"]) / valid_count
+            )
     return {
         "fit_success_fraction": fit_success_fraction,
         "median_uncertainty_px": median_uncertainty_px,

@@ -50,7 +50,9 @@ def fit_joint_poisson_roi(
     config: PeakLocConfig,
 ) -> JointPoissonFitResult:
     if config.fit_sigma:
-        raise NotImplementedError("fit_sigma=True is reserved for the later bead-validated model")
+        raise NotImplementedError(
+            "fit_sigma=True is reserved for the later bead-validated model"
+        )
 
     roi_pos = np.asarray(_field(roi_record, "roi"), dtype=np.float64)
     roi_neg = np.asarray(_field(roi_record, "roi_n"), dtype=np.float64)
@@ -86,8 +88,12 @@ def fit_joint_poisson_roi(
     ]
 
     def objective(params: np.ndarray) -> float:
-        psf = pixel_integrated_gaussian(roi_pos.shape, params[0], params[1], sigma_psf_px)
-        mu_pos, mu_neg = _mean_maps(params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg)
+        psf = pixel_integrated_gaussian(
+            roi_pos.shape, params[0], params[1], sigma_psf_px
+        )
+        mu_pos, mu_neg = _mean_maps(
+            params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
+        )
         return _poisson_nll(roi_pos, mu_pos, valid_mask) + _poisson_nll(
             roi_neg,
             mu_neg,
@@ -97,9 +103,13 @@ def fit_joint_poisson_roi(
     result = minimize(objective, initial, method="L-BFGS-B", bounds=bounds)
     params = np.asarray(result.x, dtype=np.float64)
     psf = pixel_integrated_gaussian(roi_pos.shape, params[0], params[1], sigma_psf_px)
-    mu_pos, mu_neg = _mean_maps(params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg)
+    mu_pos, mu_neg = _mean_maps(
+        params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
+    )
     nll = objective(params)
-    event_count = max(float(np.sum(roi_pos[valid_mask]) + np.sum(roi_neg[valid_mask])), 1.0)
+    event_count = max(
+        float(np.sum(roi_pos[valid_mask]) + np.sum(roi_neg[valid_mask])), 1.0
+    )
     covariance, condition = _estimate_covariance(
         params,
         psf,
@@ -243,10 +253,16 @@ def _estimate_covariance(
     return covariance, condition
 
 
-def _poisson_nll(counts: np.ndarray, means: np.ndarray, valid_mask: np.ndarray) -> float:
+def _poisson_nll(
+    counts: np.ndarray, means: np.ndarray, valid_mask: np.ndarray
+) -> float:
     valid_counts = counts[valid_mask]
     valid_means = means[valid_mask]
-    return float(np.sum(valid_means - valid_counts * np.log(valid_means) + gammaln(valid_counts + 1)))
+    return float(
+        np.sum(
+            valid_means - valid_counts * np.log(valid_means) + gammaln(valid_counts + 1)
+        )
+    )
 
 
 def _center_of_mass(image: np.ndarray) -> tuple[float, float]:
