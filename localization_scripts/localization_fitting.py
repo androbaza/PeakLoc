@@ -276,7 +276,26 @@ def localize_joint_poisson(
             roi_record["roi"],
             roi_record["roi_n"],
         )
-    return np.delete(localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0)
+    localizations = np.delete(
+        localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0
+    )
+    return filter_poisson_localizations(localizations, config)
+
+
+def filter_poisson_localizations(
+    localizations: np.ndarray,
+    config: PeakLocConfig,
+) -> np.ndarray:
+    if localizations.size == 0:
+        return localizations
+    keep = (
+        localizations["fit_success"]
+        & np.isfinite(localizations["x"])
+        & np.isfinite(localizations["y"])
+        & (localizations["fit_cond"] < config.max_fit_cond)
+        & (localizations["valid_pixel_count"] >= config.min_valid_pixels)
+    )
+    return localizations[keep]
 
 
 def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:

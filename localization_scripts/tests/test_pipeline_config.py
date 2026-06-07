@@ -83,6 +83,9 @@ def test_peakloc_config_validates_event_model_settings():
     with pytest.raises(ValueError, match="sigma_psf_px must be positive"):
         PeakLocConfig.from_mapping({"sigma_psf_px": 0})
 
+    with pytest.raises(ValueError, match="min_valid_pixels must be positive"):
+        PeakLocConfig.from_mapping({"min_valid_pixels": 0})
+
 
 def test_write_effective_config_is_human_readable_json(tmp_path):
     output_path = tmp_path / "reports" / "settings.json"

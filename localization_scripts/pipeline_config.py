@@ -49,6 +49,7 @@ class PeakLocConfig:
     hot_pixel_policy: str = "mask"
     min_events_pos: int = 3
     min_events_neg: int = 3
+    min_valid_pixels: int = 1
     max_fit_cond: float = 1e10
 
     @classmethod
@@ -106,6 +107,7 @@ class PeakLocConfig:
         _require_positive("max_raw_events", self.max_raw_events)
         _require_positive("min_events_pos", self.min_events_pos)
         _require_positive("min_events_neg", self.min_events_neg)
+        _require_positive("min_valid_pixels", self.min_valid_pixels)
         _require_positive("max_fit_cond", self.max_fit_cond)
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
