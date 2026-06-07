@@ -32,6 +32,7 @@ from localization_scripts.peak_finding import (
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
+from localization_scripts.smlm_visualization import save_smlm_visualization
 
 
 @dataclass
@@ -307,6 +308,7 @@ def process_recording(
         save_processed_plots(
             localizations_full_list,
             out_folder_localizations,
+            localizations_path,
             config,
             run_timestamp,
         )
@@ -331,7 +333,11 @@ def load_events(filename: Path, config: PeakLocConfig) -> np.ndarray | None:
 
 
 def save_processed_plots(
-    localizations: np.ndarray, out_folder: Path, config: PeakLocConfig, timestamp: str
+    localizations: np.ndarray,
+    out_folder: Path,
+    localizations_path: Path,
+    config: PeakLocConfig,
+    timestamp: str,
 ) -> list[Path]:
     if localizations.size == 0:
         logger.info("Skipping plots because no localizations were produced")
@@ -352,6 +358,19 @@ def save_processed_plots(
         plt.close(roi_fit_figure)
         artifacts.append(roi_fit_path)
         logger.info("Saved ROI fit plot to {}", roi_fit_path)
+
+    if config.plot_result:
+        result = save_smlm_visualization(
+            localizations,
+            localizations_path,
+            figure_folder,
+            optical_pixel_size_nm=config.optical_pixel_size_nm,
+            timestamp=timestamp,
+        )
+        if result is not None:
+            artifacts.extend([result.png_path, result.tiff_path])
+            logger.info("Saved SMLM result PNG to {}", result.png_path)
+            logger.info("Saved SMLM result TIFF to {}", result.tiff_path)
 
     return artifacts
 
