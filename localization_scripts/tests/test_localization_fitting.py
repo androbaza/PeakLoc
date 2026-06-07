@@ -35,6 +35,8 @@ def test_localize_rois_runs_joint_poisson_path_and_emits_qc_fields():
     assert localizations["x"][0] == np.float64(localizations["sub_x"][0])
     assert localizations["y"][0] == np.float64(localizations["sub_y"][0])
     assert localizations["A_pos"][0] > localizations["A_neg"][0]
+    assert localizations["FWHM"][0] == np.float32(2.354820045 * 1.7)
+    assert localizations["sigma_psf_px"][0] == np.float64(1.7)
     assert localizations["fit_success"][0]
     assert localizations["calibrated_background"][0] is np.False_
     assert localizations["uncertainty_mode"][0] == "model_based_uncalibrated"

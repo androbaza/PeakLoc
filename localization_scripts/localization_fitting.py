@@ -12,6 +12,8 @@ from localization_scripts.event_array_processing import slice_data
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.poisson_fitting import fit_joint_poisson_roi
 
+FWHM_FROM_SIGMA = 2.354820045
+
 if TYPE_CHECKING:
     prange = range
 else:
@@ -232,6 +234,7 @@ def localize_joint_poisson(
         fit_result = fit_joint_poisson_roi(roi_record, calibration, config)
         roi_y0 = int(roi_record["roi_y0"])
         roi_x0 = int(roi_record["roi_x0"])
+        fwhm_px = FWHM_FROM_SIGMA * fit_result.sigma_psf_px
         localizations[row_id] = (
             row_id,
             roi_record["t_peak"],
@@ -241,7 +244,7 @@ def localize_joint_poisson(
             fit_result.y,
             0.0,
             fit_result.A_pos,
-            fit_result.sigma_psf_px,
+            fwhm_px,
             roi_record["total_events_roi"],
             roi_record["total_neg_events_roi"],
             fit_result.x - roi_x0,
