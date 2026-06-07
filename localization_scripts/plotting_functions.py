@@ -101,10 +101,13 @@ def plot_single_fit(fit_params, rms, fit, data):
     fig = plt.figure(figsize=(7, 7))
     imm = plt.imshow(data, cmap="gray")
     plt.axis("off")
-    (height, x, y, sigma) = fit_params
-    plt.contour(fit(*np.indices(data.shape)))
+    (height, center_x, center_y, sigma) = fit_params
+    yy, xx = np.indices(data.shape)
+    model = gaussian2D(height, center_x, center_y, sigma)
+    fit_img = model(xx, yy)
+    plt.contour(fit_img)
     ax = plt.gca()
-    # (height, x, y, sigma) = fit_params
+    # (height, center_x, center_y, sigma) = fit_params
 
     plt.text(
         0.97,
@@ -119,7 +122,7 @@ def plot_single_fit(fit_params, rms, fit, data):
         transform=ax.transAxes,
         c="w",
     )
-    plt.scatter(y, x, c="magenta", s=90, marker="x")
+    plt.scatter(center_x, center_y, c="magenta", s=90, marker="x")
     # plt.gca().add_artist(scalebar)
     cbar = fig.colorbar(imm, fraction=0.01, pad=-0.0001, aspect=99)
     cbar.ax.tick_params(size=4, labelsize=17, pad=1)
@@ -133,9 +136,23 @@ def plot_double_fit(fit_params, rms, fit, data):
     fig = plt.figure(figsize=(7, 7))
     imm = plt.imshow(data, cmap="gray")
     plt.axis("off")
-    (height, x, y, sigma, height2, x2, y2, sigma2) = fit_params
+    (height, center_x, center_y, sigma, height2, center_x2, center_y2, sigma2) = (
+        fit_params
+    )
     # plt.matshow(data)
-    plt.contour(fit(*np.indices(data.shape)))
+    yy, xx = np.indices(data.shape)
+    model = double_gaussian2D(
+        height,
+        center_x,
+        center_y,
+        sigma,
+        height2,
+        center_x2,
+        center_y2,
+        sigma2,
+    )
+    fit_img = model(xx, yy)
+    plt.contour(fit_img)
     ax = plt.gca()
     plt.text(
         0.97,
@@ -151,8 +168,8 @@ def plot_double_fit(fit_params, rms, fit, data):
         transform=ax.transAxes,
         c="w",
     )
-    plt.scatter(y, x, c="magenta", s=90, marker="x", zorder=100)
-    plt.scatter(y2, x2, c="magenta", s=90, marker="x", zorder=100)
+    plt.scatter(center_x, center_y, c="magenta", s=90, marker="x", zorder=100)
+    plt.scatter(center_x2, center_y2, c="magenta", s=90, marker="x", zorder=100)
     scalebar = ScaleBar(
         65,
         units="nm",
@@ -197,9 +214,29 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
         plt.axis("off")
         if fit_params.shape[0] == 8:
             # 2 gaussians were fitted
-            fit = double_gaussian2D(*fit_params)
-            plt.contour(fit(*np.indices(padded.shape)))
-            (height, x, y, sigma, height2, x2, y2, sigma2) = fit_params
+            (
+                height,
+                center_x,
+                center_y,
+                sigma,
+                height2,
+                center_x2,
+                center_y2,
+                sigma2,
+            ) = fit_params
+            yy, xx = np.indices(padded.shape)
+            model = double_gaussian2D(
+                height,
+                center_x,
+                center_y,
+                sigma,
+                height2,
+                center_x2,
+                center_y2,
+                sigma2,
+            )
+            fit_img = model(xx, yy)
+            plt.contour(fit_img)
             plt.text(
                 0.97,
                 0.78,
@@ -214,22 +251,24 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
                 transform=ax.transAxes,
                 c="w",
             )
-            plt.scatter(y, x, c="magenta", s=90, marker="x", zorder=100)
-            plt.scatter(y2, x2, c="magenta", s=90, marker="x", zorder=100)
-            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
+            plt.scatter(center_x, center_y, c="magenta", s=90, marker="x", zorder=100)
+            plt.scatter(center_x2, center_y2, c="magenta", s=90, marker="x", zorder=100)
+            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(x, y, x2, y2))
             ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
-            (height, x, y, sigma) = fit_params
-            fit = gaussian2D(*fit_params)
+            (height, center_x, center_y, sigma) = fit_params
+            yy, xx = np.indices(padded.shape)
+            model = gaussian2D(height, center_x, center_y, sigma)
+            fit_img = model(xx, yy)
             roi_ft = np.fft.fft2(padded)
             y_posp, x_posp = (
                 est_coord(roi_ft, (1, 0), roi_rad),
                 est_coord(roi_ft, (0, 1), roi_rad),
             )
             cmy, cmx = center_of_mass(padded)
-            plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
-            plt.scatter(cmy, cmx, c="r", s=140, marker="x")
-            plt.contour(fit(*np.indices(padded.shape)))
+            plt.scatter(x_posp, y_posp, c="cyan", s=140, marker="x")
+            plt.scatter(cmx, cmy, c="r", s=140, marker="x")
+            plt.contour(fit_img)
             plt.text(
                 0.97,
                 0.8,
@@ -243,8 +282,8 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
                 transform=ax.transAxes,
                 c="w",
             )
-            plt.scatter(y, x, c="magenta", s=90, marker="x")
-            # ax.set_title('%.2f, %.2f' %(y, x))
+            plt.scatter(center_x, center_y, c="magenta", s=90, marker="x")
+            # ax.set_title('%.2f, %.2f' %(x, y))
             ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
 
         # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
@@ -302,22 +341,25 @@ def plot_rois_from_locs(
             # 2 gaussians were fitted
             pass
             # fit = double_gaussian2D(rois_list["I"][id], rois_list["x"][id], rois_list["y"][id], rois_list["FWHM"][id], rois_list["I"][id], rois_list["x2"][id], rois_list["y2"][id], rois_list["FWHM"][id])
-            # plt.contour(fit(*np.indices(roi.shape)))
-            # plt.scatter(rois_list["y"][id], rois_list["x"][id], c="magenta", s=90, marker="x", zorder=100)
-            # plt.scatter(rois_list["y2"][id], rois_list["x2"][id], c="magenta", s=90, marker="x", zorder=100)
-            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
+            # yy, xx = np.indices(roi.shape)
+            # plt.contour(fit(xx, yy))
+            # plt.scatter(rois_list["x"][id], rois_list["y"][id], c="magenta", s=90, marker="x", zorder=100)
+            # plt.scatter(rois_list["x2"][id], rois_list["y2"][id], c="magenta", s=90, marker="x", zorder=100)
+            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(x, y, x2, y2))
             # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
-            fit = gaussian2D(
+            yy, xx = np.indices(roi.shape)
+            model = gaussian2D(
                 rois_list["I"][id],
                 rois_list["sub_x"][id],
                 rois_list["sub_y"][id],
                 rois_list["FWHM"][id],
             )
-            plt.contour(fit(*np.indices(roi.shape)))
+            fit_img = model(xx, yy)
+            plt.contour(fit_img)
             plt.scatter(
-                rois_list["sub_y"][id],
                 rois_list["sub_x"][id],
+                rois_list["sub_y"][id],
                 c="magenta",
                 s=90,
                 marker="x",

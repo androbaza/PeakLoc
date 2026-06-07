@@ -50,9 +50,10 @@ def moments(data):
 
 def fit_single_gaussian(data):
     params = moments(data)
+    yy, xx = np.indices(data.shape)
 
     def errorfunction(p):
-        return np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
+        return np.ravel(gaussian2D(*p)(xx, yy) - data)
 
     bounds = ([0, 0, 0, 0], [2 * params[0], data.shape[1], data.shape[0], 10])
     # print(bounds)
@@ -67,9 +68,10 @@ def fit_two_gaussians(data, lm=False):
     params = moments(data)
     params2 = [p - 0.5 for p in params]
     params = np.append(params, params2)
+    yy, xx = np.indices(data.shape)
 
     def errorfunction(p):
-        return np.ravel(double_gaussian2D(*p)(*np.indices(data.shape)) - data)
+        return np.ravel(double_gaussian2D(*p)(xx, yy) - data)
 
     bounds = (
         (0, 0, 0, 0, 0, 0, 0, 0),

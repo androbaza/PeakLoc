@@ -1,7 +1,7 @@
 import numpy as np
 
 from localization_scripts.calibration import NullCalibration
-from localization_scripts.localization_fitting import localize_rois
+from localization_scripts.localization_fitting import fit_single_gaussian, localize_rois
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.psf_model import pixel_integrated_gaussian
 
@@ -38,6 +38,20 @@ def test_localize_rois_runs_joint_poisson_path_and_emits_qc_fields():
     assert localizations["fit_success"][0]
     assert localizations["calibrated_background"][0] is np.False_
     assert localizations["uncertainty_mode"][0] == "model_based_uncalibrated"
+
+
+def test_fit_single_gaussian_uses_explicit_xy_grid():
+    center_x = 6.2
+    center_y = 3.4
+    yy, xx = np.indices((11, 13))
+    image = 80.0 * np.exp(
+        -(((xx - center_x) ** 2 + (yy - center_y) ** 2) / (2.0 * 1.5**2))
+    )
+
+    fit_result = fit_single_gaussian(image)
+
+    np.testing.assert_allclose(fit_result.x[1], center_x, atol=0.05)
+    np.testing.assert_allclose(fit_result.x[2], center_y, atol=0.05)
 
 
 def _legacy_gaussian_roi() -> np.ndarray:
