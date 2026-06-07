@@ -14,6 +14,8 @@
   "plot_subplotsize": 6,
   "plot_result": true,
   "optical_pixel_size": 67.0,
+  "sensor_height": 720,
+  "sensor_width": 1280,
   "max_raw_events": 1000000,
   "cleanup_temp_outputs": true
 }

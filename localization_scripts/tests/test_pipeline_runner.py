@@ -2,8 +2,11 @@ import json
 
 import numpy as np
 
+from localization_scripts import pipeline_runner
+from localization_scripts.calibration import NullCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import (
+    calibration_to_metadata,
     summarize_fit_qc,
     write_effective_run_settings,
 )
@@ -24,7 +27,50 @@ def test_write_effective_run_settings_includes_calibration_metadata(tmp_path):
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["input_folder"] == "data"
+    assert payload["sensor_height"] == 720
+    assert payload["sensor_width"] == 1280
     assert payload["calibration"] == calibration_metadata
+
+
+def test_null_calibration_metadata_uses_configured_sensor_shape():
+    config = PeakLocConfig(sensor_height=720, sensor_width=1280)
+    calibration = NullCalibration(config.sensor_shape)
+
+    metadata = calibration_to_metadata(calibration)
+
+    assert metadata["sensor_shape"] == [720, 1280]
+
+
+def test_process_recording_loads_calibration_with_configured_sensor_shape(
+    tmp_path, monkeypatch
+):
+    events = np.zeros(
+        1,
+        dtype=[("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")],
+    )
+    events["x"] = [10]
+    events["y"] = [20]
+    events["p"] = [1]
+    events["t"] = [100]
+    input_path = tmp_path / "recording.npy"
+    np.save(input_path, events)
+    observed_shapes = []
+
+    def load_calibration_spy(calibration_path, sensor_shape, *, allow_uncalibrated):
+        observed_shapes.append(sensor_shape)
+        return NullCalibration(sensor_shape)
+
+    monkeypatch.setattr(pipeline_runner, "load_calibration", load_calibration_spy)
+    monkeypatch.setattr(pipeline_runner, "process_time_slice", lambda *args: None)
+    config = PeakLocConfig(
+        input_folder=str(tmp_path),
+        sensor_height=720,
+        sensor_width=1280,
+    )
+
+    pipeline_runner.process_recording(input_path, config, "20260607_120000")
+
+    assert observed_shapes == [(720, 1280)]
 
 
 def test_summarize_fit_qc_handles_poisson_fields():

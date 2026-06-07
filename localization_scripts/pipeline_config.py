@@ -37,6 +37,8 @@ class PeakLocConfig:
     plot_subplotsize: int = 6
     plot_result: bool = True
     optical_pixel_size: float = 67.0
+    sensor_height: int = 720
+    sensor_width: int = 1280
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
     fit_model: str = "poisson_joint"
@@ -104,6 +106,8 @@ class PeakLocConfig:
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)
+        _require_positive("sensor_height", self.sensor_height)
+        _require_positive("sensor_width", self.sensor_width)
         _require_positive("max_raw_events", self.max_raw_events)
         _require_positive("min_events_pos", self.min_events_pos)
         _require_positive("min_events_neg", self.min_events_neg)
@@ -138,6 +142,10 @@ class PeakLocConfig:
     @property
     def optical_pixel_size_nm(self) -> float:
         return self.optical_pixel_size
+
+    @property
+    def sensor_shape(self) -> tuple[int, int]:
+        return self.sensor_height, self.sensor_width
 
 
 def load_peakloc_config(

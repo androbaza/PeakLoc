@@ -183,8 +183,8 @@ def process_time_slice(
         min_x=min_x,
         min_y=min_y,
         num_cores=config.num_cores,
-        max_x=max_x,
-        max_y=max_y,
+        max_x=config.sensor_width - 1,
+        max_y=config.sensor_height - 1,
         polarity_time_gate_us=config.polarity_time_gate_us,
     )
 
@@ -253,10 +253,9 @@ def process_recording(
         recording.elapsed_seconds = time.time() - recording_start
         return recording
 
-    sensor_shape = (int(events["y"].max()) + 1, int(events["x"].max()) + 1)
     calibration = load_calibration(
         config.calibration_path,
-        sensor_shape,
+        config.sensor_shape,
         allow_uncalibrated=config.allow_uncalibrated,
     )
     recording.calibration_metadata = calibration_to_metadata(calibration)

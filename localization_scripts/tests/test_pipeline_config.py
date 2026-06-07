@@ -64,6 +64,12 @@ def test_peakloc_config_validates_scientific_parameters():
     with pytest.raises(ValueError, match="optical_pixel_size must be positive"):
         PeakLocConfig.from_mapping({"optical_pixel_size": 0})
 
+    with pytest.raises(ValueError, match="sensor_height must be positive"):
+        PeakLocConfig.from_mapping({"sensor_height": 0})
+
+    with pytest.raises(ValueError, match="sensor_width must be positive"):
+        PeakLocConfig.from_mapping({"sensor_width": 0})
+
     with pytest.raises(ValueError, match="spline_smooth must be between 0 and 1"):
         PeakLocConfig.from_mapping({"spline_smooth": 1.5})
 
@@ -97,7 +103,10 @@ def test_write_effective_config_is_human_readable_json(tmp_path):
     assert payload["input_folder"] == "data"
     assert payload["num_cores"] == 1
     assert payload["optical_pixel_size"] == 67.0
+    assert payload["sensor_height"] == 720
+    assert payload["sensor_width"] == 1280
     assert payload["fit_model"] == "poisson_joint"
     assert config.optical_pixel_size_nm == 67.0
+    assert config.sensor_shape == (720, 1280)
     assert payload["plot_result"] is True
     assert output_path.read_text(encoding="utf-8").endswith("\n")
