@@ -15,6 +15,7 @@ from natsort import natsorted
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
+from localization_scripts.calibration import EventCalibration, load_calibration
 from localization_scripts.event_array_processing import (
     array_to_polarity_map,
     array_to_time_map,
@@ -22,14 +23,14 @@ from localization_scripts.event_array_processing import (
     raw_events_to_array,
     save_dict,
 )
-from localization_scripts.localization_fitting import perfrom_localization_parallel
+from localization_scripts.localization_fitting import localize_rois
 from localization_scripts.peak_finding import (
     create_peak_lists,
     find_local_max_peak,
     find_peaks_parallel,
     group_timestamps_by_coordinate,
 )
-from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
+from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 from localization_scripts.smlm_visualization import save_smlm_visualization
@@ -43,6 +44,11 @@ class SliceResult:
     roi_count: int
     localization_count: int
     elapsed_seconds: float
+    fit_success_fraction: float | None = None
+    median_uncertainty_px: float | None = None
+    median_nll_per_event: float | None = None
+    hot_pixel_fraction: float | None = None
+    rejected_localization_count: int = 0
     artifacts: list[Path] = field(default_factory=list)
 
 
@@ -56,6 +62,7 @@ class RecordingResult:
     slice_results: list[SliceResult] = field(default_factory=list)
     artifacts: list[Path] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+    calibration_metadata: dict[str, object] = field(default_factory=dict)
 
 
 def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
@@ -78,7 +85,7 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
         recording = process_recording(filename, config, run_timestamp)
         report_folder = recording.output_folder / "reports"
         settings_path = report_folder / f"peakloc_settings_{run_timestamp}.json"
-        write_effective_config(config, settings_path)
+        write_effective_run_settings(config, recording.calibration_metadata, settings_path)
         recording.artifacts.append(settings_path)
         write_run_report(recording, config, run_timestamp)
         results.append(recording)
@@ -86,7 +93,11 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
 
 
 def process_time_slice(
-    event_slice: np.ndarray, time_slice: int, filename: Path, config: PeakLocConfig
+    event_slice: np.ndarray,
+    time_slice: int,
+    filename: Path,
+    config: PeakLocConfig,
+    calibration: EventCalibration,
 ) -> SliceResult | None:
     events = event_slice
     if events.size == 0:
@@ -179,9 +190,7 @@ def process_time_slice(
         "Performing localization; elapsed time: {:.2f} seconds",
         time.time() - start_time,
     )
-    localizations = perfrom_localization_parallel(
-        rois, dataset_FWHM=config.dataset_fwhm, num_cores=config.num_cores
-    )
+    localizations = localize_rois(rois, config, calibration)
 
     logger.info(
         "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
@@ -199,6 +208,7 @@ def process_time_slice(
     np.save(rois_path, rois)
 
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
+    fit_qc = summarize_fit_qc(localizations, roi_count=len(rois))
     return SliceResult(
         time_slice=time_slice,
         event_count=len(event_slice),
@@ -206,6 +216,11 @@ def process_time_slice(
         roi_count=len(rois),
         localization_count=len(localizations),
         elapsed_seconds=time.time() - start_time,
+        fit_success_fraction=fit_qc["fit_success_fraction"],
+        median_uncertainty_px=fit_qc["median_uncertainty_px"],
+        median_nll_per_event=fit_qc["median_nll_per_event"],
+        hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
+        rejected_localization_count=fit_qc["rejected_localization_count"],
         artifacts=[unique_peaks_path, localizations_path, rois_path],
     )
 
@@ -233,6 +248,14 @@ def process_recording(
         recording.elapsed_seconds = time.time() - recording_start
         return recording
 
+    sensor_shape = (int(events["y"].max()) + 1, int(events["x"].max()) + 1)
+    calibration = load_calibration(
+        config.calibration_path,
+        sensor_shape,
+        allow_uncalibrated=config.allow_uncalibrated,
+    )
+    recording.calibration_metadata = calibration_to_metadata(calibration)
+
     time_slices = range(
         config.slice_start + config.slice_duration,
         int(events["t"].max()) + config.slice_duration + 1,
@@ -248,7 +271,13 @@ def process_recording(
             (events["t"] >= time_slice - config.slice_duration)
             & (events["t"] < time_slice)
         ]
-        slice_result = process_time_slice(event_slice, time_slice, filename, config)
+        slice_result = process_time_slice(
+            event_slice,
+            time_slice,
+            filename,
+            config,
+            calibration,
+        )
         if slice_result is not None:
             recording.slice_results.append(slice_result)
             recording.artifacts.extend(slice_result.artifacts)
@@ -331,6 +360,77 @@ def load_events(filename: Path, config: PeakLocConfig) -> np.ndarray | None:
     if basename.endswith(".npy"):
         return np.load(filename)
     return None
+
+
+def write_effective_run_settings(
+    config: PeakLocConfig,
+    calibration_metadata: dict[str, object],
+    path: str | Path,
+) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = config.to_dict()
+    payload["calibration"] = calibration_metadata
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, sort_keys=True)
+        file.write("\n")
+
+
+def calibration_to_metadata(calibration: EventCalibration) -> dict[str, object]:
+    return {
+        "calibration_id": calibration.calibration_id,
+        "calibrated": calibration.calibrated,
+        "sensor_shape": list(calibration.sensor_shape),
+        "sensor_model": calibration.sensor_model,
+        "pixel_size_nm": calibration.pixel_size_nm,
+    }
+
+
+def summarize_fit_qc(
+    localizations: np.ndarray,
+    *,
+    roi_count: int,
+) -> dict[str, float | int | None]:
+    if localizations.size == 0 or localizations.dtype.names is None:
+        return {
+            "fit_success_fraction": None,
+            "median_uncertainty_px": None,
+            "median_nll_per_event": None,
+            "hot_pixel_fraction": None,
+            "rejected_localization_count": roi_count,
+        }
+    names = set(localizations.dtype.names)
+    fit_success_fraction = None
+    median_uncertainty_px = None
+    median_nll_per_event = None
+    hot_pixel_fraction = None
+    if "fit_success" in names:
+        fit_success_fraction = float(np.mean(localizations["fit_success"]))
+    if {"sigma_x", "sigma_y"}.issubset(names):
+        uncertainty = np.sqrt(
+            np.maximum(localizations["sigma_x"], 0) ** 2
+            + np.maximum(localizations["sigma_y"], 0) ** 2
+        )
+        finite_uncertainty = uncertainty[np.isfinite(uncertainty)]
+        if finite_uncertainty.size:
+            median_uncertainty_px = float(np.median(finite_uncertainty))
+    if "nll_per_event" in names:
+        finite_nll = localizations["nll_per_event"][
+            np.isfinite(localizations["nll_per_event"])
+        ]
+        if finite_nll.size:
+            median_nll_per_event = float(np.median(finite_nll))
+    if {"hot_pixel_count", "valid_pixel_count"}.issubset(names):
+        valid_count = int(np.sum(localizations["valid_pixel_count"]))
+        if valid_count > 0:
+            hot_pixel_fraction = float(np.sum(localizations["hot_pixel_count"]) / valid_count)
+    return {
+        "fit_success_fraction": fit_success_fraction,
+        "median_uncertainty_px": median_uncertainty_px,
+        "median_nll_per_event": median_nll_per_event,
+        "hot_pixel_fraction": hot_pixel_fraction,
+        "rejected_localization_count": max(roi_count - int(localizations.size), 0),
+    }
 
 
 def save_processed_plots(
@@ -422,6 +522,8 @@ def write_run_report(
         f"- Total ROIs: `{total_rois}`",
         f"- Total localizations: `{total_localizations}`",
         f"- Elapsed time: `{recording.elapsed_seconds:.2f} s`",
+        f"- Calibration ID: `{recording.calibration_metadata.get('calibration_id')}`",
+        f"- Calibrated background: `{recording.calibration_metadata.get('calibrated')}`",
         "",
         "## Settings",
         "",
@@ -436,15 +538,21 @@ def write_run_report(
     if recording.slice_results:
         lines.extend(
             [
-                "| Time slice | Events | Unique peaks | ROIs | Localizations | Seconds |",
-                "| --- | ---: | ---: | ---: | ---: | ---: |",
+                "| Time slice | Events | Unique peaks | ROIs | Localizations | "
+                "Success | Unc. px | NLL/event | Hot px | Rejected | Seconds |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for result in recording.slice_results:
             lines.append(
                 f"| {result.time_slice} | {result.event_count} | "
                 f"{result.unique_peak_count} | {result.roi_count} | "
-                f"{result.localization_count} | {result.elapsed_seconds:.2f} |"
+                f"{result.localization_count} | "
+                f"{_format_optional_float(result.fit_success_fraction)} | "
+                f"{_format_optional_float(result.median_uncertainty_px)} | "
+                f"{_format_optional_float(result.median_nll_per_event)} | "
+                f"{_format_optional_float(result.hot_pixel_fraction)} | "
+                f"{result.rejected_localization_count} | {result.elapsed_seconds:.2f} |"
             )
     else:
         lines.append("No time slices produced localizations.")
@@ -459,3 +567,9 @@ def write_run_report(
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info("Saved run report to {}", report_path)
     return report_path
+
+
+def _format_optional_float(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.3g}"
