@@ -2,7 +2,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import matplotlib.pyplot as plt
 import numpy as np
-# from main import process_file
+
+
+def process_file(input_file: str, param1: float, param2: float) -> np.ndarray:
+    raise NotImplementedError(
+        "No processing backend is wired to this exploratory interface."
+    )
 
 
 class MyApp:
@@ -75,8 +80,11 @@ class MyApp:
             messagebox.showerror("Error", "Please enter valid parameter values.")
             return
 
-        # Call the main function to process the input file with the given parameters
-        data = process_file(self.input_file, param1_val, param2_val)
+        try:
+            data = process_file(self.input_file, param1_val, param2_val)
+        except NotImplementedError as error:
+            messagebox.showerror("Processing unavailable", str(error))
+            return
 
         # Plot the resulting data
         plt.plot(np.arange(len(data)), data)

@@ -1,5 +1,6 @@
 import customtkinter as tk
 import tkinter.filedialog as filedialog
+from tkinter import messagebox
 from tktooltip import ToolTip
 
 # Create the main window
@@ -67,7 +68,13 @@ def run_main_code():
     param1_value = param1_entry.get()
     param2_value = param2_entry.get()
 
-    # Add your code here to process the input file with the given parameters
+    messagebox.showerror(
+        "Processing unavailable",
+        "No processing backend is wired to this exploratory interface.\n"
+        f"Input: {input_file_path}\n"
+        f"Parameter 1: {param1_value}\n"
+        f"Parameter 2: {param2_value}",
+    )
 
 
 run_button = tk.CTkButton(root, text="Run", command=run_main_code)

@@ -1,14 +1,43 @@
 import tkinter as tk
 import tkinter.filedialog as fd
-from customtkinter import HoverInfo
+
+
+class HoverInfo:
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, event: tk.Event) -> None:
+        if self.tip is not None:
+            return
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 12}")
+        label = tk.Label(
+            self.tip,
+            text=self.text,
+            background="#ffffe0",
+            borderwidth=1,
+            relief="solid",
+        )
+        label.pack(ipadx=4, ipady=2)
+
+    def hide(self, event: tk.Event) -> None:
+        if self.tip is not None:
+            self.tip.destroy()
+            self.tip = None
 
 
 class Application(tk.Frame):
-    def __init__(self, master=None):
+    def __init__(self, master: tk.Tk):
         super().__init__(master)
         self.master = master
         self.master.title("Program Name")
         self.pack()
+        self.filename = ""
 
         # create label and button for selecting input file
         self.file_label = tk.Label(self, text="Select input file:")
