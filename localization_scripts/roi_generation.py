@@ -187,6 +187,24 @@ def slice_t_p_dict(
     roi_event_times = np.zeros((2, roi_rad * 2 + 1, roi_rad * 2 + 1), dtype=np.uint64)
     total_events_roi, total_events_roi_n = 0, 0
     t_first_roi, t_last_roi = 0, 0
+
+    # The spline-derived ON/OFF interval can be very narrow. Use it as timing
+    # metadata, but expand the actual ROI event-counting window with the
+    # configured polarity gate so the positive and negative lobes of the same
+    # blink can both enter the joint Poisson fit.
+    peak_minus_gate = t_peak - polarity_time_gate_us
+    peak_plus_gate = t_peak + polarity_time_gate_us
+
+    count_lower = time_back
+    if peak_minus_gate < count_lower:
+        count_lower = peak_minus_gate
+    if count_lower < 0:
+        count_lower = 0
+
+    count_upper = time_advance
+    if peak_plus_gate > count_upper:
+        count_upper = peak_plus_gate
+
     for id in range(len(coord_lists)):
         y, x = coord_lists[id]
         if (y, x) not in dict_indices:
@@ -197,8 +215,8 @@ def slice_t_p_dict(
             polarities_arr,
             row_id,
             id_data,
-            time_back,
-            time_advance,
+            count_lower,
+            count_upper,
             t_peak,
             polarity_time_gate_us,
         )
@@ -219,8 +237,16 @@ def slice_t_p_dict(
             t_last_roi = t_last
     roi_y0 = center_coord[0] - roi_rad
     roi_x0 = center_coord[1] - roi_rad
-    dt_pos_s = max(min(time_advance, t_peak + polarity_time_gate_us) - time_back, 0)
-    dt_neg_s = max(time_advance - max(time_back, t_peak - polarity_time_gate_us), 0)
+    pos_end = count_upper
+    if peak_plus_gate < pos_end:
+        pos_end = peak_plus_gate
+
+    neg_start = count_lower
+    if peak_minus_gate > neg_start:
+        neg_start = peak_minus_gate
+
+    dt_pos_s = max(pos_end - count_lower, 0)
+    dt_neg_s = max(count_upper - neg_start, 0)
     return (
         new_roi,
         new_roi_neg,
