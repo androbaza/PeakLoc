@@ -1,12 +1,13 @@
 import copy
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
 from joblib import Parallel, delayed
-from numba import jit, njit
+from loguru import logger
+from numba import jit, njit, types
+from numba.core.errors import NumbaTypeSafetyWarning
 from numba.typed import Dict, List
-from scipy.ndimage import median_filter
-from skimage.morphology import remove_small_objects
 
 if TYPE_CHECKING:
     prange = range
@@ -88,12 +89,15 @@ def get_times_polarities(coords_dict, events_t_p_dict):
     times_arr = []
     polarities_arr = []
     for key in coords_dict:
-        if key not in events_t_p_dict:
+        event_key = (np.uint16(key[0]), np.uint16(key[1]))
+        if event_key not in events_t_p_dict:
             times_arr.append([])
             polarities_arr.append([])
             continue
-        times_arr.append(list(events_t_p_dict[key].keys()))
-        polarities_arr.append(list(events_t_p_dict[key].values()))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NumbaTypeSafetyWarning)
+            times_arr.append(list(events_t_p_dict[event_key].keys()))
+            polarities_arr.append(list(events_t_p_dict[event_key].values()))
     return times_arr, polarities_arr
 
 
@@ -198,9 +202,12 @@ def gen_rois_from_peaks_dict(
     id_loc = 0
     rois_list = []
     all = len(list(coords_dict.keys()))
-    numba_dict_indices = Dict()
+    numba_dict_indices = Dict.empty(
+        key_type=types.UniTuple(types.uint16, 2),
+        value_type=types.int64,
+    )
     for k, v in dict_indices.items():
-        numba_dict_indices[k] = v
+        numba_dict_indices[(np.uint16(k[0]), np.uint16(k[1]))] = v
     numba_times = List()
     numba_polarities = List()
     for times, polarities in zip(times_arr, polarities_arr):
@@ -209,12 +216,10 @@ def gen_rois_from_peaks_dict(
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
         if (id_data % 2e3 == 0 or id_data == all - 1) and i == 1:
-            print(
-                "completed ",
+            logger.debug(
+                "completed {} % --> ~{} localizations found",
                 int(id_data / all * 100),
-                " % --> ~",
                 id_loc * 10,
-                " localizations found",
             )
         y, x = center_coord
         if (
@@ -258,19 +263,6 @@ def gen_rois_from_peaks_dict(
                 image_start=image_start,
             )
             id_loc += 1
-            # mask = np.nonzero(full_rois_list[id]["roi_event_times"][0])
-            # try:
-            #     full_rois_list[id]["t_1st"] = np.min(
-            #         full_rois_list[id]["roi_event_times"][0][mask]
-            #     )
-            # except:
-            #     np.delete(full_rois_list, id)
-            #     continue
-            full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
-                full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
-            )
-            if np.sum(full_rois_list[id]["roi"]) < 10:
-                np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))
             if id_data != 0
@@ -311,36 +303,4 @@ def generate_rois_parallel(
     for i in np.arange(len(RES)):
         rois.extend(RES[i])
     timesorted = np.sort(rois, order="t_peak")
-    return timesorted[timesorted["total_events_roi"] > 15]
-
-
-def process_noise(roi, roi_n):
-    # padded, padded_n = np.pad(roi, padding_size), np.pad(roi_n, padding_size)
-    roi = subtract_one_from_border(roi, 2)
-    roi = roi * remove_small_objects(roi > 0, min_size=3, connectivity=0)
-    roi = median_filter_n_pixels_from_border(roi)
-    roi_n = subtract_one_from_border(roi_n, 2)
-    roi_n = roi_n * remove_small_objects(roi_n > 0, min_size=3, connectivity=0)
-    roi_n = median_filter_n_pixels_from_border(roi_n)
-    return roi, roi_n
-
-
-def median_filter_n_pixels_from_border(im):
-    # Create a mask that selects only the pixels within n distance from the border
-    mask = np.ones_like(im)
-    mask[im.nonzero()] = 0
-    kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
-    filtered_img = median_filter(im, footprint=kernel)
-    # Merge the filtered pixels with the unfiltered pixels outside the mask
-    filtered_img = im + filtered_img * mask  # + im * (1 - mask)
-    return filtered_img
-
-
-@njit(fastmath=True, cache=True, parallel=True)
-def subtract_one_from_border(image, n):
-    modified_image = np.copy(image)
-    modified_image[:n, :] -= modified_image[:n, :] != 0
-    modified_image[-n:, :] -= modified_image[-n:, :] != 0
-    modified_image[:, :n] -= modified_image[:, :n] != 0
-    modified_image[:, -n:] -= modified_image[:, -n:] != 0
-    return modified_image
+    return timesorted
