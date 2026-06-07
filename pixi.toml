@@ -34,15 +34,9 @@ lint = "ruff check --fix ."
 format = "ruff format ."
 typecheck = "ty check"
 
-[feature.ui.pypi-dependencies]
-customtkinter = "*"
-tkinter-tooltip = "*"
-
 [environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
-ui = { features = ["ui"], solve-group = "default" }
-all = { features = ["dev", "ui"], solve-group = "default" }
 
 [tasks]
 clean-temp = "python -m scripts.clean_temp_files"
