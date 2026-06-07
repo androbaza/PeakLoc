@@ -211,6 +211,9 @@ def process_time_slice(
 
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
     fit_qc = summarize_fit_qc(localizations, roi_count=len(rois))
+    rejected_localization_count = fit_qc["rejected_localization_count"]
+    if not isinstance(rejected_localization_count, int):
+        rejected_localization_count = 0
     return SliceResult(
         time_slice=time_slice,
         event_count=len(event_slice),
@@ -222,7 +225,7 @@ def process_time_slice(
         median_uncertainty_px=fit_qc["median_uncertainty_px"],
         median_nll_per_event=fit_qc["median_nll_per_event"],
         hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
-        rejected_localization_count=fit_qc["rejected_localization_count"],
+        rejected_localization_count=rejected_localization_count,
         artifacts=[unique_peaks_path, localizations_path, rois_path],
     )
 

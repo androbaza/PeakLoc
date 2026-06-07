@@ -39,7 +39,7 @@ class EventCalibration:
 
     @property
     def sensor_shape(self) -> tuple[int, int]:
-        return self.dark_rate_pos.shape
+        return int(self.dark_rate_pos.shape[0]), int(self.dark_rate_pos.shape[1])
 
     def validate_sensor_shape(self, sensor_shape: tuple[int, int]) -> None:
         if self.sensor_shape != sensor_shape:

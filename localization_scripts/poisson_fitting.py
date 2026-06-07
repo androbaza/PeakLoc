@@ -89,7 +89,7 @@ def fit_joint_poisson_roi(
 
     def objective(params: np.ndarray) -> float:
         psf = pixel_integrated_gaussian(
-            roi_pos.shape, params[0], params[1], sigma_psf_px
+            _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
         )
         mu_pos, mu_neg = _mean_maps(
             params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
@@ -102,7 +102,9 @@ def fit_joint_poisson_roi(
 
     result = minimize(objective, initial, method="L-BFGS-B", bounds=bounds)
     params = np.asarray(result.x, dtype=np.float64)
-    psf = pixel_integrated_gaussian(roi_pos.shape, params[0], params[1], sigma_psf_px)
+    psf = pixel_integrated_gaussian(
+        _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
+    )
     mu_pos, mu_neg = _mean_maps(
         params, psf, roi_calibration.bg_pos, roi_calibration.bg_neg
     )
@@ -166,7 +168,7 @@ def _initial_parameters(
     local_x, local_y = _center_of_mass(combined)
     bg_pos = max(_border_median(corrected_pos), MIN_PARAM)
     bg_neg = max(_border_median(corrected_neg), MIN_PARAM)
-    psf = pixel_integrated_gaussian(roi_pos.shape, local_x, local_y, sigma_psf_px)
+    psf = pixel_integrated_gaussian(_shape_2d(roi_pos), local_x, local_y, sigma_psf_px)
     amp_pos = max(float(np.sum(np.clip(corrected_pos - bg_pos, 0, None))), MIN_PARAM)
     amp_neg = max(float(np.sum(np.clip(corrected_neg - bg_neg, 0, None))), MIN_PARAM)
     if np.max(psf) <= 0:
@@ -210,7 +212,7 @@ def _estimate_covariance(
     max_fit_cond: float,
 ) -> tuple[np.ndarray, float]:
     dpsf_dx, dpsf_dy = finite_difference_psf_derivatives(
-        psf.shape,
+        _shape_2d(psf),
         params[0],
         params[1],
         sigma_psf_px,
@@ -284,6 +286,12 @@ def _sigma_psf_px(config: PeakLocConfig) -> float:
     if config.sigma_psf_px is not None:
         return config.sigma_psf_px
     return config.dataset_fwhm / 2.35
+
+
+def _shape_2d(array: np.ndarray) -> tuple[int, int]:
+    if array.ndim != 2:
+        raise ValueError(f"Expected a 2D array, got shape {array.shape}")
+    return int(array.shape[0]), int(array.shape[1])
 
 
 def _field(record: Any, name: str, *, default: Any | None = None) -> Any:

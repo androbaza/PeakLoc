@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Mapping
 import warnings
 from typing import TYPE_CHECKING
 
@@ -16,7 +17,7 @@ else:
 
 
 def generate_rois(
-    unique_peaks: dict[tuple[int, int], object],
+    unique_peaks: Mapping[tuple[int, int], object],
     events_t_p_dict: dict,
     roi_rad: int,
     min_x: int,

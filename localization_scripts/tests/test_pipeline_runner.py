@@ -11,7 +11,10 @@ from localization_scripts.pipeline_runner import (
 
 def test_write_effective_run_settings_includes_calibration_metadata(tmp_path):
     output_path = tmp_path / "reports" / "settings.json"
-    calibration_metadata = {"calibration_id": "none", "calibrated": False}
+    calibration_metadata: dict[str, object] = {
+        "calibration_id": "none",
+        "calibrated": False,
+    }
 
     write_effective_run_settings(
         PeakLocConfig(input_folder="data", num_cores=1),
