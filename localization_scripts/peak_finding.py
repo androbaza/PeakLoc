@@ -100,13 +100,23 @@ def interpolate_parallel(
             )
 
         """Interpolate linearly, find peaks"""
+        t, y = prepare_interpolation_axis(times[id], cumsum[id])
+        if t is None:
+            id_to_delete.append(id)
+            continue
+
+        num = max(int(len(t) * interpolation_coefficient), 2)
         tnew = np.linspace(
-            0,
-            times[id].max(),
-            num=len(times[id]) * interpolation_coefficient,
-            dtype=np.uint64,
+            t[0],
+            t[-1],
+            num=num,
+            dtype=np.float64,
         )
-        ynew = jit_interpolate(times[id], cumsum[id], tnew)
+        try:
+            ynew = jit_interpolate(t, y, tnew)
+        except ZeroDivisionError:
+            id_to_delete.append(id)
+            continue
         p, p_props = find_peaks(ynew, prominence=prominence)
         id_peak += len(p)
         if len(p) == 0:
@@ -117,7 +127,7 @@ def interpolate_parallel(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SparseEfficiencyWarning)
             s = CubicSmoothingSpline(
-                times[id], cumsum[id], smooth=spline_smooth, normalizedsmooth=True
+                t, y, smooth=spline_smooth, normalizedsmooth=True
             ).spline
         der_2 = s.derivative()(tnew)
         on_off = find_on_off(p, der_2, tnew, ynew)
@@ -255,6 +265,39 @@ def find_local_max_peak(
                                     # Remove the value at the index
                                     del peaks_list[index]
     return coords_dict
+
+
+def prepare_interpolation_axis(times, cumsum):
+    t = np.asarray(times, dtype=np.float64)
+    y = np.asarray(cumsum, dtype=np.float64)
+
+    if t.size < 2:
+        return None, None
+
+    order = np.argsort(t, kind="stable")
+    t = t[order]
+    y = y[order]
+
+    unique_t, first_idx, counts = np.unique(
+        t,
+        return_index=True,
+        return_counts=True,
+    )
+
+    # For repeated timestamps, keep the final cumulative value at that timestamp.
+    last_idx = first_idx + counts - 1
+    unique_y = y[last_idx]
+
+    if unique_t.size < 2:
+        return None, None
+
+    if not np.isfinite(unique_t[0]) or not np.isfinite(unique_t[-1]):
+        return None, None
+
+    if unique_t[-1] <= unique_t[0]:
+        return None, None
+
+    return unique_t, unique_y
 
 
 def take_closest_index(myList, myNumber):
