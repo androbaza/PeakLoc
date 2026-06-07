@@ -1,11 +1,15 @@
-from collections import defaultdict
-import numpy as np
 from bisect import bisect_left
-from joblib import Parallel, delayed
-from numba import njit
-from interpolation import interp
+from collections import defaultdict
+import warnings
+
+import numpy as np
 from csaps import CubicSmoothingSpline
+from interpolation import interp
+from joblib import Parallel, delayed
+from loguru import logger
+from numba import njit
 from scipy.signal import find_peaks
+from scipy.sparse import SparseEfficiencyWarning
 
 
 def find_peaks_parallel(
@@ -89,12 +93,10 @@ def interpolate_parallel(
             id_to_delete.append(id)
             continue
         if (id % 1e4 == 0 or id == len(times) - 1) and i == 1:
-            print(
-                "completed ",
+            logger.debug(
+                "completed {} % --> {} peaks found in 1 of 24 slices",
                 int(id / len(times) * 100),
-                " % --> ",
                 id_peak,
-                " peaks found in 1 of 24 slices",
             )
 
         """Interpolate linearly, find peaks"""
@@ -112,9 +114,11 @@ def interpolate_parallel(
             continue
 
         """Interpolate with cubic spline to find second derivative"""
-        s = CubicSmoothingSpline(
-            times[id], cumsum[id], smooth=spline_smooth, normalizedsmooth=True
-        ).spline
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SparseEfficiencyWarning)
+            s = CubicSmoothingSpline(
+                times[id], cumsum[id], smooth=spline_smooth, normalizedsmooth=True
+            ).spline
         der_2 = s.derivative()(tnew)
         on_off = find_on_off(p, der_2, tnew, ynew)
         peaks.append(tnew[p])
@@ -220,7 +224,7 @@ def find_local_max_peak(
         try:
             iter(coord)
         except TypeError:
-            print(coord, " is not iterable")
+            logger.warning("{} is not iterable", coord)
             continue
         # Unpack the coordinate
         y, x = coord

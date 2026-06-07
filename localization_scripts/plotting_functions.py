@@ -1,11 +1,21 @@
 from matplotlib_scalebar.scalebar import ScaleBar
+import warnings
+
 import matplotlib.pyplot as plt
 import numpy as np
-from localization_scripts.localization_fitting import *
-from collections import Counter
-from numba import njit, prange
-from localization_scripts.utils import *
 from csaps import CubicSmoothingSpline
+from numba import njit
+from scipy.ndimage import center_of_mass
+from scipy.signal import find_peaks
+from scipy.sparse import SparseEfficiencyWarning
+
+from localization_scripts.localization_fitting import (
+    double_gaussian2D,
+    est_coord,
+    fit_gaussian,
+    gaussian2D,
+)
+from localization_scripts.peak_finding import jit_interpolate
 
 
 def plot_event_signals_2d(signal_and_peaks):
@@ -18,10 +28,6 @@ def plot_event_signals_2d(signal_and_peaks):
                 peak[0], peak[1], label=f"y: {peak['coord'][0]}, x: {peak['coord'][1]}"
             )
         )
-        if len(peak["peaks"]) > 0 and len(peak[0]) > 0:
-            ys = [np.interp(p, peak[0], peak[1]) for p in peak["peaks"]]
-            # maxes = ax.scatter(peak['peaks'], ys, color = 'magenta', s = 85, marker = 'x', label = 'max')
-
     # ax.set_title('Cumulative sum of events from 4 event sensor pixels', fontsize = 12)
     plt.xlabel("time, ms", fontsize=14)
     plt.ylabel(
@@ -81,12 +87,11 @@ def plot_event_signals_3d(signal_and_peaks):
         ax.view_init(elev=40.0, azim=-35)
         maxes.set_zorder(20)
 
-    l = plt.legend(
+    legend = plt.legend(
         [maxes], ["Detected\nfluorophore\nexcitation"], loc="center left", fontsize=12
     )
-    l.set_zorder(200)
+    legend.set_zorder(200)
     maxes.set_zorder(2000)
-    ax.dist = 12
     return fig
 
 
@@ -115,22 +120,11 @@ def plot_single_fit(fit_params, rms, fit, data):
         c="w",
     )
     plt.scatter(y, x, c="magenta", s=90, marker="x")
-    scalebar = ScaleBar(
-        65,
-        units="nm",
-        length_fraction=0.15,
-        location="lower right",
-        frameon=False,
-        color="white",
-        box_alpha=0.7,
-        font_properties={"size": 6},
-    )
     # plt.gca().add_artist(scalebar)
     cbar = fig.colorbar(imm, fraction=0.01, pad=-0.0001, aspect=99)
     cbar.ax.tick_params(size=4, labelsize=17, pad=1)
     # cbar.ax.fontsize = 7
     cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
-    cbar.outline.set_visible(False)
     # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/signle_to_double_gauss_fit.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
 
 
@@ -173,12 +167,11 @@ def plot_double_fit(fit_params, rms, fit, data):
     cbar = fig.colorbar(imm, fraction=0.01, pad=-0.0001, aspect=104)
     cbar.ax.tick_params(size=4, labelsize=17, pad=1)
     cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
-    cbar.outline.set_visible(False)
     # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/double_gauss_fit.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
 
 
 def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
-    l = 0
+    subplot_index = 0
     roi_rad = rois_list[0]["roi"].shape[0] // 2
     # data = data[data['E_total'] > 120]
     #   fig = plt.figure(figsize=(17,17), dpi=300)
@@ -186,7 +179,6 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     fig.tight_layout()
     plt.axis("off")
     padded_all = []
-    fits = []
     for roi in rois_list:
         # padding_size = 1
         if sign == 1:
@@ -200,7 +192,7 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
         ax = plt.subplot(
             subplotsize,
             subplotsize,
-            l + 1,
+            subplot_index + 1,
         )
         plt.axis("off")
         if fit_params.shape[0] == 8:
@@ -268,10 +260,9 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
         )
         cbar.ax.tick_params(size=4, labelsize=17, pad=1)
         cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
-        cbar.outline.set_visible(False)
-        l += 1
+        subplot_index += 1
         # if l == subplotsize**2:
-        if l == subplotsize * subplotsize:
+        if subplot_index == subplotsize * subplotsize:
             break
 
     scalebar = ScaleBar(
@@ -293,19 +284,19 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
 def plot_rois_from_locs(
     rois_list, filename=None, subplotsize=6, sign=1, dataset_FWHM=7
 ):
-    l = 0
+    if rois_list.size == 0:
+        return None
+
+    subplot_index = 0
     roi_rad = rois_list["roi"][0].shape[0] // 2
-    fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20))
+    fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20), squeeze=False)
     fig.tight_layout()
-    plt.axis("off")
-    padded_all = []
-    fits = []
-    for id in range(subplotsize * subplotsize):
-        ax = plt.subplot(
-            subplotsize,
-            subplotsize,
-            l + 1,
-        )
+    for ax in axs.ravel():
+        ax.axis("off")
+    plot_count = min(rois_list.size, subplotsize * subplotsize)
+    for id in range(plot_count):
+        ax = axs.ravel()[subplot_index]
+        plt.sca(ax)
         roi = rois_list["roi"][id]
         plt.axis("off")
         if rois_list["double"][id] == 1:
@@ -346,11 +337,11 @@ def plot_rois_from_locs(
         # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
         # ax.set_ylabel('#px__sum_px\n'+str(np.count_nonzero(padded)) +'__'+ str(np.sum(padded)), fontsize=17)
         # plt.scatter(cmx, cmy, facecolors='red', marker='x', s=55)
-        imm = plt.imshow(roi, cmap="gray", interpolation="none")
+        plt.imshow(roi, cmap="gray", interpolation="none")
 
-        l += 1
+        subplot_index += 1
         # if l == subplotsize**2:
-        if l == subplotsize * subplotsize:
+        if subplot_index == subplotsize * subplotsize:
             break
 
     scalebar = ScaleBar(
@@ -367,24 +358,21 @@ def plot_rois_from_locs(
     fig.tight_layout()
     # plt.savefig(filename[:-4] + '_rois_examples.png', dpi=300, transparent=True, bbox_inches = 'tight')
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
-    return padded_all
+    return fig
 
 
 def plot_num_events_histogram(times):
     @njit(cache=True, nogil=True)
     def subarray_lengths_histogram(arr):
         subarray_lengths = []
-        for i in prange(len(arr)):
+        for i in range(len(arr)):
             subarray_lengths.append(len(arr[i]))
         return subarray_lengths
 
     subarray_lengths = subarray_lengths_histogram(times)
 
-    recounted = Counter(subarray_lengths)
     plt.figure(figsize=(20, 10))
-    n, bins, patches = plt.hist(
-        x=recounted, bins=1000, color="#0504aa", alpha=0.7, rwidth=0.85
-    )
+    plt.hist(x=subarray_lengths, bins=1000, color="#0504aa", alpha=0.7, rwidth=0.85)
     plt.grid(axis="y", alpha=0.75)
     plt.xlabel("Value")
     plt.ylabel("Frequency")
@@ -403,7 +391,6 @@ def plot_num_events_histogram(times):
         label="Std",
     )
     plt.text(23, 45, r"$\mu=15, b=3$")
-    maxfreq = n.max()
     plt.xlim(xmin=0, xmax=50000)
 
 
@@ -441,9 +428,11 @@ def plot_peak_ON_OFF_detection(
         ynew = jit_interpolate(times[i], cumsum[i], tnew)
         if plot_linear:
             plt.plot(tnew[:length], ynew[:length] + up, "-", alpha=0.2, color="black")
-        s = CubicSmoothingSpline(
-            times[i], cumsum[i], smooth=spline_smoothness, normalizedsmooth=True
-        ).spline
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SparseEfficiencyWarning)
+            s = CubicSmoothingSpline(
+                times[i], cumsum[i], smooth=spline_smoothness, normalizedsmooth=True
+            ).spline
         if plot_spline:
             plt.plot(tnew[:length], s(tnew)[:length] + up, alpha=0.8)
         p, p_props = find_peaks(ynew[:length], prominence=prominence)
@@ -495,6 +484,9 @@ def plot_peak_ON_OFF_detection(
 
 
 def plot_3d_time(start_times, end_times):
+    if not np.any(start_times) and not np.any(end_times):
+        return None
+
     # Determine the number of rows and columns in the arrays
     num_rows, num_cols = start_times.shape
 
@@ -514,7 +506,6 @@ def plot_3d_time(start_times, end_times):
     plt.yticks(fontsize=12)
     ax.set_proj_type("persp", focal_length=0.5)
     ax.view_init(elev=30.0, azim=-16)
-    ax.dist = 12
     # Set the style of the plot
     plt.style.use("seaborn-v0_8-darkgrid")
 
@@ -522,13 +513,14 @@ def plot_3d_time(start_times, end_times):
     cmap = plt.get_cmap("viridis")
 
     line_lengths = np.abs(end_times - start_times)
+    max_line_length = np.max(line_lengths)
     # Plot the lines connecting the start and end times
     for i in range(num_rows):
         for j in range(num_cols):
             start_time = start_times[i][j]
             end_time = end_times[i][j]
             length = line_lengths[i][j]
-            color = cmap(length / np.max(line_lengths))
+            color = cmap(0 if max_line_length == 0 else length / max_line_length)
             ax.plot(
                 [j, j],
                 [i, i],
@@ -550,8 +542,10 @@ def plot_3d_time(start_times, end_times):
     # Set the limits for the axes
     ax.set_xlim(2, num_cols - 4)
     ax.set_ylim(3, num_rows - 2)
-    ax.set_zlim(np.min(z_values[np.nonzero(z_values)]), np.max(z_values))
+    nonzero_times = z_values[np.nonzero(z_values)]
+    if nonzero_times.size:
+        ax.set_zlim(np.min(nonzero_times), np.max(z_values))
     # plt.grid(True)
     # Show the plot
     # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/time_on_of_plot_single_roi.png',dpi=300, bbox_inches = 'tight', pad_inches = 0, transparent=True)
-    plt.show()
+    return fig

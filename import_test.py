@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from loguru import logger
+
 from localization_scripts.event_array_processing import add_openeb_system_site_packages
 
 
@@ -19,8 +21,8 @@ def read_events(filename: Path, event_count: int = EVENT_COUNT):
 
 def main() -> None:
     events = read_events(RAW_FILE)
-    print(f"Loaded {events.size} events from {RAW_FILE}")
-    print(events)
+    logger.info("Loaded {} events from {}", events.size, RAW_FILE)
+    logger.debug("{}", events)
 
 
 if __name__ == "__main__":

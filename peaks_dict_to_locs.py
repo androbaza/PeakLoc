@@ -4,6 +4,7 @@ import os
 import time
 
 import numpy as np
+from loguru import logger
 
 from localization_scripts.event_array_processing import (
     array_to_time_map,
@@ -89,9 +90,10 @@ y_coords, x_coords = [min_y, max_y], [min_x, max_x]
 coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
 
 # Generate dictionaries and calculate max length
-print(f"Analyzing the data using {NUM_CORES} cores... Events go brrrrrrrrrrrr!")
-print(
-    f"Converting events to dictionaries... Elapsed time: {time.time() - start_time:.2f} seconds"
+logger.info("Analyzing the data using {} cores", NUM_CORES)
+logger.info(
+    "Converting events to dictionaries; elapsed time: {:.2f} seconds",
+    time.time() - start_time,
 )
 events_t_p_dict = array_to_time_map(events)
 del events
@@ -103,7 +105,7 @@ out_folder_localizations = filename[:-4] + "/"
 if not os.path.exists(out_folder_localizations):
     os.makedirs(out_folder_localizations)
 
-print(f"Generating ROIs... Elapsed time: {time.time() - start_time:.2f} seconds")
+logger.info("Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time)
 rois = generate_rois(
     unique_peaks,
     events_t_p_dict,
@@ -115,12 +117,13 @@ rois = generate_rois(
     max_y=max_y,
 )
 
-print(
-    f"Performing localization... Elapsed time: {time.time() - start_time:.2f} seconds"
+logger.info(
+    "Performing localization; elapsed time: {:.2f} seconds",
+    time.time() - start_time,
 )
 localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASEET_FWHM)
 
-print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
+logger.info("Finished; total elapsed time: {:.2f} seconds", time.time() - start_time)
 
 
 np.save(

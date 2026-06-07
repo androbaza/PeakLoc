@@ -21,6 +21,7 @@ numpy = "*"
 scikit-image = "*"
 scipy = "*"
 tifffile = "*"
+loguru = ">=0.7.3,<0.8"
 
 [feature.dev.dependencies]
 pytest = "*"

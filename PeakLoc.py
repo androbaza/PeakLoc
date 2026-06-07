@@ -2,9 +2,16 @@ import gc
 import multiprocessing
 import os
 import time
+from datetime import datetime
+from pathlib import Path
 
+import matplotlib
 import numpy as np
+from loguru import logger
 from natsort import natsorted
+
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
 
 from localization_scripts.event_array_processing import (
     array_to_polarity_map,
@@ -20,6 +27,7 @@ from localization_scripts.peak_finding import (
     find_peaks_parallel,
     group_timestamps_by_coordinate,
 )
+from localization_scripts.plotting_functions import plot_3d_time, plot_rois_from_locs
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 
 """
@@ -89,10 +97,56 @@ INPUT_FILE = "data/AF647_coverslip.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
 
+def save_processed_plots(localizations: np.ndarray, out_folder: str) -> None:
+    if localizations.size == 0:
+        logger.info("Skipping plots because no localizations were produced")
+        return
+
+    figure_folder = Path(out_folder) / "figures"
+    figure_folder.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    roi_fit_figure = plot_rois_from_locs(
+        localizations,
+        subplotsize=6,
+        dataset_FWHM=DATASET_FWHM,
+    )
+    if roi_fit_figure is not None:
+        roi_fit_path = figure_folder / f"roi_fits_{timestamp}.png"
+        roi_fit_figure.savefig(roi_fit_path, dpi=300, bbox_inches="tight")
+        plt.close(roi_fit_figure)
+        logger.info("Saved ROI fit plot to {}", roi_fit_path)
+
+    localization = next(
+        (
+            loc
+            for loc in localizations
+            if np.any(loc["roi_event_times"]) and np.any(loc["roi_event_times_n"])
+        ),
+        None,
+    )
+    if localization is None:
+        logger.info("Skipping ROI event-time plot because no timed ROI data was found")
+        return
+
+    roi_time_figure = plot_3d_time(
+        localization["roi_event_times"],
+        localization["roi_event_times_n"],
+    )
+    if roi_time_figure is None:
+        return
+    roi_time_path = figure_folder / f"roi_event_times_{timestamp}.png"
+    roi_time_figure.savefig(roi_time_path, dpi=300, bbox_inches="tight")
+    plt.close(roi_time_figure)
+    logger.info("Saved ROI event-time plot to {}", roi_time_path)
+
+
 def main(event_slice, time_slice, filename):
     events = event_slice
     if events.size == 0:
-        print(f"No events found in time slice ending at {time_slice} for {filename}")
+        logger.info(
+            "No events found in time slice ending at {} for {}", time_slice, filename
+        )
         return
 
     start_time = time.time()
@@ -108,9 +162,10 @@ def main(event_slice, time_slice, filename):
     coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
 
     # Generate dictionaries and calculate max length
-    print(f"Analyzing the data using {NUM_CORES} cores... Events go brrrrrrrrrrrr!")
-    print(
-        f"Converting events to dictionaries... Elapsed time: {time.time() - start_time:.2f} seconds"
+    logger.info("Analyzing the data using {} cores", NUM_CORES)
+    logger.info(
+        "Converting events to dictionaries; elapsed time: {:.2f} seconds",
+        time.time() - start_time,
     )
     dict_events, max_len = array_to_polarity_map(events, coords)
     events_t_p_dict = array_to_time_map(events)
@@ -118,8 +173,9 @@ def main(event_slice, time_slice, filename):
     gc.collect()
 
     # Create signals, cleanup and slice data
-    print(
-        f"Creating convolved signals... Elapsed time: {time.time() - start_time:.2f} seconds"
+    logger.info(
+        "Creating convolved signals; elapsed time: {:.2f} seconds",
+        time.time() - start_time,
     )
     max_len = int(max_len * 2 * (CONVOLUTION_ROI_RADIUS * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
@@ -128,7 +184,7 @@ def main(event_slice, time_slice, filename):
 
     del dict_events, max_len
 
-    print(f"Finding peaks... Elapsed time: {time.time() - start_time:.2f} seconds")
+    logger.info("Finding peaks; elapsed time: {:.2f} seconds", time.time() - start_time)
     peak_list = find_peaks_parallel(
         times,
         cumsum,
@@ -144,7 +200,9 @@ def main(event_slice, time_slice, filename):
     )
 
     # possible to speed up with numba
-    print(f"Filtering peaks... Elapsed time: {time.time() - start_time:.2f} seconds")
+    logger.info(
+        "Filtering peaks; elapsed time: {:.2f} seconds", time.time() - start_time
+    )
     unique_peaks = find_local_max_peak(
         peaks_dict, threshold=PEAK_TIME_THRESHOLD, neighbors=PEAK_NEIGHBORS
     )
@@ -168,7 +226,9 @@ def main(event_slice, time_slice, filename):
         + ".pkl",
     )
 
-    print(f"Generating ROIs... Elapsed time: {time.time() - start_time:.2f} seconds")
+    logger.info(
+        "Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time
+    )
     rois = generate_rois(
         unique_peaks,
         events_t_p_dict,
@@ -180,12 +240,15 @@ def main(event_slice, time_slice, filename):
         max_y=max_y,
     )
 
-    print(
-        f"Performing localization... Elapsed time: {time.time() - start_time:.2f} seconds"
+    logger.info(
+        "Performing localization; elapsed time: {:.2f} seconds",
+        time.time() - start_time,
     )
     localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASET_FWHM)
 
-    print(f"Finished! Total elapsed time: {time.time() - start_time:.2f} seconds")
+    logger.info(
+        "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
+    )
     np.save(
         temp_files_localization
         + "localizations_prominence_fwhm_"
@@ -242,7 +305,7 @@ if __name__ == "__main__":
             SLICE_DURATION,
         )
         if len(time_slices) == 0:
-            print(f"No time slices to process for {filename}")
+            logger.info("No time slices to process for {}", filename)
             continue
         for time_slice in time_slices:
             event_slice = events[
@@ -255,13 +318,13 @@ if __name__ == "__main__":
         temp_files_localization = out_folder_localizations + "temp_files/"
 
         if not os.path.isdir(temp_files_localization):
-            print(f"No temporary localization folder found for {filename}")
+            logger.info("No temporary localization folder found for {}", filename)
             continue
         sorted_names = natsorted(os.listdir(temp_files_localization))
         loc_names = [name for name in sorted_names if name.startswith("localizations")]
         roi_names = [name for name in sorted_names if name.startswith("rois")]
         if not loc_names or not roi_names:
-            print(f"No localization outputs found for {filename}")
+            logger.info("No localization outputs found for {}", filename)
             continue
 
         localizations_full_list = None
@@ -287,7 +350,7 @@ if __name__ == "__main__":
                 # np.delete(temp_files_localization + loc_file)
 
         if localizations_full_list is None or rois_full_list is None:
-            print(f"No localization outputs found for {filename}")
+            logger.info("No localization outputs found for {}", filename)
             continue
 
         np.save(
@@ -309,6 +372,8 @@ if __name__ == "__main__":
             + ".npy",
             rois_full_list,
         )
+
+        save_processed_plots(localizations_full_list, out_folder_localizations)
 
         for loc_file in sorted_names:
             os.remove(temp_files_localization + loc_file) if loc_file.startswith(
