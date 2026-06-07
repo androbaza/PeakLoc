@@ -48,6 +48,24 @@ def generate_rois(
         polarity_time_gate_us=polarity_time_gate_us,
     )
 
+def roi_record_dtype(roi_rad: int):
+    roi_shape = (roi_rad * 2 + 1, roi_rad * 2 + 1)
+    return [
+        ("roi", np.uint32, roi_shape),
+        ("roi_n", np.uint32, roi_shape),
+        ("roi_event_times", np.uint64, (2, *roi_shape)),
+        ("total_events_roi", np.uint64),
+        ("total_neg_events_roi", np.uint64),
+        ("t_1st", np.uint64),
+        ("t_peak", np.uint64),
+        ("t_last", np.uint64),
+        ("peak", np.int32, (2,)),
+        ("rel_peak", np.int32, (2,)),
+        ("roi_y0", np.int32),
+        ("roi_x0", np.int32),
+        ("dt_pos_s", np.float64),
+        ("dt_neg_s", np.float64),
+    ]
 
 def get_coords_dicts(sliced_dict, num_cores):
     coords_dicts = []
@@ -269,22 +287,7 @@ def gen_rois_from_peaks_dict(
         )
         full_rois_list = np.zeros(
             (len(data)),
-            dtype=[
-                ("roi", np.uint32, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi_n", np.uint32, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi_event_times", np.uint64, (2, roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("total_events_roi", np.uint64),
-                ("total_neg_events_roi", np.uint64),
-                ("t_1st", np.uint64),
-                ("t_peak", np.uint64),
-                ("t_last", np.uint64),
-                ("peak", np.int32, (2)),
-                ("rel_peak", np.int32, (2)),
-                ("roi_y0", np.int32),
-                ("roi_x0", np.int32),
-                ("dt_pos_s", np.float64),
-                ("dt_neg_s", np.float64),
-            ],
+            dtype=roi_record_dtype(roi_rad),
         )
 
         for id in prange(len(data)):
@@ -342,7 +345,11 @@ def generate_rois_parallel(
         for i in range(len(sliced_dict))
     )
     rois = []
+
     for i in np.arange(len(RES)):
         rois.extend(RES[i])
-    timesorted = np.sort(rois, order="t_peak")
-    return timesorted
+
+    if not rois:
+        return np.empty(0, dtype=roi_record_dtype(roi_rad))
+
+    return np.sort(np.asarray(rois, dtype=roi_record_dtype(roi_rad)), order="t_peak")
