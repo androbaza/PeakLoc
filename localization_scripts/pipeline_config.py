@@ -34,6 +34,8 @@ class PeakLocConfig:
     interpolation_coefficient: int = 5
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
+    plot_result: bool = True
+    optical_pixel_size_nm: float = 67.0
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
 
@@ -87,7 +89,10 @@ class PeakLocConfig:
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
+        _require_positive("optical_pixel_size_nm", self.optical_pixel_size_nm)
         _require_positive("max_raw_events", self.max_raw_events)
+        _require_bool("plot_result", self.plot_result)
+        _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
 
@@ -134,3 +139,8 @@ def _require_positive(name: str, value: int | float) -> None:
 def _require_non_negative(name: str, value: int | float) -> None:
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
+
+
+def _require_bool(name: str, value: bool) -> None:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be true or false")

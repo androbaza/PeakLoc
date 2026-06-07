@@ -12,6 +12,8 @@
   "interpolation_coefficient": 5,
   "spline_smooth": 0.7,
   "plot_subplotsize": 6,
+  "plot_result": true,
+  "optical_pixel_size_nm": 67.0,
   "max_raw_events": 1000000,
   "cleanup_temp_outputs": true
 }
