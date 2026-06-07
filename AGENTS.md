@@ -5,6 +5,11 @@ PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch w
 
 Keep raw recordings, `.bias` files, generated `.npy`/`.pkl` outputs, temp folders, and machine-specific paths out of commits.
 
+Coordinate convention:
+- Image arrays are indexed as image[y, x] == image[row, col].
+- Matplotlib imshow overlays must use:
+    scatter(sub_x, sub_y)
+
 ## Environment & Commands
 Use pixi. Add dependencies with `pixi add <package>`.
 
