@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch workflow. `localization_scripts/` contains event parsing, peak detection, ROI generation, fitting, plotting, and simulation code. `interface/` contains exploratory UI scripts. `figures/` stores README assets. Root scripts such as `peaks_dict_to_locs.py` and `clean_temp_files.py` should stay thin.
+PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch workflow. `localization_scripts/` contains event parsing, peak detection, ROI generation, fitting, plotting, and simulation code. `interface/` contains exploratory UI scripts. `figures/` stores README assets. Helper scripts such as `peaks_dict_to_locs.py` and `clean_temp_files.py` live in `scripts/` and should stay thin.
 
 Keep raw recordings, `.bias` files, generated `.npy`/`.pkl` outputs, temp folders, and machine-specific paths out of commits.
 
@@ -11,14 +11,14 @@ Use pixi. Add dependencies with `pixi add <package>`.
 ```bash
 pixi install
 pixi run peakloc
-pixi run python peaks_dict_to_locs.py
+pixi run peaks-dict-to-locs
 pixi run -e dev pytest
 pixi run -e dev ruff check --fix .
 pixi run -e dev ruff format .
 pixi run -e all ty check
 ```
 
-`PeakLoc.py` runs the full pipeline; set `PEAKLOC_INPUT_FOLDER`, `PEAKLOC_SLICE_START`, or `PEAKLOC_SLICE_DURATION` when needed. Review `input_dir` before using `clean_temp_files.py`; it deletes generated arrays.
+`PeakLoc.py` runs the full pipeline using root `config.json` by default; set `PEAKLOC_INPUT_FOLDER`, `PEAKLOC_SLICE_START`, or `PEAKLOC_SLICE_DURATION` when needed. Review `input_dir` before using `scripts/clean_temp_files.py`; it deletes generated arrays.
 
 ## Coding Policies & Style
 Target Python 3.12. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.

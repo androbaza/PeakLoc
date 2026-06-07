@@ -45,5 +45,7 @@ ui = { features = ["ui"], solve-group = "default" }
 all = { features = ["dev", "ui"], solve-group = "default" }
 
 [tasks]
-import-test = "python import_test.py"
-peakloc = "PEAKLOC_INPUT_FOLDER=data python PeakLoc.py"
+clean-temp = "python -m scripts.clean_temp_files"
+import-test = "python -m scripts.import_test"
+peakloc = "python PeakLoc.py"
+peaks-dict-to-locs = "python -m scripts.peaks_dict_to_locs"

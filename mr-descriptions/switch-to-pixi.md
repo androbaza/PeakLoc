@@ -15,7 +15,7 @@ Passed:
 pixi install
 pixi run import-test
 pixi run python -c "import PeakLoc; print('peakloc imports ok')"
-pixi run python -m py_compile PeakLoc.py peaks_dict_to_locs.py clean_temp_files.py import_test.py localization_scripts/*.py
+pixi run python -m py_compile PeakLoc.py scripts/*.py localization_scripts/*.py
 pixi run peakloc
 ```
 
@@ -37,4 +37,4 @@ still fail on pre-existing legacy style and typing issues, including wildcard im
 
 ## Notes
 - `pixi.toml` keeps Python at 3.12 because Ubuntu `metavision-openeb` installs Python 3.12 bindings under `/usr/lib/python3/dist-packages`.
-- The default `peakloc` task reads from `data/` for local smoke runs. Use `PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run python PeakLoc.py` for real data.
+- The default `peakloc` task reads from root `config.json` for local smoke runs. Use `PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run peakloc` for quick real-data overrides.

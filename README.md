@@ -20,11 +20,22 @@ PeakLoc.py is the main script. Run it through pixi:
 
 `pixi run peakloc`
 
-By default, the pixi task reads from `data/`. To process another directory, run:
+By default, `PeakLoc.py` reads settings from `config.json` at the repository root.
+The checked-in config points to `data/` for local smoke runs and records the
+effective settings in each output folder's `reports/` subfolder. To process
+another directory, edit `input_folder` in `config.json` or pass a separate config:
 
-`PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run python PeakLoc.py`
+`pixi run python PeakLoc.py --config /path/to/config.json`
 
-The script creates a folder with the same name as each input file and saves the localizations there. Configure `PEAKLOC_SLICE_START` and `PEAKLOC_SLICE_DURATION` to adjust time slicing.
+Environment overrides are still available for quick runs:
+
+`PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run peakloc`
+
+The script creates a folder with the same name as each input file and saves the
+localizations there. Configure `slice_start` and `slice_duration` in `config.json`
+or set `PEAKLOC_SLICE_START` and `PEAKLOC_SLICE_DURATION` to adjust time slicing.
+Helper scripts are in `scripts/`, with pixi tasks such as `pixi run import-test`
+and `pixi run peaks-dict-to-locs`.
 
 128Gb of RAM is recommended. For a full-schip (1280x720) recording of 600 seconds, the script will take about 10 minutes to run on a 24-core machine.
 
