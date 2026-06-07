@@ -1,6 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import os, tifffile
+import tifffile
 from scipy.interpolate import interp1d
 
 input_data = "/home/smlm-workstation/event-smlm/generated_data/localizations/npy/tubulin300x400[7, 1800]_localizations_full.npy"
@@ -38,8 +37,9 @@ def neighbor_interpolation(
         for localization in localizations:
             # determine the main pixel coordinate
             if loc_source == "gaussian":
-                coord_x, coord_y = round(localization["x"] / pixel_dim), round(
-                    localization["y"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x"] / pixel_dim),
+                    round(localization["y"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -49,8 +49,9 @@ def neighbor_interpolation(
                 )
 
             elif loc_source == "phasor":
-                coord_x, coord_y = round(localization["x_p"] / pixel_dim), round(
-                    localization["y_p"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_p"] / pixel_dim),
+                    round(localization["y_p"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -61,8 +62,9 @@ def neighbor_interpolation(
 
             if interpolate:
                 # intensity of the pixel value based on subpixel position
-                I_x, I_y = (-np.abs(sub_x) / pixel_dim + 1), (
-                    -np.abs(sub_y) / pixel_dim + 1
+                I_x, I_y = (
+                    (-np.abs(sub_x) / pixel_dim + 1),
+                    (-np.abs(sub_y) / pixel_dim + 1),
                 )
 
                 # fill the histogram at calculated coords
@@ -113,8 +115,9 @@ def neighbor_interpolation(
         for localization in localizations:
             # determine the main pixel coordinate
             if loc_source == "gaussian" and localization["E_total_n"] > 40:
-                coord_x, coord_y = round(localization["x_n"] / pixel_dim), round(
-                    localization["y_n"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_n"] / pixel_dim),
+                    round(localization["y_n"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -124,8 +127,9 @@ def neighbor_interpolation(
                 )
 
             elif loc_source == "phasor":
-                coord_x, coord_y = round(localization["x_np"] / pixel_dim), round(
-                    localization["y_np"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_np"] / pixel_dim),
+                    round(localization["y_np"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -136,8 +140,9 @@ def neighbor_interpolation(
 
             if interpolate:
                 # intensity of the pixel value based on subpixel position
-                I_x, I_y = (-np.abs(sub_x) / pixel_dim + 1), (
-                    -np.abs(sub_y) / pixel_dim + 1
+                I_x, I_y = (
+                    (-np.abs(sub_x) / pixel_dim + 1),
+                    (-np.abs(sub_y) / pixel_dim + 1),
                 )
 
                 # fill the histogram at calculated coords
@@ -207,7 +212,10 @@ def histogram_binning(
         image2, _, _ = np.histogram2d(
             localizations["x_n"],
             localizations["y_n"],
-            bins=[int(image_max_x / pixel_recon_dim), int(image_max_y / pixel_recon_dim)],
+            bins=[
+                int(image_max_x / pixel_recon_dim),
+                int(image_max_y / pixel_recon_dim),
+            ],
         )
         return image + image2
     return image
@@ -253,6 +261,10 @@ def drift_correction(
         shifts[:, -1], shifts[:, 1], kind="quadratic", fill_value="extrapolate"
     )
     if mode == "crop":
+        if out_loc is None:
+            raise ValueError(
+                "out_loc must be provided when drift correction mode is 'crop'"
+            )
         localizations = np.copy(out_loc)
         pixel_dim = pixel_dim_out
     data_interp = np.arange(0, len(localizations), 1)
@@ -278,7 +290,8 @@ def drift_correction(
 
 
 def FRC_split(localizations, pixel_dim=0.3):
-    data_shuffle = np.random.shuffle(localizations)
+    data_shuffle = np.copy(localizations)
+    np.random.shuffle(data_shuffle)
     s1, s2 = (
         data_shuffle[len(localizations) // 2 :],
         data_shuffle[: len(localizations) // 2],

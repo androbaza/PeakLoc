@@ -1,10 +1,14 @@
-from numba import njit, prange, jit, types
-from numba.typed import List, Dict
-import numpy as np
-from scipy.ndimage import median_filter
-from skimage.morphology import remove_small_objects
 from collections import defaultdict
-import gc
+from typing import TYPE_CHECKING
+
+import numpy as np
+from numba import jit, njit
+from numba.typed import List
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 def ndarray_to_dict_t_p_python(arr):
@@ -23,11 +27,13 @@ def ndarray_to_dict_t_p_python(arr):
             dict_out[key] = {arr[id]["t"]: arr[id]["p"]}
     return dict_out
 
+
 # def convert_to_hashmap__parallel(events, coords):
 #     num_cores = 2
 #     RES = Parallel(n_jobs=num_cores)(
 #         (delayed(array_to_polarity_map)(events, coords), delayed(array_to_time_map)(events, coords)))
 #     return RES[0][0], RES[0][1], RES[1]
+
 
 @njit(cache=True, nogil=True)
 def t_p_dict_to_ndarray(d):
@@ -81,12 +87,6 @@ def subarray_lengths_histogram(arr):
     return subarray_lengths
 
 
-from csaps import CubicSmoothingSpline
-from scipy.signal import find_peaks
-from scipy.interpolate import interp1d
-from interpolation import interp
-
-
 @njit(cache=True, fastmath=True, nogil=True)
 def find_on_off_plot(p, der_2, tnew, ynew):
     on_off = []
@@ -137,9 +137,6 @@ def find_on_off_plot(p, der_2, tnew, ynew):
         on_off.append((tnew[negative], tnew[positive]))
         on_off_t.append((negative, positive))
     return on_off, on_off_t
-
-
-import copy
 
 
 @njit(cache=True, fastmath=True, nogil=True)

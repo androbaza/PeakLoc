@@ -1,14 +1,12 @@
-from numba.np.ufunc import parallel
-import numpy as np
 from types import SimpleNamespace
+
 import matplotlib.pyplot as plt
+import numpy as np
 # from numba import njit, prange, set_num_threads
 
-EVENT_TYPE = np.dtype(
-    [("t", "f8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True
-)
+EVENT_TYPE = np.dtype([("t", "f8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True)
 
-TOL = .08
+TOL = 0.08
 
 CONFIG = SimpleNamespace(
     **{
@@ -20,54 +18,69 @@ CONFIG = SimpleNamespace(
 )
 
 
+def generate_image_for_sim(
+    blinks_distance=3.5,
+    N_ph=100,
+    sigma=4.8,
+    add_noise=True,
+    N_ph2=None,
+    noise_level=None,
+):
 
-def generate_image_for_sim(blinks_distance = 3.5, N_ph = 100, sigma = 4.8, add_noise=True, N_ph2=None, noise_level=None):
+    def gaussian(x, var):
+        return np.exp(-(x**2) / (2 * var))
 
-    def gaussian(x, var): 
-        return np.exp(- x**2 / (2*var))
-    def gaussian_shift(x, center, var): 
-        return np.exp(- (x - center)**2 / (2*var))
+    def gaussian_shift(x, center, var):
+        return np.exp(-((x - center) ** 2) / (2 * var))
 
     vec = np.arange(-10, 11)
-    X, Y = np.meshgrid(vec,vec)
+    X, Y = np.meshgrid(vec, vec)
     g = gaussian(vec, sigma)
     g_shift = gaussian_shift(vec, blinks_distance, sigma)
 
-    input_img_1 = N_ph * g.reshape(-1,1) * g.reshape(1,-1) + 0.001
+    input_img_1 = N_ph * g.reshape(-1, 1) * g.reshape(1, -1) + 0.001
     if N_ph2 is None:
-        input_img_2 = N_ph * g_shift.reshape(-1,1) * g_shift.reshape(1,-1) + 0.001
+        input_img_2 = N_ph * g_shift.reshape(-1, 1) * g_shift.reshape(1, -1) + 0.001
     else:
-        input_img_2 = N_ph2 * g_shift.reshape(-1,1) * g_shift.reshape(1,-1) + 0.001
+        input_img_2 = N_ph2 * g_shift.reshape(-1, 1) * g_shift.reshape(1, -1) + 0.001
 
-    input_img_1[input_img_1<0.1] = 0.001
-    input_img_2[input_img_2<0.1] = 0.001
+    input_img_1[input_img_1 < 0.1] = 0.001
+    input_img_2[input_img_2 < 0.1] = 0.001
 
     if add_noise:
-        if noise_level: noise_coeff = noise_level
-        else: noise_coeff = 0.03
-        n1 = input_img_1>0.001
+        if noise_level:
+            noise_coeff = noise_level
+        else:
+            noise_coeff = 0.03
+        n1 = input_img_1 > 0.001
         noise = n1 * np.random.poisson(8, size=input_img_1.shape)
         input_img_1 += noise + np.random.poisson(noise_coeff, size=input_img_1.shape)
-        n2 = input_img_2>0.001
+        n2 = input_img_2 > 0.001
         noise = n2 * np.random.poisson(8, size=input_img_1.shape)
         input_img_2 += noise + np.random.poisson(noise_coeff, size=input_img_1.shape)
-        
+
     input_img = input_img_1 + input_img_2 - 0.001
-    image_sequence = [input_img_1, input_img, input_img_2, np.zeros_like(input_img)+0.001]
+    image_sequence = [
+        input_img_1,
+        input_img,
+        input_img_2,
+        np.zeros_like(input_img) + 0.001,
+    ]
     time_sequence = [1e-3, 2e-3, 3e-3, 4e-3]
 
     return image_sequence, time_sequence
 
+
 def plot_bar3d_from_2d_image(intensities):
     fig = plt.figure(figsize=(15, 15))
-    ax = fig.add_subplot(projection='3d')
-    
-    fig.set_facecolor('none')
-    ax = fig.add_subplot(projection='3d')
+    ax = fig.add_subplot(projection="3d")
+
+    fig.set_facecolor("none")
+    ax = fig.add_subplot(projection="3d")
 
     # set x, y, and z coordinates for the bars
     xpos, ypos = np.meshgrid(range(intensities.shape[0]), range(intensities.shape[1]))
-    xpos = xpos.flatten()   # make 1D
+    xpos = xpos.flatten()  # make 1D
     ypos = ypos.flatten()
     zpos = np.zeros_like(xpos)
 
@@ -75,24 +88,30 @@ def plot_bar3d_from_2d_image(intensities):
     dx = 0.5 * np.ones_like(zpos)
     dy = dx.copy()
     dz = intensities.flatten()
-    colors = plt.cm.viridis(dz/dz.max()) 
-    img = ax.bar3d(xpos, ypos, zpos, dx, dy, dz, alpha=1, color=colors, edgecolor='gray')
+    max_intensity = dz.max()
+    normalized_intensities = (
+        np.zeros_like(dz) if max_intensity <= 0 else dz / max_intensity
+    )
+    colors = plt.get_cmap("viridis")(normalized_intensities)
+    ax.bar3d(xpos, ypos, zpos, dx, dy, dz, alpha=1, color=colors, edgecolor="gray")
 
     # set axis labels and title
-    ax.set_xlabel('x position, (a.u.)')
-    ax.set_ylabel('y position, (a.u.)')
-    ax.set_zlabel('Intensity, (a.u.)')
+    ax.set_xlabel("x position, (a.u.)")
+    ax.set_ylabel("y position, (a.u.)")
+    ax.set_zlabel("Intensity, (a.u.)")
+
 
 def generate_single_frame(events, input_image):
     frame = np.zeros(input_image.shape)
     for id in np.arange(len(events)):
-        if events[id]['p'] == 1:
-            frame[events[id]['y'],events[id]['x']]+=1.
+        if events[id]["p"] == 1:
+            frame[events[id]["y"], events[id]["x"]] += 1.0
             # frame[events[id]['y'],events[id]['x']]*=1.02
-        else: 
-            frame[events[id]['y'],events[id]['x']]-=1.
+        else:
+            frame[events[id]["y"], events[id]["x"]] -= 1.0
             # frame[events[id]['y'],events[id]['x']]*=1.02
     return frame
+
 
 # @njit(parallel=True)
 def esim(
@@ -110,7 +129,7 @@ def esim(
 ):
     count = 0
     # max_spikes = int(delta_time / (refractory_period_ns * 1e-3))
-    max_spikes = 10e6
+    max_spikes = 10_000_000
     for x in np.arange(x_end):
         itdt = np.log(current_image[x])
         it = np.log(previous_image[x])
@@ -142,10 +161,10 @@ def esim(
 
         current_time = last_time
         for i in range(spike_nums):
-            output_events[count]['x'] = x % n_pix_row
-            output_events[count]['y'] = x // n_pix_row
-            output_events[count]['t'] = np.round(current_time * 1e-6, 6)
-            output_events[count]['p'] = 1 if polarity > 0 else -1
+            output_events[count]["x"] = x % n_pix_row
+            output_events[count]["y"] = x // n_pix_row
+            output_events[count]["t"] = np.round(current_time * 1e-6, 6)
+            output_events[count]["p"] = 1 if polarity > 0 else -1
 
             count += 1
             current_time += (delta_time) / spike_nums
@@ -154,6 +173,7 @@ def esim(
                 return count
 
     return count
+
 
 class EventSimulator:
     def __init__(self, W, H, first_image=None, first_time=None, config=CONFIG):
@@ -245,57 +265,55 @@ class EventSimulator:
         result.sort(order=["t"], axis=0)
 
         return self.spikes, result
-    
 
 
 def plot_event_sim_to_2gaussian(image_sequence, time_sequence, EventSimulator):
-    
+
     fig, _ = plt.subplots(2, 4, figsize=(10, 5))
     fig.tight_layout()
-    plt.rcParams['axes.grid'] = False
-    EventSimulator.image_callback(np.zeros_like(image_sequence[0])+0.001, 0)
-    
-    l=0
-    for id, i in enumerate(image_sequence):
-        plt.subplot(2,4,l+1)
-        maxval = np.amax(i)
-        if maxval < 1: maxval = 100
+    plt.rcParams["axes.grid"] = False
+    EventSimulator.image_callback(np.zeros_like(image_sequence[0]) + 0.001, 0)
+
+    subplot_index = 0
+    for id, image in enumerate(image_sequence):
+        plt.subplot(2, 4, subplot_index + 1)
+        maxval = np.amax(image)
+        if maxval < 1:
+            maxval = 100
         # if id==2: imm = plt.imshow(i, cmap='gray', vmax=60, vmin=0)
-        imm = plt.imshow(i, cmap='gray', vmax=maxval, vmin=0)
+        imm = plt.imshow(image, cmap="gray", vmax=maxval, vmin=0)
         plt.xticks(np.arange(0, 21, 5))
         plt.yticks(np.arange(0, 21, 5))
 
-        if id==3:
+        if id == 3:
             cbar = fig.colorbar(imm, fraction=0.029, pad=-0.0001, aspect=33.5)
             cbar.ax.get_yaxis().labelpad = 11
-            cbar.ax.set_ylabel('Intensity, (a.u.)', rotation=270)
-            cbar.outline.set_visible(False)
+            cbar.ax.set_ylabel("Intensity, (a.u.)", rotation=270)
 
-        event_img, events = EventSimulator.image_callback(i, time_sequence[id])
-        plt.subplot(2,4,l+1+4)
+        _, events = EventSimulator.image_callback(image, time_sequence[id])
+        plt.subplot(2, 4, subplot_index + 1 + 4)
         if events is not None:
-            im_ev2 = generate_single_frame(events, i)
-            mask = (im_ev2 < 0)
+            im_ev2 = generate_single_frame(events, image)
+            mask = im_ev2 < 0
             im_ev2[mask] -= 40
 
-            mask2 = (im_ev2 > 0)
+            mask2 = im_ev2 > 0
             im_ev2[mask2] += 40
 
-            mask = (im_ev2 < -140)
+            mask = im_ev2 < -140
             im_ev2[mask] += 60
-            mask2 = (im_ev2 > 140)
+            mask2 = im_ev2 > 140
             im_ev2[mask2] -= 60
 
-            imm2 = plt.imshow(im_ev2, cmap='gray', vmax=150, vmin=-150)
+            imm2 = plt.imshow(im_ev2, cmap="gray", vmax=150, vmin=-150)
 
             plt.xticks(np.arange(0, 21, 5))
             plt.yticks(np.arange(0, 21, 5))
 
-            if id==3:
+            if id == 3:
                 cbar = fig.colorbar(imm2, fraction=0.029, pad=-0.0001, aspect=33.5)
                 cbar.ax.get_yaxis().labelpad = 11
-                cbar.ax.set_ylabel('# of events, (a.u.)', rotation=270)
-                cbar.outline.set_visible(False)
-        l+=1
-    
+                cbar.ax.set_ylabel("# of events, (a.u.)", rotation=270)
+        subplot_index += 1
+
     return fig

@@ -1,0 +1,49 @@
+[workspace]
+name = "peakloc"
+version = "0.1.0"
+description = "Event-camera SMLM localization pipeline"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.12.*"
+awkward = "*"
+cryptography = "*"
+csaps = "*"
+h5py = "*"
+interpolation = "*"
+joblib = "*"
+matplotlib = "*"
+matplotlib-scalebar = "*"
+natsort = "*"
+numba = "*"
+numpy = "*"
+scikit-image = "*"
+scipy = "*"
+tifffile = "*"
+loguru = ">=0.7.3,<0.8"
+
+[feature.dev.dependencies]
+pytest = "*"
+ruff = "*"
+ty = "*"
+
+[feature.dev.tasks]
+test = "pytest"
+lint = "ruff check --fix ."
+format = "ruff format ."
+typecheck = "ty check"
+
+[feature.ui.pypi-dependencies]
+customtkinter = "*"
+tkinter-tooltip = "*"
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+ui = { features = ["ui"], solve-group = "default" }
+all = { features = ["dev", "ui"], solve-group = "default" }
+
+[tasks]
+import-test = "python import_test.py"
+peakloc = "PEAKLOC_INPUT_FOLDER=data python PeakLoc.py"

@@ -1,20 +1,29 @@
-import numpy as np
-from numba import njit, jit, prange
 import copy
-from scipy.ndimage import median_filter
-from skimage.morphology import remove_small_objects
+import warnings
+from typing import TYPE_CHECKING
+
+import numpy as np
 from joblib import Parallel, delayed
+from loguru import logger
+from numba import jit, njit, types
+from numba.core.errors import NumbaTypeSafetyWarning
+from numba.typed import Dict, List
+
+if TYPE_CHECKING:
+    prange = range
+else:
+    from numba import prange
 
 
 def generate_rois(
-    unique_peaks: np.ndarray,
+    unique_peaks: dict[tuple[int, int], object],
     events_t_p_dict: dict,
     roi_rad: int,
     min_x: int,
     min_y: int,
     num_cores: int,
     max_x: int,
-    max_y: int
+    max_y: int,
 ) -> np.ndarray:
     """
     Generate ROIs from peak data.
@@ -33,7 +42,7 @@ def generate_rois(
         min_x=min_x,
         min_y=min_y,
         max_x=max_x,
-        max_y=max_y
+        max_y=max_y,
     )
 
 
@@ -80,19 +89,23 @@ def get_times_polarities(coords_dict, events_t_p_dict):
     times_arr = []
     polarities_arr = []
     for key in coords_dict:
-        if key not in events_t_p_dict:
+        event_key = (np.uint16(key[0]), np.uint16(key[1]))
+        if event_key not in events_t_p_dict:
             times_arr.append([])
             polarities_arr.append([])
             continue
-        times_arr.append(list(events_t_p_dict[key].keys()))
-        polarities_arr.append(list(events_t_p_dict[key].values()))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", NumbaTypeSafetyWarning)
+            times_arr.append(list(events_t_p_dict[event_key].keys()))
+            polarities_arr.append(list(events_t_p_dict[event_key].values()))
     return times_arr, polarities_arr
 
 
 @jit(nopython=True, cache=True)
 def generate_coord_lists(start_y, fin_y, start_x, fin_x):
     return np.array(
-        [(y, x) for x in range(start_x, fin_x + 1) for y in range(start_y, fin_y + 1)], dtype=np.uint16
+        [(y, x) for x in range(start_x, fin_x + 1) for y in range(start_y, fin_y + 1)],
+        dtype=np.uint16,
     )
 
 
@@ -133,8 +146,9 @@ def slice_t_p_dict(
     roi_rad,
     image_start,
 ):
-    new_roi, new_roi_neg = np.zeros((3, roi_rad * 2 + 1, roi_rad * 2 + 1)), np.zeros(
-        (roi_rad * 2 + 1, roi_rad * 2 + 1)
+    new_roi, new_roi_neg = (
+        np.zeros((3, roi_rad * 2 + 1, roi_rad * 2 + 1)),
+        np.zeros((roi_rad * 2 + 1, roi_rad * 2 + 1)),
     )
     total_events_roi, total_events_roi_n = 0, 0
     for id in prange(len(coord_lists)):
@@ -146,16 +160,16 @@ def slice_t_p_dict(
             times_arr, polarities_arr, row_id, id_data, time_back, time_advance, t_peak
         )
         # print(positives, negatives, (y,x))
-        new_roi[
-            0, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] += positives
+        new_roi[0, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] += (
+            positives
+        )
         new_roi[1, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] = t_1st
-        new_roi[
-            2, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] = t_last
-        new_roi_neg[
-            y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad
-        ] += negatives
+        new_roi[2, y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] = (
+            t_last
+        )
+        new_roi_neg[y - center_coord[0] + roi_rad, x - center_coord[1] + roi_rad] += (
+            negatives
+        )
         total_events_roi += positives
         total_events_roi_n += negatives
     new_roi[1:3]
@@ -172,8 +186,7 @@ def slice_t_p_dict(
         (center_coord[0] - image_start[0], center_coord[1] - image_start[1]),
     )
 
-from numba.typed import Dict
-import awkward as ak
+
 def gen_rois_from_peaks_dict(
     coords_dict,
     dict_indices,
@@ -184,22 +197,37 @@ def gen_rois_from_peaks_dict(
     roi_rad=5,
     image_start=(0, 0),
     i=1,
-    ):
+):
     id_data = 0
     id_loc = 0
     rois_list = []
     all = len(list(coords_dict.keys()))
-    numba_dict_indices = Dict()
+    numba_dict_indices = Dict.empty(
+        key_type=types.UniTuple(types.uint16, 2),
+        value_type=types.int64,
+    )
     for k, v in dict_indices.items():
-        numba_dict_indices[k] = v
-    awk_time = ak.Array(times_arr)
-    awk_polarities = ak.Array(polarities_arr)
+        numba_dict_indices[(np.uint16(k[0]), np.uint16(k[1]))] = v
+    numba_times = List()
+    numba_polarities = List()
+    for times, polarities in zip(times_arr, polarities_arr):
+        numba_times.append(np.asarray(times, dtype=np.uint64))
+        numba_polarities.append(np.asarray(polarities, dtype=np.int8))
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
-        if (id_data % 2e3 == 0 or id_data == all-1) and i == 1:
-            print("completed ", int(id_data / all * 100), " % --> ~", id_loc*10, " localizations found")
+        if (id_data % 2e3 == 0 or id_data == all - 1) and i == 1:
+            logger.debug(
+                "completed {} % --> ~{} localizations found",
+                int(id_data / all * 100),
+                id_loc * 10,
+            )
         y, x = center_coord
-        if y - roi_rad/2 < 0 or x - roi_rad/2 < 0 or y + roi_rad/2 > max_y or x + roi_rad/2 > max_x:
+        if (
+            y - roi_rad / 2 < 0
+            or x - roi_rad / 2 < 0
+            or y + roi_rad / 2 > max_y
+            or x + roi_rad / 2 > max_x
+        ):
             continue
         coord_list = generate_coord_lists(
             y - roi_rad, y + roi_rad, x - roi_rad, x + roi_rad
@@ -223,8 +251,8 @@ def gen_rois_from_peaks_dict(
         for id in prange(len(data)):
             full_rois_list[id] = slice_t_p_dict(
                 numba_dict_indices,
-                awk_time,
-                awk_polarities,
+                numba_times,
+                numba_polarities,
                 id_data,
                 time_back=data[id][2][0],
                 time_advance=data[id][2][1],
@@ -235,19 +263,6 @@ def gen_rois_from_peaks_dict(
                 image_start=image_start,
             )
             id_loc += 1
-            # mask = np.nonzero(full_rois_list[id]["roi_event_times"][0])
-            # try:
-            #     full_rois_list[id]["t_1st"] = np.min(
-            #         full_rois_list[id]["roi_event_times"][0][mask]
-            #     )
-            # except:
-            #     np.delete(full_rois_list, id)
-            #     continue
-            full_rois_list[id]["roi"], full_rois_list[id]["roi_n"] = process_noise(
-                full_rois_list[id]["roi"], full_rois_list[id]["roi_n"]
-            )
-            if np.sum(full_rois_list[id]["roi"]) < 10:
-                np.delete(full_rois_list, id)
         rois_list = (
             np.concatenate((rois_list, full_rois_list))
             if id_data != 0
@@ -280,7 +295,7 @@ def generate_rois_parallel(
             roi_rad=roi_rad,
             image_start=(min_y, min_x),
             max_x=max_x,
-            max_y=max_y
+            max_y=max_y,
         )
         for i in range(len(sliced_dict))
     )
@@ -288,36 +303,4 @@ def generate_rois_parallel(
     for i in np.arange(len(RES)):
         rois.extend(RES[i])
     timesorted = np.sort(rois, order="t_peak")
-    return timesorted[timesorted["total_events_roi"] > 15]
-
-
-def process_noise(roi, roi_n):
-    # padded, padded_n = np.pad(roi, padding_size), np.pad(roi_n, padding_size)
-    roi = subtract_one_from_border(roi, 2)
-    roi = roi * remove_small_objects(roi > 0, min_size=3, connectivity=0)
-    roi = median_filter_n_pixels_from_border(roi)
-    roi_n = subtract_one_from_border(roi_n, 2)
-    roi_n = roi_n * remove_small_objects(roi_n > 0, min_size=3, connectivity=0)
-    roi_n = median_filter_n_pixels_from_border(roi_n)
-    return roi, roi_n
-
-
-def median_filter_n_pixels_from_border(im):
-    # Create a mask that selects only the pixels within n distance from the border
-    mask = np.ones_like(im)
-    mask[im.nonzero()] = 0
-    kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=np.uint8)
-    filtered_img = median_filter(im, footprint=kernel)
-    # Merge the filtered pixels with the unfiltered pixels outside the mask
-    filtered_img = im + filtered_img * mask  # + im * (1 - mask)
-    return filtered_img
-
-
-@njit(fastmath=True, cache=True, parallel=True)
-def subtract_one_from_border(image, n):
-    modified_image = np.copy(image)
-    modified_image[:n, :] -= modified_image[:n, :] != 0
-    modified_image[-n:, :] -= modified_image[-n:, :] != 0
-    modified_image[:, :n] -= modified_image[:, :n] != 0
-    modified_image[:, -n:] -= modified_image[:, -n:] != 0
-    return modified_image
+    return timesorted
