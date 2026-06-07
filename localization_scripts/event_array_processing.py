@@ -75,15 +75,14 @@ def array_to_polarity_map(arr, coords):
 def array_to_time_map(arr):
     """
     Converts a structured NumPy ndarray with fields x, y, p, t into a dictionary with keys as (x, y) pairs and
-    values as a nested dictionary with keys from t and corresponding values from p for that coordinate pair.
+    values as lists of (t, p) events for that coordinate pair.
     """
     dict_out = {}
     for id in prange(len(arr)):
         key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
-        if key in dict_out:
-            dict_out[key][arr[id]["t"]] = arr[id]["p"]
-        else:
-            dict_out[key] = {arr[id]["t"]: arr[id]["p"]}
+        if key not in dict_out:
+            dict_out[key] = List.empty_list((np.uint64(0), np.int8(0)))
+        dict_out[key].append((arr[id]["t"], np.int8(arr[id]["p"])))
     return dict_out
 
 

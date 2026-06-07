@@ -99,8 +99,14 @@ def get_times_polarities(coords_dict, events_t_p_dict):
             continue
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", NumbaTypeSafetyWarning)
-            times_arr.append(list(events_t_p_dict[event_key].keys()))
-            polarities_arr.append(list(events_t_p_dict[event_key].values()))
+            pixel_events = events_t_p_dict[event_key]
+            if hasattr(pixel_events, "items"):
+                event_pairs = list(pixel_events.items())
+            else:
+                event_pairs = list(pixel_events)
+            event_pairs.sort(key=lambda event: event[0])
+            times_arr.append([event[0] for event in event_pairs])
+            polarities_arr.append([event[1] for event in event_pairs])
     return times_arr, polarities_arr
 
 

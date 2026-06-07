@@ -17,11 +17,11 @@ def test_generate_rois_rejects_true_boundary_overflow_and_keeps_metadata():
         (2, 2): [(100, 20, (80, 130))],
     }
     events_t_p_dict = {
-        (np.int32(2), np.int32(2)): {
-            np.uint64(90): np.int8(1),
-            np.uint64(105): np.int8(0),
-            np.uint64(120): np.int8(1),
-        }
+        (np.int32(2), np.int32(2)): [
+            (np.uint64(90), np.int8(1)),
+            (np.uint64(105), np.int8(0)),
+            (np.uint64(120), np.int8(1)),
+        ]
     }
 
     rois = generate_rois(
@@ -53,13 +53,13 @@ def test_generate_rois_counts_non_peak_pixels_inside_roi():
         (2, 2): [(100, 20, (80, 130))],
     }
     events_t_p_dict = {
-        (np.int32(2), np.int32(2)): {
-            np.uint64(90): np.int8(1),
-        },
-        (np.int32(2), np.int32(3)): {
-            np.uint64(92): np.int8(1),
-            np.uint64(108): np.int8(0),
-        },
+        (np.int32(2), np.int32(2)): [
+            (np.uint64(90), np.int8(1)),
+        ],
+        (np.int32(2), np.int32(3)): [
+            (np.uint64(92), np.int8(1)),
+            (np.uint64(108), np.int8(0)),
+        ],
     }
 
     rois = generate_rois(
@@ -77,5 +77,35 @@ def test_generate_rois_counts_non_peak_pixels_inside_roi():
     assert rois["roi"][0, 2, 2] == 1
     assert rois["roi"][0, 2, 3] == 1
     assert rois["roi_n"][0, 2, 3] == 1
+    assert rois["total_events_roi"][0] == 2
+    assert rois["total_neg_events_roi"][0] == 1
+
+
+def test_generate_rois_preserves_simultaneous_events_inside_roi():
+    unique_peaks = {
+        (2, 2): [(100, 20, (80, 130))],
+    }
+    events_t_p_dict = {
+        (np.int32(2), np.int32(2)): [
+            (np.uint64(100), np.int8(1)),
+            (np.uint64(100), np.int8(0)),
+            (np.uint64(100), np.int8(1)),
+        ],
+    }
+
+    rois = generate_rois(
+        unique_peaks,
+        events_t_p_dict,
+        roi_rad=2,
+        min_x=0,
+        min_y=0,
+        num_cores=1,
+        max_x=5,
+        max_y=5,
+    )
+
+    assert len(rois) == 1
+    assert rois["roi"][0, 2, 2] == 2
+    assert rois["roi_n"][0, 2, 2] == 1
     assert rois["total_events_roi"][0] == 2
     assert rois["total_neg_events_roi"][0] == 1
