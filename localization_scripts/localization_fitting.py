@@ -183,7 +183,10 @@ def perfrom_localization_parallel(
         if localized_chunk is not None and localized_chunk.size > 0
     ]
     if not localized_data:
-        return np.array([])
+        roi_rad = rois[0]["roi"].shape[0] // 2 if rois.size else _roi_radius_from_dtype(rois)
+        if roi_rad is None:
+            return np.array([])
+        return np.empty(0, dtype=_joint_poisson_localization_dtype(int(roi_rad)))
     return concatenate_locs(localized_data)
 
 
@@ -193,7 +196,10 @@ def perform_joint_poisson_localization_parallel(
     calibration: EventCalibration,
 ) -> np.ndarray:
     if rois.size == 0:
-        return np.array([])
+        roi_rad = _roi_radius_from_dtype(rois)
+        if roi_rad is None:
+            return np.array([])
+        return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
     rois_split = slice_data(rois, config.num_cores)
     results = Parallel(n_jobs=config.num_cores)(
         delayed(localize_joint_poisson)(chunk, config, calibration)
@@ -297,6 +303,13 @@ def filter_poisson_localizations(
     )
     return localizations[keep]
 
+def _roi_radius_from_dtype(rois: np.ndarray) -> int | None:
+    if rois.dtype.names is None or "roi" not in rois.dtype.names:
+        return None
+    roi_shape = rois.dtype["roi"].shape
+    if len(roi_shape) != 2:
+        return None
+    return int(roi_shape[0] // 2)
 
 def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:
     roi_shape = (roi_rad * 2 + 1, roi_rad * 2 + 1)

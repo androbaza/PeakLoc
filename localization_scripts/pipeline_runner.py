@@ -303,24 +303,41 @@ def process_recording(
 
     localizations_full_list = None
     rois_full_list = None
-    for loc_file in sorted_names:
-        loc_path = temp_files_localization / loc_file
-        if loc_file.startswith("localizations"):
-            locs_slice = np.load(loc_path)
-            if localizations_full_list is not None:
-                locs_slice["id"] += int(np.max(localizations_full_list["id"])) + 1
-            localizations_full_list = (
-                np.concatenate((localizations_full_list, locs_slice))
-                if localizations_full_list is not None
-                else locs_slice
-            )
-        elif loc_file.startswith("rois"):
-            rois_slice = np.load(loc_path)
-            rois_full_list = (
-                np.concatenate((rois_full_list, rois_slice))
-                if rois_full_list is not None
-                else rois_slice
-            )
+
+    for loc_name in loc_names:
+        loc_path = temp_files_localization / loc_name
+        locs_slice = np.load(loc_path)
+
+        if locs_slice.size == 0:
+            logger.info("Skipping empty localization slice {}", loc_path)
+            continue
+
+        if locs_slice.dtype.names is None or "id" not in locs_slice.dtype.names:
+            raise ValueError(f"Localization file has no structured 'id' field: {loc_path}")
+
+        locs_slice = locs_slice.copy()
+        if localizations_full_list is not None and localizations_full_list.size > 0:
+            locs_slice["id"] += int(np.max(localizations_full_list["id"])) + 1
+
+        localizations_full_list = (
+            np.concatenate((localizations_full_list, locs_slice))
+            if localizations_full_list is not None
+            else locs_slice
+        )
+
+    for roi_name in roi_names:
+        roi_path = temp_files_localization / roi_name
+        rois_slice = np.load(roi_path)
+
+        if rois_slice.size == 0:
+            logger.info("Skipping empty ROI slice {}", roi_path)
+            continue
+
+        rois_full_list = (
+            np.concatenate((rois_full_list, rois_slice))
+            if rois_full_list is not None
+            else rois_slice
+        )
 
     if localizations_full_list is None or rois_full_list is None:
         logger.info("No localization outputs found for {}", filename)
