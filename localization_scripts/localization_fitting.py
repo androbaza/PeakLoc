@@ -7,7 +7,10 @@ from numba import jit
 from scipy.ndimage import center_of_mass
 from scipy.optimize import least_squares
 
+from localization_scripts.calibration import EventCalibration
 from localization_scripts.event_array_processing import slice_data
+from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.poisson_fitting import fit_joint_poisson_roi
 
 if TYPE_CHECKING:
     prange = range
@@ -129,9 +132,29 @@ def concatenate_locs(localized_data):
     return concatenated_data
 
 
+def localize_rois(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration | None = None,
+) -> np.ndarray:
+    if config.fit_model == "legacy_lsq":
+        return perfrom_localization_parallel(
+            rois,
+            dataset_FWHM=config.dataset_fwhm,
+            num_cores=config.num_cores,
+        )
+    if config.fit_model == "poisson_joint":
+        if calibration is None:
+            raise ValueError("calibration is required for poisson_joint localization")
+        return perform_joint_poisson_localization_parallel(rois, config, calibration)
+    raise ValueError(f"Unsupported fit_model: {config.fit_model}")
+
+
 def perfrom_localization_parallel(
-    rois: np.ndarray, dataset_FWHM: float = 5.5, num_cores: int | None = None
-):
+    rois: np.ndarray,
+    dataset_FWHM: float = 5.5,
+    num_cores: int | None = None,
+) -> np.ndarray:
     """
     Performs localization of ROIs on a given image.
 
@@ -158,6 +181,142 @@ def perfrom_localization_parallel(
     if not localized_data:
         return np.array([])
     return concatenate_locs(localized_data)
+
+
+def perform_joint_poisson_localization_parallel(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration,
+) -> np.ndarray:
+    if rois.size == 0:
+        return np.array([])
+    rois_split = slice_data(rois, config.num_cores)
+    results = Parallel(n_jobs=config.num_cores)(
+        delayed(localize_joint_poisson)(chunk, config, calibration)
+        for chunk in rois_split
+    )
+    localized_data = [
+        localized_chunk
+        for localized_chunk in results
+        if localized_chunk is not None and localized_chunk.size > 0
+    ]
+    if not localized_data:
+        return np.array([])
+    return concatenate_locs(localized_data)
+
+
+def localize_joint_poisson(
+    rois_list: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration,
+) -> np.ndarray | None:
+    if rois_list.size == 0:
+        return None
+
+    roi_rad = rois_list[0]["roi"].shape[0] // 2
+    localizations = np.zeros(
+        (len(rois_list)),
+        dtype=_joint_poisson_localization_dtype(roi_rad),
+    )
+    id_to_remove = []
+    for row_id in range(len(rois_list)):
+        roi_record = rois_list[row_id]
+        if (
+            roi_record["total_events_roi"] < config.min_events_pos
+            or roi_record["total_neg_events_roi"] < config.min_events_neg
+        ):
+            id_to_remove.append(row_id)
+            continue
+        fit_result = fit_joint_poisson_roi(roi_record, calibration, config)
+        roi_y0 = int(roi_record["roi_y0"])
+        roi_x0 = int(roi_record["roi_x0"])
+        localizations[row_id] = (
+            row_id,
+            roi_record["t_peak"],
+            0,
+            fit_result.x,
+            0.0,
+            fit_result.y,
+            0.0,
+            fit_result.A_pos,
+            fit_result.sigma_psf_px,
+            roi_record["total_events_roi"],
+            roi_record["total_neg_events_roi"],
+            fit_result.x - roi_x0,
+            fit_result.y - roi_y0,
+            roi_record["t_1st"],
+            roi_record["t_last"],
+            fit_result.sigma_x,
+            fit_result.sigma_y,
+            fit_result.cov_xy,
+            fit_result.A_pos,
+            fit_result.A_neg,
+            fit_result.bg_pos_local,
+            fit_result.bg_neg_local,
+            fit_result.bg_pos_cal_sum,
+            fit_result.bg_neg_cal_sum,
+            fit_result.sigma_psf_px,
+            fit_result.nll,
+            fit_result.nll_per_event,
+            fit_result.fit_success,
+            fit_result.fit_status,
+            fit_result.fit_cond,
+            fit_result.calibration_id,
+            fit_result.calibrated_background,
+            fit_result.uncertainty_mode,
+            fit_result.hot_pixel_count,
+            fit_result.valid_pixel_count,
+            roi_record["roi_event_times"][0],
+            roi_record["roi_event_times"][1],
+            roi_record["roi"],
+            roi_record["roi_n"],
+        )
+    return np.delete(localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0)
+
+
+def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:
+    roi_shape = (roi_rad * 2 + 1, roi_rad * 2 + 1)
+    return [
+        ("id", np.uint64),
+        ("t_peak", np.float64),
+        ("double", np.uint8),
+        ("x", np.float64),
+        ("x2", np.float64),
+        ("y", np.float64),
+        ("y2", np.float64),
+        ("I", np.float32),
+        ("FWHM", np.float32),
+        ("E_total", np.uint64),
+        ("E_total_n", np.uint64),
+        ("sub_x", np.float64),
+        ("sub_y", np.float64),
+        ("t_1st", np.float64),
+        ("t_last", np.float64),
+        ("sigma_x", np.float64),
+        ("sigma_y", np.float64),
+        ("cov_xy", np.float64),
+        ("A_pos", np.float64),
+        ("A_neg", np.float64),
+        ("bg_pos_local", np.float64),
+        ("bg_neg_local", np.float64),
+        ("bg_pos_cal_sum", np.float64),
+        ("bg_neg_cal_sum", np.float64),
+        ("sigma_psf_px", np.float64),
+        ("nll", np.float64),
+        ("nll_per_event", np.float64),
+        ("fit_success", np.bool_),
+        ("fit_status", "U256"),
+        ("fit_cond", np.float64),
+        ("calibration_id", "U128"),
+        ("calibrated_background", np.bool_),
+        ("uncertainty_mode", "U64"),
+        ("hot_pixel_count", np.uint32),
+        ("valid_pixel_count", np.uint32),
+        ("roi_event_times", np.uint64, roi_shape),
+        ("roi_event_times_n", np.uint64, roi_shape),
+        ("roi", np.uint32, roi_shape),
+        ("roi_n", np.uint32, roi_shape),
+    ]
 
 
 def est_coord(roi_ft, coord_type, roi_rad):
