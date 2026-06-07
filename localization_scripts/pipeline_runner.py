@@ -145,6 +145,7 @@ def process_time_slice(
         config.num_cores,
         prominence=config.prominence,
         interpolation_coefficient=config.interpolation_coefficient,
+        cutoff_event_count=config.peak_min_event_count,
         spline_smooth=config.spline_smooth,
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
@@ -528,6 +529,7 @@ def write_run_report(
         f"- Total ROIs: `{total_rois}`",
         f"- Total localizations: `{total_localizations}`",
         f"- Elapsed time: `{recording.elapsed_seconds:.2f} s`",
+        f"- Peak interpolation min events: `{config.peak_min_event_count}`",
         f"- Calibration ID: `{recording.calibration_metadata.get('calibration_id')}`",
         f"- Calibrated background: `{recording.calibration_metadata.get('calibrated')}`",
         "",

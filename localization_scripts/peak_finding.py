@@ -19,6 +19,7 @@ def find_peaks_parallel(
     num_cores: int,
     prominence: float,
     interpolation_coefficient: int,
+    cutoff_event_count: int,
     spline_smooth: float,
 ):
     """
@@ -38,6 +39,8 @@ def find_peaks_parallel(
         Minimum prominence of the peaks.
     interpolation_coefficient : float
         Interpolation coefficient for the interpolation function.
+    cutoff_event_count : int
+        Minimum number of events required before attempting peak interpolation.
     spline_smooth : float
         Smoothing parameter for the spline function.
 
@@ -58,6 +61,7 @@ def find_peaks_parallel(
             i,
             prominence,
             interpolation_coefficient,
+            cutoff_event_count,
             spline_smooth,
         )
         for i in range(len(times))

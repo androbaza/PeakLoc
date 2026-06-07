@@ -6,8 +6,10 @@ from localization_scripts import pipeline_runner
 from localization_scripts.calibration import NullCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import (
+    RecordingResult,
     calibration_to_metadata,
     summarize_fit_qc,
+    write_run_report,
     write_effective_run_settings,
 )
 
@@ -159,3 +161,20 @@ def test_summarize_fit_qc_handles_poisson_fields():
     assert summary["median_nll_per_event"] == 1.5
     assert summary["hot_pixel_fraction"] == 0.005
     assert summary["rejected_localization_count"] == 1
+
+
+def test_write_run_report_includes_peak_interpolation_cutoff(tmp_path):
+    recording = RecordingResult(
+        input_file=tmp_path / "recording.npy",
+        output_folder=tmp_path / "recording",
+        event_count=0,
+        time_min=None,
+        time_max=None,
+    )
+    config = PeakLocConfig(peak_min_event_count=7)
+
+    report_path = write_run_report(recording, config, "20260607_120000")
+
+    assert "- Peak interpolation min events: `7`" in report_path.read_text(
+        encoding="utf-8"
+    )

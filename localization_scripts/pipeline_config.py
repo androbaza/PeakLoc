@@ -32,6 +32,7 @@ class PeakLocConfig:
     peak_neighbors: int = 9
     roi_radius: int = 8
     convolution_roi_radius: int = 1
+    peak_min_event_count: int = 2
     interpolation_coefficient: int = 5
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
@@ -103,6 +104,7 @@ class PeakLocConfig:
         _require_positive("peak_neighbors", self.peak_neighbors)
         _require_positive("roi_radius", self.roi_radius)
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
+        _require_positive("peak_min_event_count", self.peak_min_event_count)
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)

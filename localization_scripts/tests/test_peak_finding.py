@@ -37,3 +37,25 @@ def test_interpolate_parallel_uses_prepared_axis_for_duplicate_timestamps():
     assert len(prominences) == 1
     assert len(on_times) == 1
     assert np.array_equal(kept_coordinates, coordinates)
+
+
+def test_interpolate_parallel_starts_at_first_trace_timestamp():
+    times = [np.asarray([100, 101, 102, 103, 104, 105], dtype=np.uint64)]
+    cumsum = [np.asarray([0, 1, 6, 2, 1, 0], dtype=np.int32)]
+    coordinates = np.asarray([[10, 20]], dtype=np.int32)
+
+    peaks, _, _, kept_coordinates = interpolate_parallel(
+        times,
+        cumsum,
+        coordinates,
+        i=0,
+        prominence=1,
+        interpolation_coefficient=8,
+        cutoff_event_count=2,
+        spline_smooth=0.8,
+    )
+
+    assert len(peaks) == 1
+    assert np.all(peaks[0] >= 100)
+    assert np.all(peaks[0] <= 105)
+    assert np.array_equal(kept_coordinates, coordinates)

@@ -9,6 +9,7 @@
   "peak_neighbors": 9,
   "roi_radius": 8,
   "convolution_roi_radius": 1,
+  "peak_min_event_count": 2,
   "interpolation_coefficient": 5,
   "spline_smooth": 0.7,
   "plot_subplotsize": 6,
