@@ -94,6 +94,7 @@ def test_write_effective_config_is_human_readable_json(tmp_path):
     assert payload["input_folder"] == "data"
     assert payload["num_cores"] == 1
     assert payload["optical_pixel_size"] == 67.0
+    assert payload["fit_model"] == "poisson_joint"
     assert config.optical_pixel_size_nm == 67.0
     assert payload["plot_result"] is True
     assert output_path.read_text(encoding="utf-8").endswith("\n")

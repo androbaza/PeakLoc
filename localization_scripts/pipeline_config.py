@@ -39,7 +39,7 @@ class PeakLocConfig:
     optical_pixel_size: float = 67.0
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
-    fit_model: str = "legacy_lsq"
+    fit_model: str = "poisson_joint"
     allow_uncalibrated: bool = True
     calibration_path: str | None = None
     sigma_psf_px: float | None = None
