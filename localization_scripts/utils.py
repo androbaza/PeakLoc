@@ -20,11 +20,13 @@ def ndarray_to_dict_t_p_python(arr):
             dict_out[key] = {arr[id]["t"]: arr[id]["p"]}
     return dict_out
 
+
 # def convert_to_hashmap__parallel(events, coords):
 #     num_cores = 2
 #     RES = Parallel(n_jobs=num_cores)(
 #         (delayed(array_to_polarity_map)(events, coords), delayed(array_to_time_map)(events, coords)))
 #     return RES[0][0], RES[0][1], RES[1]
+
 
 @njit(cache=True, nogil=True)
 def t_p_dict_to_ndarray(d):
@@ -78,8 +80,6 @@ def subarray_lengths_histogram(arr):
     return subarray_lengths
 
 
-
-
 @njit(cache=True, fastmath=True, nogil=True)
 def find_on_off_plot(p, der_2, tnew, ynew):
     on_off = []
@@ -130,8 +130,6 @@ def find_on_off_plot(p, der_2, tnew, ynew):
         on_off.append((tnew[negative], tnew[positive]))
         on_off_t.append((negative, positive))
     return on_off, on_off_t
-
-
 
 
 @njit(cache=True, fastmath=True, nogil=True)

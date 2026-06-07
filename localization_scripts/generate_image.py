@@ -37,8 +37,9 @@ def neighbor_interpolation(
         for localization in localizations:
             # determine the main pixel coordinate
             if loc_source == "gaussian":
-                coord_x, coord_y = round(localization["x"] / pixel_dim), round(
-                    localization["y"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x"] / pixel_dim),
+                    round(localization["y"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -48,8 +49,9 @@ def neighbor_interpolation(
                 )
 
             elif loc_source == "phasor":
-                coord_x, coord_y = round(localization["x_p"] / pixel_dim), round(
-                    localization["y_p"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_p"] / pixel_dim),
+                    round(localization["y_p"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -60,8 +62,9 @@ def neighbor_interpolation(
 
             if interpolate:
                 # intensity of the pixel value based on subpixel position
-                I_x, I_y = (-np.abs(sub_x) / pixel_dim + 1), (
-                    -np.abs(sub_y) / pixel_dim + 1
+                I_x, I_y = (
+                    (-np.abs(sub_x) / pixel_dim + 1),
+                    (-np.abs(sub_y) / pixel_dim + 1),
                 )
 
                 # fill the histogram at calculated coords
@@ -112,8 +115,9 @@ def neighbor_interpolation(
         for localization in localizations:
             # determine the main pixel coordinate
             if loc_source == "gaussian" and localization["E_total_n"] > 40:
-                coord_x, coord_y = round(localization["x_n"] / pixel_dim), round(
-                    localization["y_n"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_n"] / pixel_dim),
+                    round(localization["y_n"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -123,8 +127,9 @@ def neighbor_interpolation(
                 )
 
             elif loc_source == "phasor":
-                coord_x, coord_y = round(localization["x_np"] / pixel_dim), round(
-                    localization["y_np"] / pixel_dim
+                coord_x, coord_y = (
+                    round(localization["x_np"] / pixel_dim),
+                    round(localization["y_np"] / pixel_dim),
                 )
 
                 # determine the subpixel position
@@ -135,8 +140,9 @@ def neighbor_interpolation(
 
             if interpolate:
                 # intensity of the pixel value based on subpixel position
-                I_x, I_y = (-np.abs(sub_x) / pixel_dim + 1), (
-                    -np.abs(sub_y) / pixel_dim + 1
+                I_x, I_y = (
+                    (-np.abs(sub_x) / pixel_dim + 1),
+                    (-np.abs(sub_y) / pixel_dim + 1),
                 )
 
                 # fill the histogram at calculated coords
@@ -206,7 +212,10 @@ def histogram_binning(
         image2, _, _ = np.histogram2d(
             localizations["x_n"],
             localizations["y_n"],
-            bins=[int(image_max_x / pixel_recon_dim), int(image_max_y / pixel_recon_dim)],
+            bins=[
+                int(image_max_x / pixel_recon_dim),
+                int(image_max_y / pixel_recon_dim),
+            ],
         )
         return image + image2
     return image

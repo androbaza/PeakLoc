@@ -45,6 +45,9 @@ PEAK_NEIGHBORS = 9
 """ROI_RADIUS is the radius of the generated ROI in pixels."""
 ROI_RADIUS = 8
 
+"""CONVOLUTION_ROI_RADIUS is the pixel radius used for peak-finding signals."""
+CONVOLUTION_ROI_RADIUS = 1
+
 DEFAULT_INPUT_FOLDER = "/home/smlm-workstation/event-smlm/Paris/process/"
 SLICE_START = int(float(os.environ.get("PEAKLOC_SLICE_START", 0)))
 SLICE_DURATION = int(float(os.environ.get("PEAKLOC_SLICE_DURATION", 100e6)))
@@ -86,8 +89,12 @@ INPUT_FILE = "data/AF647_coverslip.raw"
 # INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
 
 
-def main(slice, time_slice, filename):
-    events = slice
+def main(event_slice, time_slice, filename):
+    events = event_slice
+    if events.size == 0:
+        print(f"No events found in time slice ending at {time_slice} for {filename}")
+        return
+
     start_time = time.time()
 
     # Get the minimum and maximum x and y coordinates
@@ -114,7 +121,7 @@ def main(slice, time_slice, filename):
     print(
         f"Creating convolved signals... Elapsed time: {time.time() - start_time:.2f} seconds"
     )
-    max_len = int(max_len * 2)
+    max_len = int(max_len * 2 * (CONVOLUTION_ROI_RADIUS * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events, coords, max_len, NUM_CORES
     )
@@ -229,15 +236,20 @@ if __name__ == "__main__":
             continue
         else:
             continue
-        time_slices = range(SLICE_START, int(events["t"].max()), SLICE_DURATION)
+        time_slices = range(
+            SLICE_START + SLICE_DURATION,
+            int(events["t"].max()) + SLICE_DURATION + 1,
+            SLICE_DURATION,
+        )
         if len(time_slices) == 0:
             print(f"No time slices to process for {filename}")
             continue
         for time_slice in time_slices:
-            slice = events[
-                (events["t"] > time_slice - SLICE_DURATION) * (events["t"] < time_slice)
+            event_slice = events[
+                (events["t"] >= time_slice - SLICE_DURATION)
+                * (events["t"] < time_slice)
             ]
-            main(slice, time_slice, filename)
+            main(event_slice, time_slice, filename)
 
         out_folder_localizations = filename[:-4] + "/"
         temp_files_localization = out_folder_localizations + "temp_files/"

@@ -9,8 +9,9 @@ from localization_scripts.event_array_processing import slice_data
 
 def gaussian2D(height, center_x, center_y, width):
     width = float(width)
-    return lambda x, y: height * np.exp(
-        -(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2
+    return lambda x, y: (
+        height
+        * np.exp(-(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2)
     )
 
 
@@ -18,10 +19,13 @@ def double_gaussian2D(
     height, center_x, center_y, width, height2, center_x_2, center_y_2, width2
 ):
     width, width2 = float(width), float(width2)
-    return lambda x, y: height * np.exp(
-        -(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2
-    ) + height2 * np.exp(
-        -(((center_x_2 - x) / width) ** 2 + ((center_y_2 - y) / width2) ** 2) / 2
+    return lambda x, y: (
+        height
+        * np.exp(-(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2)
+        + height2
+        * np.exp(
+            -(((center_x_2 - x) / width) ** 2 + ((center_y_2 - y) / width2) ** 2) / 2
+        )
     )
 
 
@@ -35,8 +39,11 @@ def moments(data):
 
 def fit_single_gaussian(data):
     params = moments(data)
-    errorfunction = lambda p: np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
-    bounds = ([0, 0, 0, 0], [2*params[0], data.shape[1], data.shape[0], 10])
+
+    def errorfunction(p):
+        return np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
+
+    bounds = ([0, 0, 0, 0], [2 * params[0], data.shape[1], data.shape[0], 10])
     # print(bounds)
     # print(params)
     return least_squares(
@@ -49,27 +56,30 @@ def fit_two_gaussians(data, lm=False):
     params = moments(data)
     params2 = [p - 0.5 for p in params]
     params = np.append(params, params2)
-    errorfunction = lambda p: np.ravel(
-        double_gaussian2D(*p)(*np.indices(data.shape)) - data
-    )
+
+    def errorfunction(p):
+        return np.ravel(double_gaussian2D(*p)(*np.indices(data.shape)) - data)
+
     bounds = (
         (0, 0, 0, 0, 0, 0, 0, 0),
         (
-            2*params[0] ,
+            2 * params[0],
             data.shape[1],
             data.shape[0],
             10,
-            2*params[0],
+            2 * params[0],
             data.shape[1],
             data.shape[0],
             10,
         ),
     )
-    
+
     if lm:
         return least_squares(errorfunction, params, method="lm")
     else:
-        return least_squares(errorfunction, params, method="trf", bounds=bounds, ftol=1e-2, xtol=1e-2)
+        return least_squares(
+            errorfunction, params, method="trf", bounds=bounds, ftol=1e-2, xtol=1e-2
+        )
 
 
 @jit(nopython=True, fastmath=True, cache=True)
@@ -82,13 +92,13 @@ def fit_gaussian(roi, dataset_FWHM=5.5):
     rms = res_rmse(fit_params.fun)
     # FWHM=2.35*sigma
     sigma_2_locs = dataset_FWHM / 2.35
-    if fit_params.x[3] > sigma_2_locs*2.5:
-        return np.asarray([0,0,0,0]), 5
+    if fit_params.x[3] > sigma_2_locs * 2.5:
+        return np.asarray([0, 0, 0, 0]), 5
     if fit_params.x[3] > sigma_2_locs:
         try:
             fit_params2 = fit_two_gaussians(roi)
-        except:
-            return np.asarray([0,0,0,0]), 5
+        except Exception:
+            return np.asarray([0, 0, 0, 0]), 5
         rms2 = res_rmse(fit_params2.fun)
         if rms2 > rms:
             return fit_params.x, rms
@@ -130,9 +140,13 @@ def perfrom_localization_parallel(rois: np.ndarray, dataset_FWHM: float = 5.5):
         delayed(localize_MLE)(rois[i], dataset_FWHM=dataset_FWHM)
         for i in range(len(rois))
     )
-    localized_data = []
-    for i in np.arange(np.shape(RES)[0]):
-        localized_data.append(RES[i])
+    localized_data = [
+        localized_chunk
+        for localized_chunk in RES
+        if localized_chunk is not None and localized_chunk.size > 0
+    ]
+    if not localized_data:
+        return np.array([])
     return concatenate_locs(localized_data)
 
 
@@ -193,7 +207,9 @@ def localize_MLE(rois_list, dataset_FWHM):
         for id in prange(len(rois_list)):
             if not rois_list[id]["roi"].any() or not rois_list[id]["roi_n"].any():
                 continue
-            fit_result, rms = fit_gaussian(rois_list[id]["roi"], dataset_FWHM=dataset_FWHM)
+            fit_result, rms = fit_gaussian(
+                rois_list[id]["roi"], dataset_FWHM=dataset_FWHM
+            )
             fit_result_n, rms_n = fit_gaussian(
                 rois_list[id]["roi_n"], dataset_FWHM=dataset_FWHM
             )
@@ -209,18 +225,24 @@ def localize_MLE(rois_list, dataset_FWHM):
                 fit_results_1_n = fit_result_n[:4]
                 fit_results_2_n = fit_result_n[4:]
                 y_pos, x_pos = (
-                    rois_list[id]["rel_peak"][0] + fit_results_1[2] - roi_rad,
-                    rois_list[id]["rel_peak"][0] + fit_results_2[2] - roi_rad,
-                ), (
-                    rois_list[id]["rel_peak"][1] + fit_results_1[1] - roi_rad,
-                    rois_list[id]["rel_peak"][1] + fit_results_2[1] - roi_rad,
+                    (
+                        rois_list[id]["rel_peak"][0] + fit_results_1[2] - roi_rad,
+                        rois_list[id]["rel_peak"][0] + fit_results_2[2] - roi_rad,
+                    ),
+                    (
+                        rois_list[id]["rel_peak"][1] + fit_results_1[1] - roi_rad,
+                        rois_list[id]["rel_peak"][1] + fit_results_2[1] - roi_rad,
+                    ),
                 )
                 y_pos_n, x_pos_n = (
-                    rois_list[id]["rel_peak"][0] + fit_results_1_n[2] - roi_rad,
-                    rois_list[id]["rel_peak"][0] + fit_results_2_n[2] - roi_rad,
-                ), (
-                    rois_list[id]["rel_peak"][1] + fit_results_1_n[1] - roi_rad,
-                    rois_list[id]["rel_peak"][1] + fit_results_2_n[1] - roi_rad,
+                    (
+                        rois_list[id]["rel_peak"][0] + fit_results_1_n[2] - roi_rad,
+                        rois_list[id]["rel_peak"][0] + fit_results_2_n[2] - roi_rad,
+                    ),
+                    (
+                        rois_list[id]["rel_peak"][1] + fit_results_1_n[1] - roi_rad,
+                        rois_list[id]["rel_peak"][1] + fit_results_2_n[1] - roi_rad,
+                    ),
                 )
                 y_posp, x_posp = (
                     rois_list[id]["rel_peak"][0]
@@ -342,6 +364,8 @@ def localize_MLE(rois_list, dataset_FWHM):
                     rois_list[id]["roi"],
                     rois_list[id]["roi_n"],
                 )
-        localizations = np.delete(localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0)
+        localizations = np.delete(
+            localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0
+        )
 
     return localizations

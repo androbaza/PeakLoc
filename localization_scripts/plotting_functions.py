@@ -230,8 +230,9 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
             (height, x, y, sigma) = fit_params
             fit = gaussian2D(*fit_params)
             roi_ft = np.fft.fft2(padded)
-            y_posp, x_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
-                roi_ft, (0, 1), roi_rad
+            y_posp, x_posp = (
+                est_coord(roi_ft, (1, 0), roi_rad),
+                est_coord(roi_ft, (0, 1), roi_rad),
             )
             cmy, cmx = center_of_mass(padded)
             plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
@@ -270,7 +271,7 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
         cbar.outline.set_visible(False)
         l += 1
         # if l == subplotsize**2:
-        if l == subplotsize*subplotsize:
+        if l == subplotsize * subplotsize:
             break
 
     scalebar = ScaleBar(
@@ -288,7 +289,10 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
 
-def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset_FWHM=7):
+
+def plot_rois_from_locs(
+    rois_list, filename=None, subplotsize=6, sign=1, dataset_FWHM=7
+):
     l = 0
     roi_rad = rois_list["roi"][0].shape[0] // 2
     fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20))
@@ -296,8 +300,7 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
     plt.axis("off")
     padded_all = []
     fits = []
-    for id in range(subplotsize*subplotsize):
-
+    for id in range(subplotsize * subplotsize):
         ax = plt.subplot(
             subplotsize,
             subplotsize,
@@ -315,26 +318,39 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
             # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(y, x, y2, x2))
             # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
-            fit = gaussian2D(rois_list["I"][id], rois_list["sub_x"][id], rois_list["sub_y"][id], rois_list["FWHM"][id])
+            fit = gaussian2D(
+                rois_list["I"][id],
+                rois_list["sub_x"][id],
+                rois_list["sub_y"][id],
+                rois_list["FWHM"][id],
+            )
             roi_ft = np.fft.fft2(roi)
-            y_posp, x_posp = est_coord(roi_ft, (1, 0), roi_rad), est_coord(
-                roi_ft, (0, 1), roi_rad
+            y_posp, x_posp = (
+                est_coord(roi_ft, (1, 0), roi_rad),
+                est_coord(roi_ft, (0, 1), roi_rad),
             )
             cmy, cmx = center_of_mass(roi)
             plt.scatter(y_posp, x_posp, c="cyan", s=140, marker="x")
             plt.scatter(cmy, cmx, c="r", s=140, marker="x")
             plt.contour(fit(*np.indices(roi.shape)))
-            plt.scatter(rois_list["sub_y"][id], rois_list["sub_x"][id], c="magenta", s=90, marker="x", zorder=100)
+            plt.scatter(
+                rois_list["sub_y"][id],
+                rois_list["sub_x"][id],
+                c="magenta",
+                s=90,
+                marker="x",
+                zorder=100,
+            )
             # print(rois_list["y"][id], rois_list["x"][id], rois_list["y_p"][id], rois_list["x_p"][id])
             # print(rois_list["y"][id] - rois_list["y_p"][id], rois_list["x"][id] - rois_list["x_p"][id])
         # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
         # ax.set_ylabel('#px__sum_px\n'+str(np.count_nonzero(padded)) +'__'+ str(np.sum(padded)), fontsize=17)
         # plt.scatter(cmx, cmy, facecolors='red', marker='x', s=55)
         imm = plt.imshow(roi, cmap="gray", interpolation="none")
-        
+
         l += 1
         # if l == subplotsize**2:
-        if l == subplotsize*subplotsize:
+        if l == subplotsize * subplotsize:
             break
 
     scalebar = ScaleBar(
@@ -352,6 +368,7 @@ def plot_rois_from_locs(rois_list, filename=None, subplotsize=6, sign=1, dataset
     # plt.savefig(filename[:-4] + '_rois_examples.png', dpi=300, transparent=True, bbox_inches = 'tight')
     #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
+
 
 def plot_num_events_histogram(times):
     @njit(cache=True, nogil=True)
@@ -476,6 +493,7 @@ def plot_peak_ON_OFF_detection(
     #  plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/roi_cumsum_on_off.png',dpi=300, bbox_inches = 'tight')
     plt.show()
 
+
 def plot_3d_time(start_times, end_times):
     # Determine the number of rows and columns in the arrays
     num_rows, num_cols = start_times.shape
@@ -485,24 +503,23 @@ def plot_3d_time(start_times, end_times):
     y_values = np.arange(num_rows)
     x_mesh, y_mesh = np.meshgrid(x_values, y_values)
     z_values = np.concatenate((start_times.flatten(), end_times.flatten()))
-    
 
     # Create a 3D plot
     fig = plt.figure(figsize=(11, 11), dpi=300)
-    ax = fig.add_subplot(projection='3d')
-    
+    ax = fig.add_subplot(projection="3d")
+
     # ax.set_yticks([])
     # ax.set_xticks([])
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    ax.set_proj_type('persp', focal_length=0.5)
+    ax.set_proj_type("persp", focal_length=0.5)
     ax.view_init(elev=30.0, azim=-16)
     ax.dist = 12
     # Set the style of the plot
-    plt.style.use('seaborn-v0_8-darkgrid')
+    plt.style.use("seaborn-v0_8-darkgrid")
 
     # Set the color map
-    cmap = plt.get_cmap('viridis')
+    cmap = plt.get_cmap("viridis")
 
     line_lengths = np.abs(end_times - start_times)
     # Plot the lines connecting the start and end times
@@ -511,21 +528,28 @@ def plot_3d_time(start_times, end_times):
             start_time = start_times[i][j]
             end_time = end_times[i][j]
             length = line_lengths[i][j]
-            color = cmap(length/np.max(line_lengths))
-            ax.plot([j, j], [i, i], [start_time, end_time], color=color, linewidth=3, alpha=1)
+            color = cmap(length / np.max(line_lengths))
+            ax.plot(
+                [j, j],
+                [i, i],
+                [start_time, end_time],
+                color=color,
+                linewidth=3,
+                alpha=1,
+            )
             # Plot crosses at the start and end times
             # if start_time!=end_time:
             #     ax.scatter(j, i, start_time, marker='x', s=10, color='cyan')
             #     ax.scatter(j, i, end_time, marker='x', s=10, color='magenta')
 
     # Set the labels for the axes
-    ax.set_xlabel('X position', labelpad=12, fontsize=12)
-    ax.set_ylabel('Y position', labelpad=12, fontsize=12)
+    ax.set_xlabel("X position", labelpad=12, fontsize=12)
+    ax.set_ylabel("Y position", labelpad=12, fontsize=12)
     ax.set_zlabel("Time in [ms]", labelpad=12, fontsize=12)
 
     # Set the limits for the axes
-    ax.set_xlim(2, num_cols-4)
-    ax.set_ylim(3, num_rows-2)
+    ax.set_xlim(2, num_cols - 4)
+    ax.set_ylim(3, num_rows - 2)
     ax.set_zlim(np.min(z_values[np.nonzero(z_values)]), np.max(z_values))
     # plt.grid(True)
     # Show the plot

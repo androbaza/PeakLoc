@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.filedialog as fd
 from customtkinter import HoverInfo
 
+
 class Application(tk.Frame):
     def __init__(self, master=None):
         super().__init__(master)
@@ -50,11 +51,13 @@ class Application(tk.Frame):
         # call main code with selected file and parameters
         main_code(input_file, param1, param2)
 
+
 def main_code(input_file, param1, param2):
     # main code here
     print("Input file:", input_file)
     print("Parameter 1:", param1)
     print("Parameter 2:", param2)
+
 
 if __name__ == "__main__":
     root = tk.Tk()

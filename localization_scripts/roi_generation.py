@@ -1,11 +1,10 @@
 import copy
 from typing import TYPE_CHECKING
 
-import awkward as ak
 import numpy as np
 from joblib import Parallel, delayed
 from numba import jit, njit
-from numba.typed import Dict
+from numba.typed import Dict, List
 from scipy.ndimage import median_filter
 from skimage.morphology import remove_small_objects
 
@@ -202,8 +201,11 @@ def gen_rois_from_peaks_dict(
     numba_dict_indices = Dict()
     for k, v in dict_indices.items():
         numba_dict_indices[k] = v
-    awk_time = ak.Array(times_arr)
-    awk_polarities = ak.Array(polarities_arr)
+    numba_times = List()
+    numba_polarities = List()
+    for times, polarities in zip(times_arr, polarities_arr):
+        numba_times.append(np.asarray(times, dtype=np.uint64))
+        numba_polarities.append(np.asarray(polarities, dtype=np.int8))
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
         if (id_data % 2e3 == 0 or id_data == all - 1) and i == 1:
@@ -244,8 +246,8 @@ def gen_rois_from_peaks_dict(
         for id in prange(len(data)):
             full_rois_list[id] = slice_t_p_dict(
                 numba_dict_indices,
-                awk_time,
-                awk_polarities,
+                numba_times,
+                numba_polarities,
                 id_data,
                 time_back=data[id][2][0],
                 time_advance=data[id][2][1],

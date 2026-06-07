@@ -1,12 +1,27 @@
-from numba import njit, prange, types
-from numba.typed import List, Dict
-import numpy as np
-from localization_scripts.roi_generation import generate_coord_lists
 import gc
 import pickle
+import sys
+from pathlib import Path
+
+import numpy as np
+from numba import njit, prange, types
+from numba.typed import Dict, List
+
+from localization_scripts.roi_generation import generate_coord_lists
 
 
-def raw_events_to_array(filename, max_events=1_000_000):
+OPENEB_SYSTEM_SITE_PACKAGES = Path("/usr/lib/python3/dist-packages")
+
+
+def add_openeb_system_site_packages() -> None:
+    openeb_path = str(OPENEB_SYSTEM_SITE_PACKAGES)
+    if OPENEB_SYSTEM_SITE_PACKAGES.is_dir() and openeb_path not in sys.path:
+        sys.path.append(openeb_path)
+
+
+def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
+    add_openeb_system_site_packages()
+
     from metavision_core.event_io.raw_reader import RawReader
     from metavision_sdk_base import EventCD
 
@@ -104,7 +119,8 @@ def check_monotonicity(lst):
             inc_indices.append(i)
     return inc_indices
 
-# requires a lot of memory. using an awkward array instead of a numpy array might help 
+
+# requires a lot of memory. using an awkward array instead of a numpy array might help
 @njit(parallel=True, cache=True, nogil=True)
 def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
@@ -112,9 +128,14 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     lengths = np.empty(shape=(len(coords_split)), dtype=np.uint32)
     coords = np.empty(shape=(len(coords_split), 2), dtype=np.uint16)
     for coord_pair in prange(len(coords_split)):
-        coord_convolution_data = np.asarray(
-            append_conv_data(coords_split[coord_pair], roi_rad, events_dict)
+        coord_convolution_events = append_conv_data(
+            coords_split[coord_pair], roi_rad, events_dict
         )
+        if len(coord_convolution_events) == 0:
+            lengths[coord_pair] = 0
+            coords[coord_pair] = coords_split[coord_pair]
+            continue
+        coord_convolution_data = np.asarray(coord_convolution_events)
         coord_convolution_data = coord_convolution_data[
             coord_convolution_data[:, 0].argsort()
         ]
@@ -125,7 +146,7 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
             )
         coord_convolution_data[:, 1][coord_convolution_data[:, 1] == 0] = -1
         # print(coord_convolution_data.shape, times.shape)
-        times[coord_pair, :len(coord_convolution_data[:, 0])] = coord_convolution_data[
+        times[coord_pair, : len(coord_convolution_data[:, 0])] = coord_convolution_data[
             :, 0
         ]
         cumsum[coord_pair, : len(coord_convolution_data[:, 0])] = np.cumsum(
@@ -184,7 +205,9 @@ def create_convolved_signals(
         # cumsum = delete_workaround_single_col(np.asarray(cumsum), ind)
         coordinates = delete_workaround(np.asarray(coordinates), ind)
     gc.collect()
-    assert len(times) == len(cumsum) == len(coordinates), f"Length check not passed: {len(times)} != {len(cumsum)} != {len(coordinates)}"
+    assert len(times) == len(cumsum) == len(coordinates), (
+        f"Length check not passed: {len(times)} != {len(cumsum)} != {len(coordinates)}"
+    )
     return (
         slice_data(times, num_cores),
         slice_data(cumsum, num_cores),
@@ -229,15 +252,17 @@ def slice_data(data, nb_slices):
     slice_size = np.int64(np.ceil(slice_size))
     data_split = []
     for k in np.arange(nb_slices):
-        ind = [np.compat.long(k * slice_size), np.compat.long((k + 1) * slice_size)]
+        ind = [int(k * slice_size), int((k + 1) * slice_size)]
         data_split.append(data[ind[0] : ind[1]])
     return data_split
 
+
 def save_dict(di_, filename_):
-    with open(filename_, 'wb') as f:
+    with open(filename_, "wb") as f:
         pickle.dump(di_, f)
 
+
 def load_dict(filename_):
-    with open(filename_, 'rb') as f:
+    with open(filename_, "rb") as f:
         ret_di = pickle.load(f)
     return ret_di
