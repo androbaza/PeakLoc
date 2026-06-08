@@ -390,9 +390,14 @@ def localizations_to_xy(localizations: np.ndarray) -> np.ndarray:
     return xy[np.isfinite(xy).all(axis=1)]
 
 
-def save_figure_bundle(fig, output_stem: Path, *, dpi: int) -> tuple[Path, ...]:
+def save_figure_bundle(
+    fig,
+    output_stem: Path,
+    *,
+    dpi: int,
+    config: DebugVisualizationConfig | None = None,
+) -> tuple[Path, ...]:
     paths: list[Path] = []
-    config = getattr(fig, "_peakloc_debug_config", None)
     extensions = []
     if config is None or config.save_png:
         extensions.append("png")
@@ -402,7 +407,7 @@ def save_figure_bundle(fig, output_stem: Path, *, dpi: int) -> tuple[Path, ...]:
         extensions.append("pdf")
     for extension in extensions:
         output_path = output_stem.with_suffix(f".{extension}")
-        save_kwargs = {"bbox_inches": "tight"}
+        save_kwargs: dict[str, object] = {"bbox_inches": "tight"}
         if extension == "png":
             save_kwargs["dpi"] = dpi
         fig.savefig(output_path, **save_kwargs)
@@ -457,7 +462,6 @@ def save_xy_summary_figure(
     del events
     total_density = density_images[2]
     fig, ax = plt.subplots(figsize=(7.2, 7.2))
-    fig._peakloc_debug_config = config
     ax.imshow(np.log1p(total_density), origin="upper", cmap="magma")
     _draw_rois(ax, rois)
     _draw_truth_and_localizations(ax, truth, localizations, matches)
@@ -495,6 +499,7 @@ def save_xy_summary_figure(
         fig,
         config.output_dir / "01_xy_detection_summary",
         dpi=config.static_dpi,
+        config=config,
     )
 
 
@@ -515,7 +520,6 @@ def save_polarity_density_figure(
         ("Total events", total, "magma", None),
     ]
     fig, axes = plt.subplots(2, 2, figsize=(9.0, 8.0), constrained_layout=True)
-    fig._peakloc_debug_config = config
     for ax, (title, image, cmap, limits) in zip(axes.flat, panels, strict=True):
         kwargs = {}
         if limits is not None:
@@ -528,6 +532,7 @@ def save_polarity_density_figure(
         fig,
         config.output_dir / "02_polarity_density",
         dpi=config.static_dpi,
+        config=config,
     )
 
 
@@ -540,7 +545,6 @@ def save_time_projection_figure(
     config: DebugVisualizationConfig,
 ) -> tuple[Path, ...]:
     fig, axes = plt.subplots(3, 1, figsize=(8.5, 8.0), constrained_layout=True)
-    fig._peakloc_debug_config = config
     if events is not None and events.size:
         sampled = _downsample_events(
             events, min(config.max_events_for_interactive, 20_000)
@@ -595,6 +599,7 @@ def save_time_projection_figure(
         fig,
         config.output_dir / "03_time_projection",
         dpi=config.static_dpi,
+        config=config,
     )
 
 
@@ -615,7 +620,6 @@ def save_roi_montage_figure(
         matched_indices = []
     n_rows = max(len(matched_indices), 1)
     fig, axes = plt.subplots(n_rows, 3, figsize=(8.5, 2.6 * n_rows), squeeze=False)
-    fig._peakloc_debug_config = config
     if not matched_indices:
         for ax in axes.flat:
             ax.axis("off")
@@ -646,6 +650,7 @@ def save_roi_montage_figure(
         fig,
         config.output_dir / "04_roi_fit_montage",
         dpi=config.static_dpi,
+        config=config,
     )
 
 
@@ -657,7 +662,6 @@ def save_qc_metrics_figure(
     config: DebugVisualizationConfig,
 ) -> tuple[Path, ...]:
     fig, axes = plt.subplots(2, 2, figsize=(8.5, 6.8), constrained_layout=True)
-    fig._peakloc_debug_config = config
     indices = np.arange(len(matches))
     spatial = np.asarray(
         [
@@ -709,6 +713,7 @@ def save_qc_metrics_figure(
         fig,
         config.output_dir / "05_qc_metrics",
         dpi=config.static_dpi,
+        config=config,
     )
 
 
@@ -1006,14 +1011,15 @@ def _summary_metrics(
         abs(match.time_error_us) for match in matches if match.time_error_us is not None
     ]
     uncertainty = _matched_uncertainty(localizations, matches)
+    max_spatial_error_px = _optional_float_max(spatial_errors)
     return {
         "scenario_name": config.scenario_name,
         "matched_count": sum(_match_passed(match) for match in matches),
         "expected_count": len(truth),
-        "max_spatial_error_px": _optional_float_max(spatial_errors),
+        "max_spatial_error_px": max_spatial_error_px,
         "max_spatial_error_nm": (
-            _optional_float_max(spatial_errors) * config.optical_pixel_size_nm
-            if spatial_errors
+            max_spatial_error_px * config.optical_pixel_size_nm
+            if max_spatial_error_px is not None
             else None
         ),
         "max_time_error_us": _optional_float_max(time_errors),
@@ -1171,7 +1177,7 @@ def _require_event_fields(events: np.ndarray) -> None:
         raise ValueError("Event array must contain x, y, p, and t fields")
 
 
-def _optional_int(value: object) -> int | None:
+def _optional_int(value: int | None) -> int | None:
     return None if value is None else int(value)
 
 
