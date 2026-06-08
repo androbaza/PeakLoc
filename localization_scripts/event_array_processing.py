@@ -171,20 +171,14 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
 def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
     num_coords = 24
-    for i in range(num_coords, len(coords), num_coords):
-        output1, output2, output3 = process_conv_list_parallel(
-            dict_events, coords[i - num_coords : i], max_len
+    for start in range(0, len(coords), num_coords):
+        chunk = coords[start : start + num_coords]
+        output_times, output_cumsum, output_coords = process_conv_list_parallel(
+            dict_events, chunk, max_len
         )
-        times.extend(output1)
-        cumsum.extend(output2)
-        coordinates.extend(output3)
-        if i + num_coords > len(coords):
-            output1, output2, output3 = process_conv_list_parallel(
-                dict_events, coords[i:], max_len
-            )
-            times.extend(output1)
-            cumsum.extend(output2)
-            coordinates.extend(output3)
+        times.extend(output_times)
+        cumsum.extend(output_cumsum)
+        coordinates.extend(output_coords)
     gc.collect()
     return times, cumsum, coordinates
 
