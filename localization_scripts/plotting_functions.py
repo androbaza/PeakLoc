@@ -462,7 +462,8 @@ def plot_peak_ON_OFF_detection(
     plt.show()
 
 
-def plot_3d_time(start_times, end_times):
+def plot_on_off_interval_segments_3d(start_times, end_times):
+    """Plot vertical ON/OFF interval segments, not individual event points."""
     if not np.any(start_times) and not np.any(end_times):
         return None
 

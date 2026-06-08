@@ -1,21 +1,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import replace
+import os
 from pathlib import Path
+
 from loguru import logger
 import numpy as np
-from scipy.special import erf
 import pytest
+from scipy.special import erf
+
+from localization_scripts.debug_visualization import (
+    DebugVisualizationConfig,
+    TruthPoint,
+    save_synthetic_localization_debug_artifacts,
+)
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import process_recording
-from dataclasses import replace
 
 EVENT_DTYPE = np.dtype(
     [
         ("x", np.uint16),
         ("y", np.uint16),
-        ("p", np.int8),      # PeakLoc convention: 1 = positive, 0 = negative
-        ("t", np.uint64),    # microseconds
+        ("p", np.int8),  # PeakLoc convention: 1 = positive, 0 = negative
+        ("t", np.uint64),  # microseconds
+    ]
+)
+
+MINIMAL_LOCALIZATION_DTYPE = np.dtype(
+    [
+        ("id", np.uint64),
+        ("t_peak", np.float64),
+        ("x", np.float64),
+        ("y", np.float64),
+        ("E_total", np.uint64),
+        ("E_total_n", np.uint64),
+        ("fit_success", np.bool_),
     ]
 )
 
@@ -25,26 +45,38 @@ class BlinkTruth:
     x_px: float
     y_px: float
     peak_us: int
-    n_pos: int = 8_000
-    n_neg: int = 8_000
-    pos_start_offset_us: int = -80_000
-    pos_stop_offset_us: int = -5_000
-    neg_start_offset_us: int = 5_000
-    neg_stop_offset_us: int = 80_000
+    n_pos: int = 80
+    n_neg: int = 60
+    signal_peak: float = 200
+    background: float = 1.0
+    contrast_threshold_log: float = 0.08
+    negative_event_bias: float = 0.8
+    refractory_period_us: int = 5
+    turn_on_duration_us: int = 80_000
+    plateau_duration_us: int = 10_000
+    turn_off_duration_us: int = 50_000
+    sample_step_us: int = 250
+    signal_event_jitter_us: int = 120
+    signal_event_dropout_probability: float = 0.08
+    signal_event_extra_probability: float = 0.15
+    background_noise_events_per_pixel: float = 4.0
+    label: str | None = None
 
 
 SENSOR_HEIGHT = 96
 SENSOR_WIDTH = 96
 SENSOR_SHAPE = (SENSOR_HEIGHT, SENSOR_WIDTH)
 
-SIGMA_PSF_PX = 1.25
+SIGMA_PSF_PX = 1.703
 DATASET_FWHM_PX = 2.355 * SIGMA_PSF_PX
-ROI_RADIUS = 5
+ROI_RADIUS = 7
 
 TRUTH = (
     BlinkTruth(x_px=30.35, y_px=31.70, peak_us=200_000),
     BlinkTruth(x_px=61.25, y_px=60.30, peak_us=600_000),
 )
+
+
 def test_synthetic_blinks_are_detected_and_localized_end_to_end(
     tmp_path: Path,
 ) -> None:
@@ -59,6 +91,7 @@ def test_synthetic_blinks_are_detected_and_localized_end_to_end(
     assert len(np.unique(locs["id"])) == locs.size, (
         "Localization IDs are not unique after concatenating time slices."
     )
+
 
 def test_synthetic_blinks_with_different_event_counts_are_localized(
     tmp_path: Path,
@@ -81,11 +114,14 @@ def test_synthetic_blinks_with_different_event_counts_are_localized(
         },
     )
 
+
 def test_late_high_count_synthetic_blink_is_localized(
     tmp_path: Path,
 ) -> None:
     blinks = (
-        BlinkTruth(x_px=72.20, y_px=70.60, peak_us=1_000_000, n_pos=12_000, n_neg=12_000),
+        BlinkTruth(
+            x_px=72.20, y_px=70.60, peak_us=1_000_000, n_pos=12_000, n_neg=12_000
+        ),
     )
 
     _run_synthetic_scenario(
@@ -100,6 +136,7 @@ def test_late_high_count_synthetic_blink_is_localized(
             "peak_min_event_count": 40,
         },
     )
+
 
 def test_temporally_separated_spatially_overlapping_blinks_are_localized(
     tmp_path: Path,
@@ -116,6 +153,7 @@ def test_temporally_separated_spatially_overlapping_blinks_are_localized(
         max_spatial_error_px=1.25,
         min_events_per_polarity=1_000,
     )
+
 
 @pytest.mark.xfail(
     reason=(
@@ -142,6 +180,7 @@ def test_simultaneous_spatially_overlapping_blinks_are_not_yet_resolved(
         min_events_per_polarity=1_000,
     )
 
+
 def test_synthetic_blink_near_upper_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +199,7 @@ def test_synthetic_blink_near_upper_sensor_edge_is_localized(
             "peak_min_event_count": 40,
         },
     )
+
 
 def test_synthetic_blink_near_lower_sensor_edge_is_localized(
     tmp_path: Path,
@@ -180,6 +220,7 @@ def test_synthetic_blink_near_lower_sensor_edge_is_localized(
         },
     )
 
+
 def test_synthetic_blink_close_to_lower_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -195,6 +236,7 @@ def test_synthetic_blink_close_to_lower_sensor_edge_is_localized(
         min_events_per_polarity=800,
     )
 
+
 def test_synthetic_long_blink_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -205,10 +247,8 @@ def test_synthetic_long_blink_is_localized(
             peak_us=600_000,
             n_pos=10_000,
             n_neg=10_000,
-            pos_start_offset_us=-120_000,
-            pos_stop_offset_us=-8_000,
-            neg_start_offset_us=8_000,
-            neg_stop_offset_us=120_000,
+            turn_on_duration_us=120_000,
+            turn_off_duration_us=120_000,
         ),
     )
 
@@ -221,6 +261,7 @@ def test_synthetic_long_blink_is_localized(
         max_abs_time_error_us=140_000,
     )
 
+
 def test_synthetic_short_blink_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -231,10 +272,8 @@ def test_synthetic_short_blink_is_localized(
             peak_us=220_000,
             n_pos=6_000,
             n_neg=6_000,
-            pos_start_offset_us=-40_000,
-            pos_stop_offset_us=-3_000,
-            neg_start_offset_us=3_000,
-            neg_stop_offset_us=40_000,
+            turn_on_duration_us=40_000,
+            turn_off_duration_us=40_000,
         ),
     )
 
@@ -250,6 +289,79 @@ def test_synthetic_short_blink_is_localized(
             "peak_min_event_count": 30,
         },
     )
+
+
+def test_synthetic_blink_plateau_contains_only_sparse_background_noise() -> None:
+    blink = BlinkTruth(
+        x_px=30.35,
+        y_px=31.70,
+        peak_us=200_000,
+        plateau_duration_us=20_000,
+    )
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    plateau_start = blink.peak_us
+    plateau_stop = blink.peak_us + blink.plateau_duration_us
+    plateau_events = events[
+        (events["t"] >= plateau_start) & (events["t"] <= plateau_stop)
+    ]
+
+    assert 0 < plateau_events.size < 0.15 * events.size
+
+
+def test_synthetic_event_times_are_not_ordered_by_pixel_scan_order() -> None:
+    blink = BlinkTruth(x_px=40.0, y_px=40.0, peak_us=200_000)
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    pos = events[events["p"] == 1]
+    pixel_ids = pos["y"].astype(np.int64) * SENSOR_WIDTH + pos["x"].astype(np.int64)
+
+    unique_ids = np.unique(pixel_ids)
+    median_t = []
+    scan_id = []
+    for pixel_id in unique_ids:
+        mask = pixel_ids == pixel_id
+        if np.count_nonzero(mask) >= 2:
+            scan_id.append(pixel_id)
+            median_t.append(float(np.median(pos["t"][mask])))
+
+    corr = np.corrcoef(scan_id, median_t)[0, 1]
+    assert abs(corr) < 0.3
+
+
+def test_synthetic_negative_signal_events_are_biased_lower_than_positive() -> None:
+    blink = BlinkTruth(
+        x_px=40.0,
+        y_px=40.0,
+        peak_us=200_000,
+        signal_event_jitter_us=0,
+        signal_event_dropout_probability=0.0,
+        signal_event_extra_probability=0.0,
+        background_noise_events_per_pixel=0.0,
+    )
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    positive_count = int(np.count_nonzero(events["p"] == 1))
+    negative_count = int(np.count_nonzero(events["p"] == 0))
+    negative_ratio = negative_count / positive_count
+
+    assert negative_ratio == pytest.approx(blink.negative_event_bias, abs=0.08)
+
 
 def _run_synthetic_scenario(
     *,
@@ -285,7 +397,39 @@ def _run_synthetic_scenario(
         run_timestamp=f"pytest_{name}",
     )
 
-    expected_count = len(blinks) if min_successful_localizations is None else min_successful_localizations
+    expected_count = (
+        len(blinks)
+        if min_successful_localizations is None
+        else min_successful_localizations
+    )
+
+    loc_path = (
+        input_path.with_suffix("")
+        / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}.npy"
+    )
+    locs = _load_final_localizations_if_available(loc_path)
+
+    save_synthetic_localization_debug_artifacts(
+        events=events,
+        localizations=locs,
+        attempted_localizations=_load_temp_arrays(
+            input_path, "attempted_localizations"
+        ),
+        rois=_load_temp_arrays(input_path, "rois"),
+        truth=_truth_points(blinks),
+        config=DebugVisualizationConfig(
+            output_dir=_debug_output_root() / name,
+            scenario_name=name,
+            sensor_shape=SENSOR_SHAPE,
+            optical_pixel_size_nm=config.optical_pixel_size_nm,
+            max_spatial_error_px=max_spatial_error_px,
+            max_abs_time_error_us=max_abs_time_error_us,
+            min_events_per_polarity=min_events_per_polarity,
+            overwrite=True,
+        ),
+        test_status="pre_assertion",
+    )
 
     assert result.event_count == events.size
     assert len(result.slice_results) >= 1
@@ -295,20 +439,8 @@ def _run_synthetic_scenario(
 
     assert total_rois >= expected_count
     assert total_localizations >= expected_count
-
-    loc_path = (
-        input_path.with_suffix("")
-        / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
-        f"_prominence_{config.prominence:g}.npy"
-    )
     assert loc_path.is_file(), f"Missing final localization output: {loc_path}"
-
-    locs = np.load(loc_path)
     assert locs.dtype.names is not None
-
-    if "fit_success" in locs.dtype.names:
-        locs = locs[locs["fit_success"]]
-
     assert locs.size >= expected_count
 
     for truth in blinks[:expected_count]:
@@ -333,6 +465,49 @@ def _run_synthetic_scenario(
 
     return locs
 
+
+def _truth_points(blinks: tuple[BlinkTruth, ...]) -> list[TruthPoint]:
+    return [
+        TruthPoint(
+            x_px=blink.x_px,
+            y_px=blink.y_px,
+            peak_us=blink.peak_us,
+            label=f"truth_{idx}",
+            n_pos=blink.n_pos,
+            n_neg=blink.n_neg,
+        )
+        for idx, blink in enumerate(blinks)
+    ]
+
+
+def _debug_output_root() -> Path:
+    persistent = os.environ.get("PEAKLOC_DEBUG_ARTIFACT_DIR")
+    if persistent:
+        return Path(persistent) / "synthetic_blinks"
+    return Path("debug_artifacts") / "synthetic_blinks"
+
+
+def _load_temp_arrays(input_path: Path, prefix: str) -> np.ndarray | None:
+    temp_dir = input_path.with_suffix("") / "temp_files"
+    paths = sorted(temp_dir.glob(f"{prefix}_*.npy"))
+    arrays = [np.load(path) for path in paths if path.is_file()]
+    arrays = [array for array in arrays if array.size > 0]
+    if not arrays:
+        return None
+    return np.concatenate(arrays)
+
+
+def _load_final_localizations_if_available(loc_path: Path) -> np.ndarray:
+    if not loc_path.is_file():
+        return np.empty(0, dtype=MINIMAL_LOCALIZATION_DTYPE)
+    locs = np.load(loc_path)
+    if locs.dtype.names is None:
+        return np.empty(0, dtype=MINIMAL_LOCALIZATION_DTYPE)
+    if "fit_success" in locs.dtype.names:
+        return locs[locs["fit_success"]]
+    return locs
+
+
 def synthetic_event_recording(
     *,
     blinks: tuple[BlinkTruth, ...],
@@ -354,6 +529,7 @@ def synthetic_event_recording(
 
     events = np.asarray(records, dtype=EVENT_DTYPE)
     events.sort(order="t")
+    events = _deduplicate_per_pixel_timestamp_collisions(events)
 
     _assert_no_per_pixel_timestamp_collisions(events)
     return events
@@ -386,50 +562,244 @@ def _events_for_one_blink(
     )
 
     weights = _pixel_integrated_gaussian_weights(xs, ys, x0, y0, sigma_px)
-    probabilities = weights.ravel() / np.sum(weights)
-
-    rng = np.random.default_rng(blink.peak_us)
-    pos_counts = rng.multinomial(blink.n_pos, probabilities)
-    neg_counts = rng.multinomial(blink.n_neg, probabilities)
-
-    pixel_coords = [(int(y), int(x)) for y in ys for x in xs]
-
-    pos_times = _unique_burst_times(
-        start_us=blink.peak_us + blink.pos_start_offset_us,
-        stop_us=blink.peak_us + blink.pos_stop_offset_us,
-        count=blink.n_pos,
+    t0 = blink.peak_us - blink.turn_on_duration_us - blink.sample_step_us
+    t1 = (
+        blink.peak_us
+        + blink.plateau_duration_us
+        + blink.turn_off_duration_us
+        + blink.sample_step_us
     )
-    neg_times = _unique_burst_times(
-        start_us=blink.peak_us + blink.neg_start_offset_us,
-        stop_us=blink.peak_us + blink.neg_stop_offset_us,
-        count=blink.n_neg,
-    )
+    times = np.arange(t0, t1 + 1, blink.sample_step_us, dtype=np.int64)
+    envelope = _blink_envelope(times, blink)
 
+    rng = np.random.default_rng(_blink_seed(blink))
+    occupied: set[tuple[int, int, int]] = set()
     records: list[tuple[int, int, int, int]] = []
-    pos_cursor = 0
-    neg_cursor = 0
+    for iy, y in enumerate(ys):
+        for ix, x in enumerate(xs):
+            signal = blink.signal_peak * float(weights[iy, ix]) * envelope
+            intensity = blink.background + signal
+            log_intensity = np.log(np.maximum(intensity, 1e-12))
+            signal_events = _threshold_crossing_events_for_pixel(
+                x=int(x),
+                y=int(y),
+                times_us=times,
+                log_intensity=log_intensity,
+                positive_contrast_threshold_log=blink.contrast_threshold_log,
+                negative_contrast_threshold_log=(
+                    blink.contrast_threshold_log / blink.negative_event_bias
+                ),
+                refractory_period_us=blink.refractory_period_us,
+            )
+            records.extend(
+                _noisy_signal_events(
+                    signal_events,
+                    blink=blink,
+                    rng=rng,
+                    min_time_us=t0,
+                    max_time_us=t1,
+                    occupied=occupied,
+                )
+            )
+    records.extend(
+        _background_noise_events_for_blink(
+            xs=xs,
+            ys=ys,
+            blink=blink,
+            rng=rng,
+            min_time_us=t0,
+            max_time_us=t1,
+            occupied=occupied,
+        )
+    )
+    return records
 
-    for (y, x), n_pos, n_neg in zip(
-        pixel_coords,
-        pos_counts,
-        neg_counts,
-        strict=True,
-    ):
-        n_pos_int = int(n_pos)
-        n_neg_int = int(n_neg)
 
-        for t in pos_times[pos_cursor : pos_cursor + n_pos_int]:
-            records.append((x, y, 1, int(t)))
-        pos_cursor += n_pos_int
+def _smoothstep(u: np.ndarray) -> np.ndarray:
+    clipped = np.clip(u, 0.0, 1.0)
+    return clipped * clipped * (3.0 - 2.0 * clipped)
 
-        for t in neg_times[neg_cursor : neg_cursor + n_neg_int]:
-            records.append((x, y, 0, int(t)))
-        neg_cursor += n_neg_int
 
-    assert pos_cursor == blink.n_pos
-    assert neg_cursor == blink.n_neg
+def _blink_envelope(times_us: np.ndarray, blink: BlinkTruth) -> np.ndarray:
+    on_start = blink.peak_us - blink.turn_on_duration_us
+    plateau_start = blink.peak_us
+    plateau_stop = blink.peak_us + blink.plateau_duration_us
+    off_stop = plateau_stop + blink.turn_off_duration_us
+
+    envelope = np.zeros_like(times_us, dtype=np.float64)
+
+    on = (times_us >= on_start) & (times_us < plateau_start)
+    envelope[on] = _smoothstep((times_us[on] - on_start) / blink.turn_on_duration_us)
+
+    plateau = (times_us >= plateau_start) & (times_us < plateau_stop)
+    envelope[plateau] = 1.0
+
+    off = (times_us >= plateau_stop) & (times_us <= off_stop)
+    envelope[off] = 1.0 - _smoothstep(
+        (times_us[off] - plateau_stop) / blink.turn_off_duration_us
+    )
+
+    return envelope
+
+
+def _threshold_crossing_events_for_pixel(
+    *,
+    x: int,
+    y: int,
+    times_us: np.ndarray,
+    log_intensity: np.ndarray,
+    positive_contrast_threshold_log: float,
+    negative_contrast_threshold_log: float,
+    refractory_period_us: int,
+) -> list[tuple[int, int, int, int]]:
+    records: list[tuple[int, int, int, int]] = []
+    last_crossing = float(log_intensity[0])
+    last_event_time = -(10**18)
+
+    for idx in range(1, len(times_us)):
+        t_prev = int(times_us[idx - 1])
+        t_curr = int(times_us[idx])
+        l_prev = float(log_intensity[idx - 1])
+        l_curr = float(log_intensity[idx])
+
+        if l_curr == l_prev:
+            continue
+
+        while True:
+            delta = l_curr - last_crossing
+            if delta >= positive_contrast_threshold_log:
+                polarity = 1
+                target = last_crossing + positive_contrast_threshold_log
+            elif delta <= -negative_contrast_threshold_log:
+                polarity = 0
+                target = last_crossing - negative_contrast_threshold_log
+            else:
+                break
+
+            alpha = (target - l_prev) / (l_curr - l_prev)
+            alpha = float(np.clip(alpha, 0.0, 1.0))
+            event_time = int(round(t_prev + alpha * (t_curr - t_prev)))
+
+            if event_time - last_event_time >= refractory_period_us:
+                records.append((x, y, polarity, event_time))
+                last_event_time = event_time
+
+            last_crossing = target
 
     return records
+
+
+def _noisy_signal_events(
+    events: list[tuple[int, int, int, int]],
+    *,
+    blink: BlinkTruth,
+    rng: np.random.Generator,
+    min_time_us: int,
+    max_time_us: int,
+    occupied: set[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    noisy: list[tuple[int, int, int, int]] = []
+    for x, y, polarity, time_us in events:
+        if rng.random() < blink.signal_event_dropout_probability:
+            continue
+        event_time = _jittered_event_time(
+            time_us,
+            jitter_us=blink.signal_event_jitter_us,
+            min_time_us=min_time_us,
+            max_time_us=max_time_us,
+            rng=rng,
+        )
+        _append_unique_event(noisy, occupied, x, y, polarity, event_time)
+        if rng.random() < blink.signal_event_extra_probability:
+            extra_time = _jittered_event_time(
+                event_time,
+                jitter_us=max(blink.signal_event_jitter_us, blink.refractory_period_us),
+                min_time_us=min_time_us,
+                max_time_us=max_time_us,
+                rng=rng,
+            )
+            _append_unique_event(noisy, occupied, x, y, polarity, extra_time)
+    return noisy
+
+
+def _background_noise_events_for_blink(
+    *,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    blink: BlinkTruth,
+    rng: np.random.Generator,
+    min_time_us: int,
+    max_time_us: int,
+    occupied: set[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    records: list[tuple[int, int, int, int]] = []
+    for y in ys:
+        for x in xs:
+            positive_count = int(rng.poisson(blink.background_noise_events_per_pixel))
+            negative_count = int(
+                rng.poisson(
+                    blink.background_noise_events_per_pixel * blink.negative_event_bias
+                )
+            )
+            for polarity, count in [(1, positive_count), (0, negative_count)]:
+                if count == 0:
+                    continue
+                times = rng.integers(
+                    min_time_us,
+                    max_time_us + 1,
+                    size=count,
+                    endpoint=False,
+                )
+                for time_us in times:
+                    _append_unique_event(
+                        records,
+                        occupied,
+                        int(x),
+                        int(y),
+                        polarity,
+                        int(time_us),
+                    )
+    return records
+
+
+def _jittered_event_time(
+    time_us: int,
+    *,
+    jitter_us: int,
+    min_time_us: int,
+    max_time_us: int,
+    rng: np.random.Generator,
+) -> int:
+    if jitter_us <= 0:
+        return int(time_us)
+    jitter = int(rng.integers(-jitter_us, jitter_us + 1))
+    return int(np.clip(time_us + jitter, min_time_us, max_time_us))
+
+
+def _append_unique_event(
+    records: list[tuple[int, int, int, int]],
+    occupied: set[tuple[int, int, int]],
+    x: int,
+    y: int,
+    polarity: int,
+    time_us: int,
+) -> None:
+    key = (y, x, time_us)
+    if key in occupied:
+        return
+    records.append((x, y, polarity, time_us))
+    occupied.add(key)
+
+
+def _blink_seed(blink: BlinkTruth) -> int:
+    return int(
+        (
+            blink.peak_us * 31
+            + round(blink.x_px * 1_000) * 131
+            + round(blink.y_px * 1_000) * 257
+        )
+        % (2**32)
+    )
 
 
 def _pixel_integrated_gaussian_weights(
@@ -441,39 +811,11 @@ def _pixel_integrated_gaussian_weights(
 ) -> np.ndarray:
     sqrt2_sigma = np.sqrt(2.0) * sigma_px
 
-    wx = 0.5 * (
-        erf((xs + 0.5 - x0) / sqrt2_sigma)
-        - erf((xs - 0.5 - x0) / sqrt2_sigma)
-    )
-    wy = 0.5 * (
-        erf((ys + 0.5 - y0) / sqrt2_sigma)
-        - erf((ys - 0.5 - y0) / sqrt2_sigma)
-    )
+    wx = 0.5 * (erf((xs + 0.5 - x0) / sqrt2_sigma) - erf((xs - 0.5 - x0) / sqrt2_sigma))
+    wy = 0.5 * (erf((ys + 0.5 - y0) / sqrt2_sigma) - erf((ys - 0.5 - y0) / sqrt2_sigma))
 
     weights = np.outer(wy, wx)
     return np.clip(weights, 0.0, None)
-
-
-def _unique_burst_times(
-    *,
-    start_us: int,
-    stop_us: int,
-    count: int,
-) -> np.ndarray:
-    assert count > 0
-    assert stop_us > start_us
-
-    duration = stop_us - start_us
-    assert count < duration, (
-        "Synthetic blink has more events than unique integer timestamps in "
-        "the burst window. Increase the window or reduce event count."
-    )
-
-    step = max(duration // (count + 1), 1)
-    return np.asarray(
-        start_us + step * np.arange(1, count + 1, dtype=np.uint64),
-        dtype=np.uint64,
-    )
 
 
 def _assert_no_per_pixel_timestamp_collisions(events: np.ndarray) -> None:
@@ -486,6 +828,22 @@ def _assert_no_per_pixel_timestamp_collisions(events: np.ndarray) -> None:
             "same pixel. That would make per-pixel event counting ambiguous."
         )
         seen.add(key)
+
+
+def _deduplicate_per_pixel_timestamp_collisions(events: np.ndarray) -> np.ndarray:
+    if events.size == 0:
+        return events
+    keys = np.empty(
+        events.size,
+        dtype=[("y", np.uint16), ("x", np.uint16), ("t", np.uint64)],
+    )
+    keys["y"] = events["y"]
+    keys["x"] = events["x"]
+    keys["t"] = events["t"]
+    _, unique_indices = np.unique(keys, return_index=True)
+    if unique_indices.size == events.size:
+        return events
+    return np.sort(events[np.sort(unique_indices)], order="t")
 
 
 def _make_config(tmp_path: Path) -> PeakLocConfig:
@@ -517,19 +875,14 @@ def _make_config(tmp_path: Path) -> PeakLocConfig:
         sigma_psf_px=SIGMA_PSF_PX,
         fit_sigma=False,
         psf_model="pixel_integrated_gaussian",
-
         # Important for this synthetic generator:
         # it creates signal events, but no explicit dark/blank/local background.
         background_mode="calibrated_only",
-
         hot_pixel_policy="mask",
-
         # Keep these non-trivial. Do not lower them just to pass.
         min_events_pos=100,
         min_events_neg=100,
-
         min_valid_pixels=1,
-
         # Start with this; only raise if diagnostics show condition-only rejection.
         max_fit_cond=1e15,
     )
@@ -555,6 +908,7 @@ def _best_spatial_match(
     )
     idx = int(np.argmin(distances))
     return locs[idx], float(distances[idx])
+
 
 def _log_synthetic_pipeline_artifacts(input_path: Path, config: PeakLocConfig) -> None:
     temp_dir = input_path.with_suffix("") / "temp_files"
@@ -609,9 +963,8 @@ def _log_roi_file_summary(
     if rois.size == 0:
         return
 
-    eligible = (
-        (rois["total_events_roi"] >= config.min_events_pos)
-        & (rois["total_neg_events_roi"] >= config.min_events_neg)
+    eligible = (rois["total_events_roi"] >= config.min_events_pos) & (
+        rois["total_neg_events_roi"] >= config.min_events_neg
     )
 
     logger.warning(
@@ -704,6 +1057,10 @@ def _log_localization_file_summary(loc_path: Path, locs: np.ndarray) -> None:
         logger.warning(
             "loc[{}]: {}",
             idx,
-            {field: locs[field][idx].item() if np.ndim(locs[field][idx]) == 0 else locs[field][idx].tolist()
-             for field in present},
+            {
+                field: locs[field][idx].item()
+                if np.ndim(locs[field][idx]) == 0
+                else locs[field][idx].tolist()
+                for field in present
+            },
         )

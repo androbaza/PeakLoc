@@ -20,7 +20,6 @@ def test_generate_rois_rejects_true_boundary_overflow_and_keeps_metadata():
     unique_peaks = {
         # Rejected: ROI radius 2 would extend below x/y = 0.
         (1, 1): [(t_peak, 20, (t_on, t_off))],
-
         # Kept: ROI [0:4, 0:4] is inside max_x/max_y = 5.
         (2, 2): [(t_peak, 20, (t_on, t_off))],
     }
@@ -30,7 +29,6 @@ def test_generate_rois_rejects_true_boundary_overflow_and_keeps_metadata():
             # Positive events belong to the rising/on side.
             (np.uint64(70_000), np.int8(1)),
             (np.uint64(90_000), np.int8(1)),
-
             # Negative event belongs to the falling/off side.
             (np.uint64(115_000), np.int8(0)),
         ]
