@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, fields
 import csv
 import itertools
@@ -52,7 +52,7 @@ def load_sweep_spec(path: str | Path) -> dict[str, tuple[Any, ...]]:
 
 
 def iter_sweep_runs(
-    base_config: PeakLocConfig, sweep_spec: dict[str, Iterable[Any]]
+    base_config: PeakLocConfig, sweep_spec: Mapping[str, Iterable[Any]]
 ) -> list[SweepRun]:
     field_names = list(sweep_spec)
     value_lists = [tuple(sweep_spec[field_name]) for field_name in field_names]
@@ -305,11 +305,18 @@ def _write_rows_csv(rows: list[dict[str, Any]], path: Path) -> None:
 def _save_pareto_plot(rows: list[dict[str, Any]], path: Path) -> Path:
     fig, axis = plt.subplots(figsize=(5, 4), constrained_layout=True)
     if rows:
-        x = [row.get("accepted_localizations", 0) for row in rows]
-        y = [
-            row.get("median_uncertainty_nm") or row.get("median_uncertainty_px")
-            for row in rows
-        ]
+        x = np.asarray(
+            [row.get("accepted_localizations", 0) for row in rows], dtype=np.float64
+        )
+        y = np.asarray(
+            [
+                row.get("median_uncertainty_nm")
+                if row.get("median_uncertainty_nm") is not None
+                else row.get("median_uncertainty_px", np.nan)
+                for row in rows
+            ],
+            dtype=np.float64,
+        )
         axis.scatter(x, y, color=PLOT_COLORS["blue"])
     axis.set_title("Pareto: localizations vs uncertainty")
     axis.set_xlabel("accepted localizations")

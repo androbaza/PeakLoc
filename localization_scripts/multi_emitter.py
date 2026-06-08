@@ -35,7 +35,9 @@ def evaluate_overlap_flags(
         )
         flags["asymmetric_residual"][index] = _is_asymmetric(roi)
         flags["edge_truncated"][index] = _is_edge_truncated(
-            localization, roi.shape, edge_distance_px=edge_distance_px
+            localization,
+            (int(roi.shape[0]), int(roi.shape[1])),
+            edge_distance_px=edge_distance_px,
         )
     return flags
 
