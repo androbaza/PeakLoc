@@ -23,7 +23,10 @@ from localization_scripts.event_array_processing import (
     raw_events_to_array,
     save_dict,
 )
-from localization_scripts.localization_fitting import localize_rois
+from localization_scripts.localization_fitting import (
+    localization_uncertainty_px,
+    localize_rois_with_attempts,
+)
 from localization_scripts.peak_finding import (
     create_peak_lists,
     find_local_max_peak,
@@ -193,10 +196,17 @@ def process_time_slice(
         "Performing localization; elapsed time: {:.2f} seconds",
         time.time() - start_time,
     )
-    localizations = localize_rois(rois, config, calibration)
+    localization_tables = localize_rois_with_attempts(rois, config, calibration)
+    attempted_localizations = localization_tables.attempted
+    localizations = localization_tables.filtered
 
     logger.info(
         "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
+    )
+    attempted_localizations_path = (
+        temp_files_localization
+        / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
     )
     localizations_path = (
         temp_files_localization
@@ -207,11 +217,16 @@ def process_time_slice(
         temp_files_localization / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
     )
+    np.save(attempted_localizations_path, attempted_localizations)
     np.save(localizations_path, localizations)
     np.save(rois_path, rois)
 
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
-    fit_qc = summarize_fit_qc(localizations, roi_count=len(rois))
+    fit_qc = summarize_fit_qc(
+        attempted_localizations,
+        roi_count=len(rois),
+        filtered_localization_count=len(localizations),
+    )
     rejected_localization_count = fit_qc["rejected_localization_count"]
     if not isinstance(rejected_localization_count, int):
         rejected_localization_count = 0
@@ -227,7 +242,12 @@ def process_time_slice(
         median_nll_per_event=fit_qc["median_nll_per_event"],
         hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
         rejected_localization_count=rejected_localization_count,
-        artifacts=[unique_peaks_path, localizations_path, rois_path],
+        artifacts=[
+            unique_peaks_path,
+            attempted_localizations_path,
+            localizations_path,
+            rois_path,
+        ],
     )
 
 
@@ -295,35 +315,22 @@ def process_recording(
 
     sorted_names = natsorted(path.name for path in temp_files_localization.iterdir())
     loc_names = [name for name in sorted_names if name.startswith("localizations")]
+    attempted_loc_names = [
+        name for name in sorted_names if name.startswith("attempted_localizations")
+    ]
     roi_names = [name for name in sorted_names if name.startswith("rois")]
     if not loc_names or not roi_names:
         logger.info("No localization outputs found for {}", filename)
         recording.elapsed_seconds = time.time() - recording_start
         return recording
 
-    localizations_full_list = None
+    localizations_full_list = concatenate_localization_slices(
+        temp_files_localization, loc_names
+    )
+    attempted_localizations_full_list = concatenate_localization_slices(
+        temp_files_localization, attempted_loc_names
+    )
     rois_full_list = None
-
-    for loc_name in loc_names:
-        loc_path = temp_files_localization / loc_name
-        locs_slice = np.load(loc_path)
-
-        if locs_slice.size == 0:
-            logger.info("Skipping empty localization slice {}", loc_path)
-            continue
-
-        if locs_slice.dtype.names is None or "id" not in locs_slice.dtype.names:
-            raise ValueError(f"Localization file has no structured 'id' field: {loc_path}")
-
-        locs_slice = locs_slice.copy()
-        if localizations_full_list is not None and localizations_full_list.size > 0:
-            locs_slice["id"] += int(np.max(localizations_full_list["id"])) + 1
-
-        localizations_full_list = (
-            np.concatenate((localizations_full_list, locs_slice))
-            if localizations_full_list is not None
-            else locs_slice
-        )
 
     for roi_name in roi_names:
         roi_path = temp_files_localization / roi_name
@@ -349,10 +356,18 @@ def process_recording(
         / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}.npy"
     )
+    attempted_localizations_path = (
+        out_folder_localizations
+        / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}.npy"
+    )
     rois_path = (
         out_folder_localizations / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}.npy"
     )
+    if attempted_localizations_full_list is not None:
+        np.save(attempted_localizations_path, attempted_localizations_full_list)
+        recording.artifacts.append(attempted_localizations_path)
     np.save(localizations_path, localizations_full_list)
     np.save(rois_path, rois_full_list)
     recording.artifacts.extend([localizations_path, rois_path])
@@ -371,6 +386,40 @@ def process_recording(
 
     recording.elapsed_seconds = time.time() - recording_start
     return recording
+
+
+def concatenate_localization_slices(
+    temp_folder: Path, localization_names: list[str]
+) -> np.ndarray | None:
+    localizations_full_list = None
+    next_id = 0
+
+    for localization_name in localization_names:
+        localization_path = temp_folder / localization_name
+        localizations_slice = np.load(localization_path)
+
+        if (
+            localizations_slice.dtype.names is None
+            or "id" not in localizations_slice.dtype.names
+        ):
+            raise ValueError(
+                f"Localization file has no structured 'id' field: {localization_path}"
+            )
+
+        localizations_slice = localizations_slice.copy()
+        if localizations_slice.size > 0:
+            localizations_slice["id"] += next_id
+            next_id = int(np.max(localizations_slice["id"])) + 1
+        else:
+            logger.info("Including empty localization slice {}", localization_path)
+
+        localizations_full_list = (
+            np.concatenate((localizations_full_list, localizations_slice))
+            if localizations_full_list is not None
+            else localizations_slice
+        )
+
+    return localizations_full_list
 
 
 def load_events(filename: Path, config: PeakLocConfig) -> np.ndarray | None:
@@ -412,14 +461,20 @@ def summarize_fit_qc(
     localizations: np.ndarray,
     *,
     roi_count: int,
+    filtered_localization_count: int | None = None,
 ) -> dict[str, float | int | None]:
+    accepted_count = (
+        int(localizations.size)
+        if filtered_localization_count is None
+        else filtered_localization_count
+    )
     if localizations.size == 0 or localizations.dtype.names is None:
         return {
             "fit_success_fraction": None,
             "median_uncertainty_px": None,
             "median_nll_per_event": None,
             "hot_pixel_fraction": None,
-            "rejected_localization_count": roi_count,
+            "rejected_localization_count": max(roi_count - accepted_count, 0),
         }
     names = set(localizations.dtype.names)
     fit_success_fraction = None
@@ -428,7 +483,12 @@ def summarize_fit_qc(
     hot_pixel_fraction = None
     if "fit_success" in names:
         fit_success_fraction = float(np.mean(localizations["fit_success"]))
-    if {"sigma_x", "sigma_y"}.issubset(names):
+    if {"sigma_x", "sigma_y", "cov_xy"}.issubset(names):
+        uncertainty = localization_uncertainty_px(localizations)
+        finite_uncertainty = uncertainty[np.isfinite(uncertainty)]
+        if finite_uncertainty.size:
+            median_uncertainty_px = float(np.median(finite_uncertainty))
+    elif {"sigma_x", "sigma_y"}.issubset(names):
         uncertainty = np.sqrt(
             np.maximum(localizations["sigma_x"], 0) ** 2
             + np.maximum(localizations["sigma_y"], 0) ** 2
@@ -453,7 +513,7 @@ def summarize_fit_qc(
         "median_uncertainty_px": median_uncertainty_px,
         "median_nll_per_event": median_nll_per_event,
         "hot_pixel_fraction": hot_pixel_fraction,
-        "rejected_localization_count": max(roi_count - int(localizations.size), 0),
+        "rejected_localization_count": max(roi_count - accepted_count, 0),
     }
 
 
@@ -505,7 +565,11 @@ def remove_temp_artifacts(
 ) -> None:
     removed_artifacts = set()
     for loc_file in sorted_names:
-        if loc_file.startswith("localizations") or loc_file.startswith("rois"):
+        if (
+            loc_file.startswith("attempted_localizations")
+            or loc_file.startswith("localizations")
+            or loc_file.startswith("rois")
+        ):
             temp_artifact = temp_folder / loc_file
             temp_artifact.unlink()
             removed_artifacts.add(temp_artifact)

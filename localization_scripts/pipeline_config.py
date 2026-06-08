@@ -54,6 +54,8 @@ class PeakLocConfig:
     min_events_neg: int = 3
     min_valid_pixels: int = 1
     max_fit_cond: float = 1e10
+    max_localization_uncertainty_px: float | None = None
+    max_localization_uncertainty_nm: float | None = None
 
     @classmethod
     def from_json(cls, path: str | Path) -> Self:
@@ -115,6 +117,16 @@ class PeakLocConfig:
         _require_positive("min_events_neg", self.min_events_neg)
         _require_positive("min_valid_pixels", self.min_valid_pixels)
         _require_positive("max_fit_cond", self.max_fit_cond)
+        if self.max_localization_uncertainty_px is not None:
+            _require_positive(
+                "max_localization_uncertainty_px",
+                self.max_localization_uncertainty_px,
+            )
+        if self.max_localization_uncertainty_nm is not None:
+            _require_positive(
+                "max_localization_uncertainty_nm",
+                self.max_localization_uncertainty_nm,
+            )
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         _require_bool("allow_uncalibrated", self.allow_uncalibrated)

@@ -58,6 +58,9 @@ def test_filter_poisson_localizations_drops_failed_or_invalid_fits():
             ("fit_success", np.bool_),
             ("x", np.float64),
             ("y", np.float64),
+            ("sigma_x", np.float64),
+            ("sigma_y", np.float64),
+            ("cov_xy", np.float64),
             ("fit_cond", np.float64),
             ("valid_pixel_count", np.uint32),
         ],
@@ -65,6 +68,9 @@ def test_filter_poisson_localizations_drops_failed_or_invalid_fits():
     localizations["fit_success"] = [True, False, True, True, True]
     localizations["x"] = [1.0, 1.0, np.nan, 1.0, 1.0]
     localizations["y"] = [2.0, 2.0, 2.0, np.inf, 2.0]
+    localizations["sigma_x"] = 0.2
+    localizations["sigma_y"] = 0.2
+    localizations["cov_xy"] = 0.0
     localizations["fit_cond"] = [10.0, 10.0, 10.0, 10.0, 1e6]
     localizations["valid_pixel_count"] = [16, 16, 16, 16, 3]
     config = PeakLocConfig(max_fit_cond=100.0, min_valid_pixels=8)
@@ -74,6 +80,42 @@ def test_filter_poisson_localizations_drops_failed_or_invalid_fits():
     assert filtered.size == 1
     assert filtered["x"][0] == 1.0
     assert filtered["y"][0] == 2.0
+
+
+def test_filter_poisson_localizations_drops_large_uncertainty():
+    localizations = np.zeros(
+        (3,),
+        dtype=[
+            ("fit_success", np.bool_),
+            ("x", np.float64),
+            ("y", np.float64),
+            ("sigma_x", np.float64),
+            ("sigma_y", np.float64),
+            ("cov_xy", np.float64),
+            ("fit_cond", np.float64),
+            ("valid_pixel_count", np.uint32),
+        ],
+    )
+
+    localizations["fit_success"] = True
+    localizations["x"] = [1.0, 2.0, 3.0]
+    localizations["y"] = [1.0, 2.0, 3.0]
+    localizations["sigma_x"] = [0.2, 0.8, 0.2]
+    localizations["sigma_y"] = [0.2, 0.8, 0.2]
+    localizations["cov_xy"] = [0.0, 0.0, 0.3]
+    localizations["fit_cond"] = 10.0
+    localizations["valid_pixel_count"] = 100
+
+    config = PeakLocConfig(
+        max_localization_uncertainty_px=0.5,
+        min_valid_pixels=8,
+        max_fit_cond=100.0,
+    )
+
+    filtered = filter_poisson_localizations(localizations, config)
+
+    assert filtered.size == 1
+    assert filtered["x"][0] == 1.0
 
 
 def _roi_records(roi_pos: np.ndarray, roi_neg: np.ndarray) -> np.ndarray:

@@ -31,5 +31,7 @@
   "min_events_pos": 10,
   "min_events_neg": 10,
   "min_valid_pixels": 1,
+  "max_localization_uncertainty_px": null,
+  "max_localization_uncertainty_nm": 50.0,
   "max_fit_cond": 10000000000.0
 }

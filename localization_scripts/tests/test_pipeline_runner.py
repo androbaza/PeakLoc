@@ -98,7 +98,15 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
         np.asarray([(0, 1.0, 2.0), (1, 3.0, 4.0)], dtype=loc_dtype),
     )
     np.save(
+        temp_folder / "attempted_localizations_time_slice_100.npy",
+        np.asarray([(0, 1.0, 2.0), (1, 3.0, 4.0)], dtype=loc_dtype),
+    )
+    np.save(
         temp_folder / "localizations_time_slice_200.npy",
+        np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
+    )
+    np.save(
+        temp_folder / "attempted_localizations_time_slice_200.npy",
         np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
     )
     np.save(
@@ -133,6 +141,12 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     )
     localizations = np.load(output_path)
     assert list(localizations["id"]) == [0, 1, 2, 3]
+    attempted_output_path = output_folder / (
+        f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}.npy"
+    )
+    attempted_localizations = np.load(attempted_output_path)
+    assert list(attempted_localizations["id"]) == [0, 1, 2, 3]
 
 
 def test_summarize_fit_qc_handles_poisson_fields():
@@ -161,6 +175,12 @@ def test_summarize_fit_qc_handles_poisson_fields():
     assert summary["median_nll_per_event"] == 1.5
     assert summary["hot_pixel_fraction"] == 0.005
     assert summary["rejected_localization_count"] == 1
+
+    summary = summarize_fit_qc(
+        localizations, roi_count=3, filtered_localization_count=1
+    )
+    assert summary["fit_success_fraction"] == 0.5
+    assert summary["rejected_localization_count"] == 2
 
 
 def test_write_run_report_includes_peak_interpolation_cutoff(tmp_path):

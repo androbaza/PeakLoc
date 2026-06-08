@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 from joblib import Parallel, delayed
 
@@ -9,7 +11,13 @@ from localization_scripts.poisson_fitting import fit_joint_poisson_roi
 FWHM_FROM_SIGMA = 2.354820045
 
 
-def concatenate_locs(localized_data):
+@dataclass(frozen=True)
+class LocalizationTables:
+    attempted: np.ndarray
+    filtered: np.ndarray
+
+
+def concatenate_locs(localized_data: list[np.ndarray]) -> np.ndarray:
     id = localized_data[0]["id"][-1] + 1
     concatenated_data = localized_data[0]
     for i in range(1, len(localized_data)):
@@ -28,11 +36,21 @@ def localize_rois(
     config: PeakLocConfig,
     calibration: EventCalibration | None = None,
 ) -> np.ndarray:
+    return localize_rois_with_attempts(rois, config, calibration).filtered
+
+
+def localize_rois_with_attempts(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration | None = None,
+) -> LocalizationTables:
     if config.fit_model != "poisson_joint":
         raise ValueError(f"Unsupported fit_model: {config.fit_model}")
     if calibration is None:
         raise ValueError("calibration is required for poisson_joint localization")
-    return perform_joint_poisson_localization_parallel(rois, config, calibration)
+    attempted = perform_joint_poisson_localization_parallel(rois, config, calibration)
+    filtered = filter_poisson_localizations(attempted, config)
+    return LocalizationTables(attempted=attempted, filtered=filtered)
 
 
 def perform_joint_poisson_localization_parallel(
@@ -130,7 +148,20 @@ def localize_joint_poisson(
     localizations = np.delete(
         localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0
     )
-    return filter_poisson_localizations(localizations, config)
+    return localizations
+
+
+def localization_uncertainty_px(localizations: np.ndarray) -> np.ndarray:
+    """Return worst-axis 1-sigma localization uncertainty in pixels."""
+    var_x = np.asarray(localizations["sigma_x"], dtype=np.float64) ** 2
+    var_y = np.asarray(localizations["sigma_y"], dtype=np.float64) ** 2
+    cov_xy = np.asarray(localizations["cov_xy"], dtype=np.float64)
+
+    trace = var_x + var_y
+    determinant_term = np.sqrt((var_x - var_y) ** 2 + 4.0 * cov_xy**2)
+
+    largest_eigenvalue = 0.5 * (trace + determinant_term)
+    return np.sqrt(np.maximum(largest_eigenvalue, 0.0))
 
 
 def filter_poisson_localizations(
@@ -143,9 +174,26 @@ def filter_poisson_localizations(
         localizations["fit_success"]
         & np.isfinite(localizations["x"])
         & np.isfinite(localizations["y"])
+        & np.isfinite(localizations["sigma_x"])
+        & np.isfinite(localizations["sigma_y"])
+        & np.isfinite(localizations["cov_xy"])
+        & (localizations["sigma_x"] > 0)
+        & (localizations["sigma_y"] > 0)
         & (localizations["fit_cond"] < config.max_fit_cond)
         & (localizations["valid_pixel_count"] >= config.min_valid_pixels)
     )
+    uncertainty_px = localization_uncertainty_px(localizations)
+    keep &= np.isfinite(uncertainty_px)
+
+    if config.max_localization_uncertainty_px is not None:
+        keep &= uncertainty_px <= config.max_localization_uncertainty_px
+
+    if config.max_localization_uncertainty_nm is not None:
+        max_uncertainty_px = (
+            config.max_localization_uncertainty_nm / config.optical_pixel_size_nm
+        )
+        keep &= uncertainty_px <= max_uncertainty_px
+
     return localizations[keep]
 
 

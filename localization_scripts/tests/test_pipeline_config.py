@@ -100,6 +100,16 @@ def test_peakloc_config_validates_event_model_settings():
     with pytest.raises(ValueError, match="min_valid_pixels must be positive"):
         PeakLocConfig.from_mapping({"min_valid_pixels": 0})
 
+    with pytest.raises(
+        ValueError, match="max_localization_uncertainty_px must be positive"
+    ):
+        PeakLocConfig.from_mapping({"max_localization_uncertainty_px": 0})
+
+    with pytest.raises(
+        ValueError, match="max_localization_uncertainty_nm must be positive"
+    ):
+        PeakLocConfig.from_mapping({"max_localization_uncertainty_nm": 0})
+
     assert PeakLocConfig.from_mapping({"background_mode": "calibrated_only"})
 
     with pytest.raises(ValueError, match="background_mode must be"):
@@ -120,6 +130,8 @@ def test_write_effective_config_is_human_readable_json(tmp_path):
     assert payload["sensor_width"] == 1280
     assert payload["peak_min_event_count"] == 2
     assert payload["fit_model"] == "poisson_joint"
+    assert payload["max_localization_uncertainty_px"] is None
+    assert payload["max_localization_uncertainty_nm"] is None
     assert config.optical_pixel_size_nm == 67.0
     assert config.sensor_shape == (720, 1280)
     assert payload["plot_result"] is True
