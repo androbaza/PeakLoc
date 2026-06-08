@@ -26,11 +26,11 @@
   "sigma_psf_px": 1.703,
   "fit_sigma": false,
   "psf_model": "pixel_integrated_gaussian",
-  "background_mode": "calibrated_plus_local",
+  "background_mode": "local_only",
   "hot_pixel_policy": "mask",
   "min_events_pos": 10,
   "min_events_neg": 10,
-  "min_valid_pixels": 1,
+  "min_valid_pixels": 50,
   "max_localization_uncertainty_px": null,
   "max_localization_uncertainty_nm": 50.0,
   "max_fit_cond": 10000000000.0
