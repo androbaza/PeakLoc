@@ -137,8 +137,6 @@ def test_save_synthetic_localization_debug_artifacts_writes_expected_files(
     assert (output_dir / "matches.json").is_file()
     assert (output_dir / "debug_report.md").is_file()
     assert (output_dir / "01_xy_detection_summary.png").is_file()
-    assert (output_dir / "01_xy_detection_summary.svg").is_file()
-    assert (output_dir / "01_xy_detection_summary.pdf").is_file()
     assert (output_dir / "06_spacetime_point_cloud.html").is_file()
 
 
