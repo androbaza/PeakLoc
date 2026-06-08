@@ -81,13 +81,6 @@ def test_synthetic_blinks_with_different_event_counts_are_localized(
         },
     )
 
-@pytest.mark.xfail(
-    reason=(
-        "Peak/ROI generation currently misses the late high-count synthetic blink "
-        "at peak_us=1_000_000 in a later time slice."
-    ),
-    strict=False,
-)
 def test_late_high_count_synthetic_blink_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -108,13 +101,6 @@ def test_late_high_count_synthetic_blink_is_localized(
         },
     )
 
-@pytest.mark.xfail(
-    reason=(
-        "Current peak/ROI generation is not yet robust for close spatially "
-        "overlapping emitters; only one of the two separated blinks is detected."
-    ),
-    strict=False,
-)
 def test_temporally_separated_spatially_overlapping_blinks_are_localized(
     tmp_path: Path,
 ) -> None:
@@ -175,13 +161,6 @@ def test_synthetic_blink_near_upper_sensor_edge_is_localized(
         },
     )
 
-@pytest.mark.xfail(
-    reason=(
-        "Lower-left edge-adjacent detection is currently not robust in the "
-        "peak/ROI generation stage."
-    ),
-    strict=False,
-)
 def test_synthetic_blink_near_lower_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -201,13 +180,6 @@ def test_synthetic_blink_near_lower_sensor_edge_is_localized(
         },
     )
 
-@pytest.mark.xfail(
-    reason=(
-        "Lower-bound edge-adjacent detection is currently not robust. "
-        "This should be fixed in peak/ROI generation before making the test strict."
-    ),
-    strict=False,
-)
 def test_synthetic_blink_close_to_lower_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -249,13 +221,6 @@ def test_synthetic_long_blink_is_localized(
         max_abs_time_error_us=140_000,
     )
 
-@pytest.mark.xfail(
-    reason=(
-        "Short synthetic blinks are currently not robustly detected by the "
-        "peak/ROI stage with the default smoothing/prominence settings."
-    ),
-    strict=False,
-)
 def test_synthetic_short_blink_is_localized(
     tmp_path: Path,
 ) -> None:
