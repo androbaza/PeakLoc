@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import gc
 from dataclasses import dataclass, field
 import json
@@ -199,6 +200,7 @@ def process_time_slice(
     localization_tables = localize_rois_with_attempts(rois, config, calibration)
     attempted_localizations = localization_tables.attempted
     localizations = localization_tables.filtered
+    localization_qc = localization_tables.qc_table
 
     logger.info(
         "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
@@ -217,8 +219,16 @@ def process_time_slice(
         temp_files_localization / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
     )
+    localization_qc_path = (
+        temp_files_localization
+        / f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
+    )
+    localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
     np.save(attempted_localizations_path, attempted_localizations)
     np.save(localizations_path, localizations)
+    np.save(localization_qc_path, localization_qc)
+    write_structured_array_csv(localization_qc, localization_qc_csv_path)
     np.save(rois_path, rois)
 
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
@@ -246,6 +256,8 @@ def process_time_slice(
             unique_peaks_path,
             attempted_localizations_path,
             localizations_path,
+            localization_qc_path,
+            localization_qc_csv_path,
             rois_path,
         ],
     )
@@ -319,6 +331,11 @@ def process_recording(
         name for name in sorted_names if name.startswith("attempted_localizations")
     ]
     roi_names = [name for name in sorted_names if name.startswith("rois")]
+    localization_qc_names = [
+        name
+        for name in sorted_names
+        if name.startswith("localization_qc") and name.endswith(".npy")
+    ]
     if not loc_names or not roi_names:
         logger.info("No localization outputs found for {}", filename)
         recording.elapsed_seconds = time.time() - recording_start
@@ -329,6 +346,9 @@ def process_recording(
     )
     attempted_localizations_full_list = concatenate_localization_slices(
         temp_files_localization, attempted_loc_names
+    )
+    localization_qc_full_list = concatenate_localization_slices(
+        temp_files_localization, localization_qc_names
     )
     rois_full_list = None
 
@@ -365,9 +385,19 @@ def process_recording(
         out_folder_localizations / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}.npy"
     )
+    localization_qc_path = (
+        out_folder_localizations
+        / f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}.npy"
+    )
+    localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
     if attempted_localizations_full_list is not None:
         np.save(attempted_localizations_path, attempted_localizations_full_list)
         recording.artifacts.append(attempted_localizations_path)
+    if localization_qc_full_list is not None:
+        np.save(localization_qc_path, localization_qc_full_list)
+        write_structured_array_csv(localization_qc_full_list, localization_qc_csv_path)
+        recording.artifacts.extend([localization_qc_path, localization_qc_csv_path])
     np.save(localizations_path, localizations_full_list)
     np.save(rois_path, rois_full_list)
     recording.artifacts.extend([localizations_path, rois_path])
@@ -445,6 +475,27 @@ def write_effective_run_settings(
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2, sort_keys=True)
         file.write("\n")
+
+
+def write_structured_array_csv(array: np.ndarray, path: str | Path) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    field_names = array.dtype.names
+    if field_names is None:
+        raise ValueError("CSV output requires a structured NumPy array")
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(field_names)
+        for row in array:
+            writer.writerow(
+                [_csv_scalar(row[field_name]) for field_name in field_names]
+            )
+
+
+def _csv_scalar(value: object) -> object:
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 def calibration_to_metadata(calibration: EventCalibration) -> dict[str, object]:

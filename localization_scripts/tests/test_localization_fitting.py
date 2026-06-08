@@ -2,8 +2,10 @@ import numpy as np
 
 from localization_scripts.calibration import NullCalibration
 from localization_scripts.localization_fitting import (
+    evaluate_poisson_localization_filters,
     filter_poisson_localizations,
     localize_rois,
+    localize_rois_with_attempts,
 )
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.psf_model import pixel_integrated_gaussian
@@ -32,6 +34,10 @@ def test_localize_rois_runs_joint_poisson_path_and_emits_qc_fields():
     assert localizations["fit_success"][0]
     assert localizations["calibrated_background"][0] is np.False_
     assert localizations["uncertainty_mode"][0] == "model_based_uncalibrated"
+
+    tables = localize_rois_with_attempts(rois, config, NullCalibration((9, 9)))
+    assert tables.qc_table.size == 1
+    assert tables.qc_table["accepted"][0]
 
 
 def test_localize_rois_filters_poisson_results_before_downstream_outputs():
@@ -118,6 +124,33 @@ def test_filter_poisson_localizations_drops_large_uncertainty():
     assert filtered["x"][0] == 1.0
 
 
+def test_evaluate_poisson_filters_records_required_rejection_reasons():
+    localizations = _filter_records(5)
+    localizations["fit_success"] = [False, True, True, True, True]
+    localizations["fit_cond"] = [10.0, 1e6, 10.0, 10.0, 10.0]
+    localizations["valid_pixel_count"] = [100, 100, 3, 100, 100]
+    localizations["sigma_x"] = [0.2, 0.2, 0.2, 1.0, 0.2]
+    localizations["sigma_y"] = [0.2, 0.2, 0.2, 1.0, 0.2]
+    config = PeakLocConfig(
+        max_fit_cond=100.0,
+        min_valid_pixels=8,
+        max_localization_uncertainty_px=0.5,
+    )
+
+    result = evaluate_poisson_localization_filters(localizations, config)
+
+    assert result.accepted.size == 1
+    assert list(result.qc_table["primary_rejection_reason"]) == [
+        "fit_failed",
+        "fit_condition",
+        "valid_pixels",
+        "uncertainty",
+        "accepted",
+    ]
+    assert int(result.qc_table["id"][4]) == 4
+    assert result.qc_table["uncertainty_nm"][4] == 0.2 * config.optical_pixel_size_nm
+
+
 def _roi_records(roi_pos: np.ndarray, roi_neg: np.ndarray) -> np.ndarray:
     records = np.zeros(
         (1,),
@@ -148,3 +181,36 @@ def _roi_records(roi_pos: np.ndarray, roi_neg: np.ndarray) -> np.ndarray:
     records["peak"][0] = (4, 4)
     records["rel_peak"][0] = (4, 4)
     return records
+
+
+def _filter_records(count: int) -> np.ndarray:
+    localizations = np.zeros(
+        (count,),
+        dtype=[
+            ("id", np.uint64),
+            ("fit_success", np.bool_),
+            ("x", np.float64),
+            ("y", np.float64),
+            ("sigma_x", np.float64),
+            ("sigma_y", np.float64),
+            ("cov_xy", np.float64),
+            ("fit_cond", np.float64),
+            ("valid_pixel_count", np.uint32),
+            ("nll_per_event", np.float64),
+            ("E_total", np.uint64),
+            ("E_total_n", np.uint64),
+        ],
+    )
+    localizations["id"] = np.arange(count)
+    localizations["fit_success"] = True
+    localizations["x"] = np.arange(count, dtype=np.float64)
+    localizations["y"] = np.arange(count, dtype=np.float64)
+    localizations["sigma_x"] = 0.2
+    localizations["sigma_y"] = 0.2
+    localizations["cov_xy"] = 0.0
+    localizations["fit_cond"] = 10.0
+    localizations["valid_pixel_count"] = 100
+    localizations["nll_per_event"] = 1.5
+    localizations["E_total"] = 10
+    localizations["E_total_n"] = 8
+    return localizations
