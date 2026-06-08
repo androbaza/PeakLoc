@@ -24,6 +24,7 @@ from localization_scripts.event_array_processing import (
     raw_events_to_array,
     save_dict,
 )
+from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import (
     localization_uncertainty_px,
     localize_rois_with_attempts,
@@ -408,6 +409,8 @@ def process_recording(
             localizations_path,
             config,
             run_timestamp,
+            attempted_localizations_full_list,
+            localization_qc_full_list,
         )
     )
 
@@ -574,28 +577,31 @@ def save_processed_plots(
     localizations_path: Path,
     config: PeakLocConfig,
     timestamp: str,
+    attempted_localizations: np.ndarray | None = None,
+    localization_qc: np.ndarray | None = None,
 ) -> list[Path]:
-    if localizations.size == 0:
-        logger.info("Skipping plots because no localizations were produced")
-        return []
-
     figure_folder = out_folder / "figures"
     figure_folder.mkdir(parents=True, exist_ok=True)
     artifacts = []
 
-    roi_fit_figure = plot_rois_from_locs(
-        localizations,
-        subplotsize=config.plot_subplotsize,
-        dataset_FWHM=config.dataset_fwhm,
-    )
-    if roi_fit_figure is not None:
-        roi_fit_path = figure_folder / f"roi_fits_{timestamp}.png"
-        roi_fit_figure.savefig(roi_fit_path, dpi=300, bbox_inches="tight")
-        plt.close(roi_fit_figure)
-        artifacts.append(roi_fit_path)
-        logger.info("Saved ROI fit plot to {}", roi_fit_path)
+    if localizations.size == 0:
+        logger.info(
+            "Skipping accepted-localization plots because no fits were accepted"
+        )
+    else:
+        roi_fit_figure = plot_rois_from_locs(
+            localizations,
+            subplotsize=config.plot_subplotsize,
+            dataset_FWHM=config.dataset_fwhm,
+        )
+        if roi_fit_figure is not None:
+            roi_fit_path = figure_folder / f"roi_fits_{timestamp}.png"
+            roi_fit_figure.savefig(roi_fit_path, dpi=300, bbox_inches="tight")
+            plt.close(roi_fit_figure)
+            artifacts.append(roi_fit_path)
+            logger.info("Saved ROI fit plot to {}", roi_fit_path)
 
-    if config.plot_result:
+    if config.plot_result and localizations.size:
         result = save_smlm_visualization(
             localizations,
             localizations_path,
@@ -607,6 +613,19 @@ def save_processed_plots(
             artifacts.extend([result.png_path, result.tiff_path])
             logger.info("Saved SMLM result PNG to {}", result.png_path)
             logger.info("Saved SMLM result TIFF to {}", result.tiff_path)
+
+    if attempted_localizations is not None and localization_qc is not None:
+        montage_paths = save_uncertainty_montages(
+            attempted_localizations,
+            localizations,
+            localization_qc,
+            figure_folder,
+            config=config,
+            n=getattr(config, "qc_uncertainty_montage_n", 36),
+            dpi=getattr(config, "qc_static_dpi", 450),
+        )
+        artifacts.extend(montage_paths)
+        logger.info("Saved {} uncertainty review montage(s)", len(montage_paths))
 
     return artifacts
 

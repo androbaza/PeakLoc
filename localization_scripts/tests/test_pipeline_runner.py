@@ -8,6 +8,7 @@ from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import (
     RecordingResult,
     calibration_to_metadata,
+    save_processed_plots,
     summarize_fit_qc,
     write_structured_array_csv,
     write_run_report,
@@ -222,6 +223,36 @@ def test_write_structured_array_csv_writes_header_and_rows(tmp_path):
         "1,True,accepted",
         "2,False,fit_failed",
     ]
+
+
+def test_save_processed_plots_keeps_attempted_montages_when_no_fits_are_accepted(
+    tmp_path, monkeypatch
+):
+    loc_dtype = [("id", np.uint64)]
+    localizations = np.empty(0, dtype=loc_dtype)
+    attempted = np.zeros(1, dtype=loc_dtype)
+    qc_table = np.zeros(1, dtype=[("id", np.uint64), ("accepted", np.bool_)])
+    montage_path = tmp_path / "figures" / "uncertainty_highest_36_combined.png"
+    calls = []
+
+    def save_montage_spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return [montage_path]
+
+    monkeypatch.setattr(pipeline_runner, "save_uncertainty_montages", save_montage_spy)
+
+    artifacts = save_processed_plots(
+        localizations,
+        tmp_path,
+        tmp_path / "localizations.npy",
+        PeakLocConfig(plot_result=True),
+        "20260608_120000",
+        attempted,
+        qc_table,
+    )
+
+    assert artifacts == [montage_path]
+    assert calls
 
 
 def test_write_run_report_includes_peak_interpolation_cutoff(tmp_path):
