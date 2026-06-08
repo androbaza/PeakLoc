@@ -1,5 +1,6 @@
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from dataclasses import dataclass
 import warnings
 
 import numpy as np
@@ -10,6 +11,16 @@ from loguru import logger
 from numba import njit
 from scipy.signal import find_peaks
 from scipy.sparse import SparseEfficiencyWarning
+
+
+@dataclass(frozen=True)
+class PeakCandidate:
+    coord: tuple[int, int]
+    peak_index: int
+    peak_time: float
+    prominence: float
+    event_count: float
+    payload: tuple
 
 
 def find_peaks_parallel(
@@ -215,60 +226,139 @@ def find_local_max_peak(
     coords_dict: dict, threshold: float = 50e3, neighbors: int = 5
 ) -> dict:
     """
-    Find the maximum value of a point and its neighbors in a dictionary of coordinates.
+    Select deterministic local maxima from candidate peaks.
 
     Parameters
     ----------
     coords_dict : dict
-        A dictionary with coordinates as keys and a value as values.
+        A dictionary with coordinates as keys and candidate peak tuples as values.
     threshold : int or float
-        The threshold value to use to find the maximum value of points and neighbors.
+        Maximum temporal separation for candidates to be considered one peak.
     neighbors : int, optional
-        The number of neighboring points to use to find the maximum value. Default: 4.
+        Spatial radius for candidates to be considered one peak. Default: 4.
 
     Returns
     -------
-    max_coords : tuple
-        A tuple containing the coordinates and the maximum value.
-
+    dict
+        A new dictionary containing one winner per spatial/time peak group.
     """
-    # Loop through the coordinates and their data
-    for coord, data in coords_dict.items():
-        # Check if the coordinate is iterable
+    candidates = _collect_peak_candidates(coords_dict)
+    if not candidates:
+        return {}
+
+    parent = list(range(len(candidates)))
+    coord_index = _index_candidates_by_coordinate(candidates)
+
+    for candidate_id, candidate in enumerate(candidates):
+        y, x = candidate.coord
+        min_time = candidate.peak_time - threshold
+        max_time = candidate.peak_time + threshold
+        for neighbor_y in range(y - neighbors, y + neighbors + 1):
+            for neighbor_x in range(x - neighbors, x + neighbors + 1):
+                neighbor_items = coord_index.get((neighbor_y, neighbor_x))
+                if neighbor_items is None:
+                    continue
+                neighbor_times, neighbor_ids = neighbor_items
+                start = bisect_left(neighbor_times, min_time)
+                stop = bisect_right(neighbor_times, max_time)
+                for neighbor_id in neighbor_ids[start:stop]:
+                    if neighbor_id > candidate_id:
+                        _union(parent, candidate_id, neighbor_id)
+
+    groups = defaultdict(list)
+    for candidate_id, candidate in enumerate(candidates):
+        groups[_find(parent, candidate_id)].append(candidate)
+
+    winners = [max(group, key=_candidate_rank) for group in groups.values()]
+    winners.sort(key=lambda candidate: (candidate.coord, candidate.peak_time))
+
+    output = defaultdict(list)
+    for winner in winners:
+        output[winner.coord].append(winner.payload)
+    return dict(output)
+
+
+def _collect_peak_candidates(coords_dict: dict) -> list[PeakCandidate]:
+    candidates = []
+    for coord in sorted(coords_dict, key=_coordinate_sort_key):
         try:
-            iter(coord)
-        except TypeError:
-            logger.warning("{} is not iterable", coord)
+            y, x = coord
+        except (TypeError, ValueError):
+            logger.warning("{} is not a valid 2D coordinate", coord)
             continue
-        # Unpack the coordinate
-        y, x = coord
-        # Create a list of the x-values for the current coordinate
-        peaks_list = [x[0] for x in data]
+        for peak_index, peak_data in enumerate(coords_dict[coord]):
+            peak_time = float(peak_data[0])
+            prominence = float(peak_data[1])
+            event_count = _peak_event_count(peak_data)
+            candidates.append(
+                PeakCandidate(
+                    coord=(int(y), int(x)),
+                    peak_index=peak_index,
+                    peak_time=peak_time,
+                    prominence=prominence,
+                    event_count=event_count,
+                    payload=peak_data,
+                )
+            )
+    return candidates
 
-        # Loop through the 8-neighborhood of the current coordinate
-        for i in range(x - neighbors, x + neighbors + 1):
-            for j in range(y - neighbors, y + neighbors + 1):
-                neighbor_coord = (j, i)
 
-                # Check if the neighbor coordinate is in coords_dict and not the current coordinate
-                if neighbor_coord != coord and neighbor_coord in coords_dict:
-                    # Loop through the values at the neighbor coordinate
-                    for neighbor_data in coords_dict[neighbor_coord]:
-                        t, v, _ = neighbor_data
-                        # Check if the current coordinate has any data
-                        if len(data) != 0:
-                            # Find the index in the peaks_list of the closest value to t
-                            index = take_closest_index(peaks_list, t)
-                            # Check if the value at the neighbor coordinate is within the threshold
-                            if abs(t - data[index][0]) <= threshold:
-                                original_v = data[index][1]
-                                # If the value at the neighbor coordinate is greater than the current max_v, update max_v and max_coord
-                                if v >= original_v:
-                                    # Remove the data at the index
-                                    del coords_dict[coord][index]
-                                    # Remove the value at the index
-                                    del peaks_list[index]
-    return coords_dict
+def _coordinate_sort_key(coord) -> tuple[int, int, int, str]:
+    try:
+        y = int(coord[0])
+        x = int(coord[1])
+    except (TypeError, ValueError, IndexError):
+        return (1, 0, 0, str(coord))
+    return (0, y, x, "")
+
+
+def _index_candidates_by_coordinate(
+    candidates: list[PeakCandidate],
+) -> dict[tuple[int, int], tuple[list[float], list[int]]]:
+    coord_index = defaultdict(list)
+    for candidate_id, candidate in enumerate(candidates):
+        coord_index[candidate.coord].append((candidate.peak_time, candidate_id))
+    for coord, items in list(coord_index.items()):
+        items.sort()
+        coord_index[coord] = (
+            [item[0] for item in items],
+            [item[1] for item in items],
+        )
+    return coord_index
+
+
+def _peak_event_count(peak_data: tuple) -> float:
+    if len(peak_data) < 4:
+        return 0.0
+    return float(peak_data[3])
+
+
+def _candidate_rank(
+    candidate: PeakCandidate,
+) -> tuple[float, float, int, int, float, int]:
+    y, x = candidate.coord
+    return (
+        candidate.prominence,
+        candidate.event_count,
+        -y,
+        -x,
+        -candidate.peak_time,
+        -candidate.peak_index,
+    )
+
+
+def _find(parent: list[int], item: int) -> int:
+    while parent[item] != item:
+        parent[item] = parent[parent[item]]
+        item = parent[item]
+    return item
+
+
+def _union(parent: list[int], first: int, second: int) -> None:
+    first_root = _find(parent, first)
+    second_root = _find(parent, second)
+    if first_root != second_root:
+        parent[second_root] = first_root
 
 
 def prepare_interpolation_axis(times, cumsum):
@@ -302,17 +392,3 @@ def prepare_interpolation_axis(times, cumsum):
         return None, None
 
     return unique_t, unique_y
-
-
-def take_closest_index(myList, myNumber):
-    pos = bisect_left(myList, myNumber)
-    if pos == 0:
-        return pos
-    if pos == len(myList):
-        return pos - 1
-    before = myList[pos - 1]
-    after = myList[pos]
-    if after - myNumber < myNumber - before:
-        return pos
-    else:
-        return pos - 1
