@@ -16,6 +16,7 @@ from matplotlib import pyplot as plt
 from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import localization_uncertainty_px
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
+from localization_scripts.postprocessing import save_postprocessing_qc
 from localization_scripts.preflight import run_preflight, write_preflight_report
 
 
@@ -291,6 +292,7 @@ def save_static_qc_figures(
             ]
         )
     )
+    paths.extend(save_postprocessing_qc(localizations, config, output_dir))
     return paths
 
 
