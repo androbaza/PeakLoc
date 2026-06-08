@@ -344,7 +344,7 @@ def _run_synthetic_scenario(
         rois=_load_temp_arrays(input_path, "rois"),
         truth=_truth_points(blinks),
         config=DebugVisualizationConfig(
-            output_dir=_debug_output_root(tmp_path) / name,
+            output_dir=_debug_output_root() / name,
             scenario_name=name,
             sensor_shape=SENSOR_SHAPE,
             optical_pixel_size_nm=config.optical_pixel_size_nm,
@@ -395,11 +395,11 @@ def _truth_points(blinks: tuple[BlinkTruth, ...]) -> list[TruthPoint]:
     ]
 
 
-def _debug_output_root(tmp_path: Path) -> Path:
+def _debug_output_root() -> Path:
     persistent = os.environ.get("PEAKLOC_DEBUG_ARTIFACT_DIR")
     if persistent:
         return Path(persistent) / "synthetic_blinks"
-    return tmp_path / "debug_artifacts"
+    return Path("debug_artifacts") / "synthetic_blinks"
 
 
 def _load_temp_arrays(input_path: Path, prefix: str) -> np.ndarray | None:

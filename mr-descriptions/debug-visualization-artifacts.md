@@ -26,9 +26,10 @@ interactive spacetime HTML plot, and a short Markdown report.
 
 - Artifact filenames are deterministic and overwritten only inside directories
   marked with `.peakloc_debug_artifacts`.
-- By default pytest writes artifacts under each test `tmp_path`; set
-  `PEAKLOC_DEBUG_ARTIFACT_DIR=debug_artifacts` for persistent output under
-  `debug_artifacts/synthetic_blinks/<scenario>/`.
+- By default pytest writes artifacts under
+  `debug_artifacts/synthetic_blinks/<scenario>/`, which is ignored by git.
+  Set `PEAKLOC_DEBUG_ARTIFACT_DIR=/path/to/output` to write under a different
+  persistent root.
 - Image-array convention remains `image[y, x]`, and overlays use
   `scatter(x, y)`.
 - The test assertions remain the oracle; figures are diagnostics and
