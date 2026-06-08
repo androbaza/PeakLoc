@@ -9,6 +9,7 @@ import pytest
 from localization_scripts.debug_visualization import (
     DebugVisualizationConfig,
     TruthPoint,
+    build_interactive_spacetime_point_cloud_figure,
     match_truth_to_localizations,
     prepare_debug_output_dir,
     save_synthetic_localization_debug_artifacts,
@@ -40,6 +41,8 @@ LOCALIZATION_DTYPE = np.dtype(
         ("fit_cond", np.float64),
     ]
 )
+
+ATTEMPTED_DTYPE = LOCALIZATION_DTYPE
 
 
 def test_prepare_debug_output_dir_overwrites_previous_debug_files(
@@ -212,12 +215,154 @@ def test_static_summary_uses_xy_overlay_convention(
     )
 
 
+def test_static_summary_overlays_failed_and_rejected_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scatter_calls: list[dict[str, object]] = []
+    original_scatter = matplotlib.axes.Axes.scatter
+
+    def scatter_spy(self, x, y, *args, **kwargs):
+        scatter_calls.append(
+            {
+                "x": np.asarray(x, dtype=np.float64),
+                "y": np.asarray(y, dtype=np.float64),
+                "label": kwargs.get("label"),
+                "marker": kwargs.get("marker"),
+            }
+        )
+        return original_scatter(self, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "scatter", scatter_spy)
+    truth = [TruthPoint(x_px=3.0, y_px=7.0, peak_us=100, label="truth_0")]
+    localizations = np.asarray(
+        [_localization_row(0, x=4.0, y=8.0, t_peak=100)],
+        dtype=LOCALIZATION_DTYPE,
+    )
+    attempted = np.asarray(
+        [
+            _localization_row(0, x=4.0, y=8.0, t_peak=100),
+            _localization_row(1, x=5.0, y=9.0, t_peak=105, fit_success=False),
+            _localization_row(2, x=6.0, y=10.0, t_peak=110),
+        ],
+        dtype=ATTEMPTED_DTYPE,
+    )
+    matches = match_truth_to_localizations(
+        truth,
+        localizations,
+        max_spatial_error_px=2.0,
+        max_abs_time_error_us=10,
+    )
+    config = DebugVisualizationConfig(
+        output_dir=tmp_path,
+        scenario_name="attempts",
+        sensor_shape=(12, 12),
+        optical_pixel_size_nm=67.0,
+        max_spatial_error_px=2.0,
+        max_abs_time_error_us=10,
+        save_pdf=False,
+        save_svg=False,
+    )
+
+    save_xy_summary_figure(
+        events=None,
+        density_images=(
+            np.zeros((12, 12), dtype=np.float32),
+            np.zeros((12, 12), dtype=np.float32),
+            np.zeros((12, 12), dtype=np.float32),
+        ),
+        localizations=localizations,
+        attempted_localizations=attempted,
+        truth=truth,
+        matches=matches,
+        rois=None,
+        metrics={
+            "scenario_name": "attempts",
+            "matched_count": 1,
+            "expected_count": 1,
+            "max_spatial_error_px": 1.0,
+            "max_spatial_error_nm": 67.0,
+            "max_time_error_us": 0.0,
+            "median_uncertainty_px": 0.2,
+            "total_events": 0,
+            "roi_count": 0,
+            "localization_count": 1,
+            "attempted_localization_count": 3,
+        },
+        status="PASS",
+        config=config,
+    )
+
+    failed = [
+        call
+        for call in scatter_calls
+        if call["label"] == "failed fit attempt" and call["marker"] == "^"
+    ]
+    rejected = [
+        call
+        for call in scatter_calls
+        if call["label"] == "filtered/rejected attempt" and call["marker"] == "s"
+    ]
+    assert failed and failed[0]["x"].tolist() == [5.0]
+    assert failed[0]["y"].tolist() == [9.0]
+    assert rejected and rejected[0]["x"].tolist() == [6.0]
+    assert rejected[0]["y"].tolist() == [10.0]
+
+
+def test_spacetime_event_traces_are_markers_not_lines() -> None:
+    events = np.asarray(
+        [
+            (8, 9, 1, 80),
+            (10, 12, 1, 90),
+            (10, 12, 0, 110),
+            (13, 14, 0, 120),
+        ],
+        dtype=EVENT_DTYPE,
+    )
+    localizations = np.asarray(
+        [_localization_row(0, x=10.1, y=12.1, t_peak=101)],
+        dtype=LOCALIZATION_DTYPE,
+    )
+    truth = [TruthPoint(x_px=10.0, y_px=12.0, peak_us=100, label="truth_0")]
+    matches = match_truth_to_localizations(
+        truth,
+        localizations,
+        max_spatial_error_px=1.0,
+        max_abs_time_error_us=20,
+    )
+    config = DebugVisualizationConfig(
+        output_dir=Path("unused"),
+        scenario_name="tiny",
+        sensor_shape=(24, 24),
+        optical_pixel_size_nm=67.0,
+        max_spatial_error_px=1.0,
+        max_abs_time_error_us=20,
+    )
+
+    fig = build_interactive_spacetime_point_cloud_figure(
+        events=events,
+        localizations=localizations,
+        truth=truth,
+        matches=matches,
+        config=config,
+    )
+
+    event_traces = [trace for trace in fig.data if "events" in str(trace.name)]
+    assert event_traces
+    assert all(trace.mode == "markers" for trace in event_traces)
+    assert not any(
+        trace.mode == "lines" and getattr(trace, "visible", True) is True
+        for trace in fig.data
+    )
+
+
 def _localization_row(
     loc_id: int,
     *,
     x: float,
     y: float,
     t_peak: float,
+    fit_success: bool = True,
 ) -> tuple[object, ...]:
     return (
         loc_id,
@@ -229,6 +374,6 @@ def _localization_row(
         0.2,
         0.3,
         0.01,
-        True,
+        fit_success,
         100.0,
     )

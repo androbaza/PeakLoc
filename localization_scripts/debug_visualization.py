@@ -62,10 +62,11 @@ class DebugVisualizationConfig:
     min_events_per_polarity: int | None = None
     overwrite: bool = True
     save_png: bool = True
-    save_svg: bool = False
-    save_pdf: bool = False
-    save_tiff: bool = False
+    save_svg: bool = True
+    save_pdf: bool = True
+    save_tiff: bool = True
     save_interactive_html: bool = True
+    show_residual_vectors: bool = False
     max_events_for_interactive: int = 50_000
     static_dpi: int = 450
 
@@ -171,6 +172,7 @@ def save_localization_qc_artifacts(
             events=events,
             density_images=density_images,
             localizations=localizations,
+            attempted_localizations=attempted_localizations,
             truth=truth_points,
             matches=matches,
             rois=rois,
@@ -183,6 +185,7 @@ def save_localization_qc_artifacts(
         save_polarity_density_figure(
             density_images=density_images,
             localizations=localizations,
+            attempted_localizations=attempted_localizations,
             truth=truth_points,
             matches=matches,
             config=config,
@@ -458,12 +461,14 @@ def save_xy_summary_figure(
     metrics: dict[str, object],
     status: str,
     config: DebugVisualizationConfig,
+    attempted_localizations: np.ndarray | None = None,
 ) -> tuple[Path, ...]:
     del events
     total_density = density_images[2]
     fig, ax = plt.subplots(figsize=(7.2, 7.2))
     ax.imshow(np.log1p(total_density), origin="upper", cmap="magma")
     _draw_rois(ax, rois)
+    _draw_attempted_localizations(ax, attempted_localizations, localizations)
     _draw_truth_and_localizations(ax, truth, localizations, matches)
     _format_sensor_axes(ax, config.sensor_shape)
     ax.set_title(f"{config.scenario_name} - {status}", loc="left", fontweight="bold")
@@ -510,6 +515,7 @@ def save_polarity_density_figure(
     truth: Sequence[TruthPoint],
     matches: Sequence[LocalizationMatch],
     config: DebugVisualizationConfig,
+    attempted_localizations: np.ndarray | None = None,
 ) -> tuple[Path, ...]:
     positive, negative, total = density_images
     signed = positive - negative
@@ -525,6 +531,7 @@ def save_polarity_density_figure(
         if limits is not None:
             kwargs.update({"vmin": limits[0], "vmax": limits[1]})
         ax.imshow(image, origin="upper", cmap=cmap, **kwargs)
+        _draw_attempted_localizations(ax, attempted_localizations, localizations)
         _draw_truth_and_localizations(ax, truth, localizations, matches, legend=False)
         _format_sensor_axes(ax, config.sensor_shape)
         ax.set_title(title)
@@ -549,51 +556,85 @@ def save_time_projection_figure(
         sampled = _downsample_events(
             events, min(config.max_events_for_interactive, 20_000)
         )
-        polarity = sampled["p"] == 1
-        colors = np.where(
-            polarity,
-            DEBUG_COLORS["positive_events"],
-            DEBUG_COLORS["negative_events"],
-        )
+        pos = sampled["p"] == 1
         time_ms = sampled["t"].astype(np.float64) / 1_000.0
-        axes[0].scatter(time_ms, sampled["x"], s=1.5, c=colors, alpha=0.35, lw=0)
-        axes[1].scatter(time_ms, sampled["y"], s=1.5, c=colors, alpha=0.35, lw=0)
+        axes[0].scatter(
+            time_ms[pos],
+            sampled["x"][pos],
+            s=1.5,
+            color=DEBUG_COLORS["positive_events"],
+            alpha=0.35,
+            lw=0,
+            label="positive events",
+        )
+        axes[0].scatter(
+            time_ms[~pos],
+            sampled["x"][~pos],
+            s=1.5,
+            color=DEBUG_COLORS["negative_events"],
+            alpha=0.35,
+            lw=0,
+            label="negative events",
+        )
+        axes[1].scatter(
+            time_ms[pos],
+            sampled["y"][pos],
+            s=1.5,
+            color=DEBUG_COLORS["positive_events"],
+            alpha=0.35,
+            lw=0,
+        )
+        axes[1].scatter(
+            time_ms[~pos],
+            sampled["y"][~pos],
+            s=1.5,
+            color=DEBUG_COLORS["negative_events"],
+            alpha=0.35,
+            lw=0,
+        )
+        bins = min(120, max(20, int(np.sqrt(events.size))))
+        axes[2].hist(
+            events["t"][events["p"] == 1].astype(np.float64) / 1_000.0,
+            bins=bins,
+            histtype="step",
+            color=DEBUG_COLORS["positive_events"],
+            label="positive event rate",
+        )
+        axes[2].hist(
+            events["t"][events["p"] == 0].astype(np.float64) / 1_000.0,
+            bins=bins,
+            histtype="step",
+            color=DEBUG_COLORS["negative_events"],
+            label="negative event rate",
+        )
+
+    for point in truth:
+        for ax in axes:
+            ax.axvline(
+                point.peak_us / 1_000.0,
+                color=DEBUG_COLORS["truth"],
+                lw=1.0,
+                alpha=0.8,
+            )
+    if (
+        localizations.size
+        and localizations.dtype.names is not None
+        and "t_peak" in localizations.dtype.names
+    ):
+        for t_peak in localizations["t_peak"]:
+            axes[2].axvline(
+                float(t_peak) / 1_000.0,
+                color=DEBUG_COLORS["matched_localization"],
+                lw=0.8,
+                alpha=0.7,
+            )
     axes[0].set_ylabel("x [sensor px]")
     axes[1].set_ylabel("y [sensor px]")
     axes[0].set_xlabel("time [ms]")
     axes[1].set_xlabel("time [ms]")
-
-    truth_times = np.asarray([point.peak_us for point in truth], dtype=np.float64)
-    if truth_times.size:
-        axes[2].scatter(
-            truth_times / 1_000.0,
-            truth_times / 1_000.0,
-            marker="o",
-            facecolors="none",
-            edgecolors=DEBUG_COLORS["truth"],
-            label="truth",
-        )
-    for match in matches:
-        if match.localization_index is None:
-            continue
-        loc = localizations[match.localization_index]
-        truth_time_ms = truth[match.truth_index].peak_us / 1_000.0
-        loc_time_ms = float(loc["t_peak"]) / 1_000.0
-        axes[2].plot(
-            [truth_time_ms, truth_time_ms],
-            [truth_time_ms, loc_time_ms],
-            color=DEBUG_COLORS["residual"],
-            lw=1,
-        )
-        axes[2].scatter(
-            truth_time_ms,
-            loc_time_ms,
-            marker="x",
-            color=DEBUG_COLORS["matched_localization"],
-            label="matched localization",
-        )
-    axes[2].set_xlabel("truth peak time [ms]")
-    axes[2].set_ylabel("localization peak time [ms]")
+    axes[2].set_xlabel("time [ms]")
+    axes[2].set_ylabel("event count / bin")
+    _deduplicate_legend(axes[0])
     _deduplicate_legend(axes[2])
     return save_figure_bundle(
         fig,
@@ -725,6 +766,26 @@ def save_interactive_spacetime_point_cloud(
     matches: Sequence[LocalizationMatch],
     config: DebugVisualizationConfig,
 ) -> Path:
+    fig = build_interactive_spacetime_point_cloud_figure(
+        events=events,
+        localizations=localizations,
+        truth=truth,
+        matches=matches,
+        config=config,
+    )
+    output_path = config.output_dir / "06_spacetime_point_cloud.html"
+    fig.write_html(output_path, include_plotlyjs=True, full_html=True)
+    return output_path
+
+
+def build_interactive_spacetime_point_cloud_figure(
+    *,
+    events: np.ndarray,
+    localizations: np.ndarray,
+    truth: Sequence[TruthPoint],
+    matches: Sequence[LocalizationMatch],
+    config: DebugVisualizationConfig,
+):
     import plotly.graph_objects as go
 
     sampled = _downsample_events(events, config.max_events_for_interactive)
@@ -804,23 +865,24 @@ def save_interactive_spacetime_point_cloud(
                     hovertext=_localization_hover_text(locs),
                 )
             )
-    for match in matches:
-        if match.localization_index is None:
-            continue
-        loc = localizations[match.localization_index]
-        point = truth[match.truth_index]
-        fig.add_trace(
-            go.Scatter3d(
-                x=[point.x_px, float(loc["x"])],
-                y=[point.y_px, float(loc["y"])],
-                z=[point.peak_us / 1_000.0, float(loc["t_peak"]) / 1_000.0],
-                mode="lines",
-                name="residual",
-                line={"color": DEBUG_COLORS["residual"], "width": 4},
-                showlegend=False,
-                hoverinfo="skip",
+    if config.show_residual_vectors:
+        for match in matches:
+            if match.localization_index is None:
+                continue
+            loc = localizations[match.localization_index]
+            point = truth[match.truth_index]
+            fig.add_trace(
+                go.Scatter3d(
+                    x=[point.x_px, float(loc["x"])],
+                    y=[point.y_px, float(loc["y"])],
+                    z=[point.peak_us / 1_000.0, float(loc["t_peak"]) / 1_000.0],
+                    mode="lines",
+                    name="truth-localization error vector",
+                    line={"color": DEBUG_COLORS["residual"], "width": 2},
+                    visible="legendonly",
+                    hoverinfo="skip",
+                )
             )
-        )
     fig.update_layout(
         title=config.scenario_name,
         scene={
@@ -831,9 +893,7 @@ def save_interactive_spacetime_point_cloud(
         },
         margin={"l": 0, "r": 0, "b": 0, "t": 40},
     )
-    output_path = config.output_dir / "06_spacetime_point_cloud.html"
-    fig.write_html(output_path, include_plotlyjs=True, full_html=True)
-    return output_path
+    return fig
 
 
 def write_debug_report(
@@ -961,6 +1021,58 @@ def _draw_truth_and_localizations(
             label="residual",
         )
     _deduplicate_legend(ax)
+
+
+def _draw_attempted_localizations(
+    ax,
+    attempted: np.ndarray | None,
+    accepted: np.ndarray,
+) -> None:
+    if attempted is None or attempted.size == 0:
+        return
+    if attempted.dtype.names is None or not {"x", "y"}.issubset(attempted.dtype.names):
+        return
+    if accepted.dtype.names is None or not {"x", "y"}.issubset(accepted.dtype.names):
+        accepted_xy: set[tuple[float, float]] = set()
+    else:
+        accepted_xy = {
+            (round(float(row["x"]), 6), round(float(row["y"]), 6)) for row in accepted
+        }
+    attempted_xy = np.column_stack((attempted["x"], attempted["y"])).astype(np.float64)
+    finite = np.isfinite(attempted_xy).all(axis=1)
+
+    failed = np.zeros(attempted.size, dtype=bool)
+    if "fit_success" in attempted.dtype.names:
+        failed = ~attempted["fit_success"].astype(bool)
+    failed &= finite
+
+    rejected = np.zeros(attempted.size, dtype=bool)
+    for idx, row in enumerate(attempted):
+        key = (round(float(row["x"]), 6), round(float(row["y"]), 6))
+        rejected[idx] = finite[idx] and key not in accepted_xy and not failed[idx]
+
+    if np.any(failed):
+        ax.scatter(
+            attempted_xy[failed, 0],
+            attempted_xy[failed, 1],
+            marker="^",
+            s=58,
+            facecolors="none",
+            edgecolors=DEBUG_COLORS["unmatched_localization"],
+            linewidths=1.1,
+            label="failed fit attempt",
+        )
+    if np.any(rejected):
+        ax.scatter(
+            attempted_xy[rejected, 0],
+            attempted_xy[rejected, 1],
+            marker="s",
+            s=48,
+            facecolors="none",
+            edgecolors=DEBUG_COLORS["residual"],
+            linewidths=1.1,
+            label="filtered/rejected attempt",
+        )
 
 
 def _draw_rois(ax, rois: np.ndarray | None) -> None:
