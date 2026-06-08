@@ -27,6 +27,18 @@ EVENT_DTYPE = np.dtype(
     ]
 )
 
+MINIMAL_LOCALIZATION_DTYPE = np.dtype(
+    [
+        ("id", np.uint64),
+        ("t_peak", np.float64),
+        ("x", np.float64),
+        ("y", np.float64),
+        ("E_total", np.uint64),
+        ("E_total_n", np.uint64),
+        ("fit_success", np.bool_),
+    ]
+)
+
 
 @dataclass(frozen=True)
 class BlinkTruth:
@@ -35,10 +47,15 @@ class BlinkTruth:
     peak_us: int
     n_pos: int = 8_000
     n_neg: int = 8_000
-    pos_start_offset_us: int = -80_000
-    pos_stop_offset_us: int = -5_000
-    neg_start_offset_us: int = 5_000
-    neg_stop_offset_us: int = 80_000
+    signal_peak: float = 10_000.0
+    background: float = 1.0
+    contrast_threshold_log: float = 0.08
+    refractory_period_us: int = 5
+    turn_on_duration_us: int = 80_000
+    plateau_duration_us: int = 10_000
+    turn_off_duration_us: int = 80_000
+    sample_step_us: int = 250
+    label: str | None = None
 
 
 SENSOR_HEIGHT = 96
@@ -225,10 +242,8 @@ def test_synthetic_long_blink_is_localized(
             peak_us=600_000,
             n_pos=10_000,
             n_neg=10_000,
-            pos_start_offset_us=-120_000,
-            pos_stop_offset_us=-8_000,
-            neg_start_offset_us=8_000,
-            neg_stop_offset_us=120_000,
+            turn_on_duration_us=120_000,
+            turn_off_duration_us=120_000,
         ),
     )
 
@@ -252,10 +267,8 @@ def test_synthetic_short_blink_is_localized(
             peak_us=220_000,
             n_pos=6_000,
             n_neg=6_000,
-            pos_start_offset_us=-40_000,
-            pos_stop_offset_us=-3_000,
-            neg_start_offset_us=3_000,
-            neg_stop_offset_us=40_000,
+            turn_on_duration_us=40_000,
+            turn_off_duration_us=40_000,
         ),
     )
 
@@ -271,6 +284,54 @@ def test_synthetic_short_blink_is_localized(
             "peak_min_event_count": 30,
         },
     )
+
+
+def test_synthetic_blink_has_no_signal_events_during_plateau() -> None:
+    blink = BlinkTruth(
+        x_px=30.35,
+        y_px=31.70,
+        peak_us=200_000,
+        plateau_duration_us=20_000,
+    )
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    plateau_start = blink.peak_us
+    plateau_stop = blink.peak_us + blink.plateau_duration_us
+    plateau_events = events[
+        (events["t"] >= plateau_start) & (events["t"] <= plateau_stop)
+    ]
+
+    assert plateau_events.size == 0
+
+
+def test_synthetic_event_times_are_not_ordered_by_pixel_scan_order() -> None:
+    blink = BlinkTruth(x_px=40.0, y_px=40.0, peak_us=200_000)
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    pos = events[events["p"] == 1]
+    pixel_ids = pos["y"].astype(np.int64) * SENSOR_WIDTH + pos["x"].astype(np.int64)
+
+    unique_ids = np.unique(pixel_ids)
+    median_t = []
+    scan_id = []
+    for pixel_id in unique_ids:
+        mask = pixel_ids == pixel_id
+        if np.count_nonzero(mask) >= 2:
+            scan_id.append(pixel_id)
+            median_t.append(float(np.median(pos["t"][mask])))
+
+    corr = np.corrcoef(scan_id, median_t)[0, 1]
+    assert abs(corr) < 0.3
 
 
 def _run_synthetic_scenario(
@@ -313,27 +374,12 @@ def _run_synthetic_scenario(
         else min_successful_localizations
     )
 
-    assert result.event_count == events.size
-    assert len(result.slice_results) >= 1
-
-    total_rois = sum(s.roi_count for s in result.slice_results)
-    total_localizations = sum(s.localization_count for s in result.slice_results)
-
-    assert total_rois >= expected_count
-    assert total_localizations >= expected_count
-
     loc_path = (
         input_path.with_suffix("")
         / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
         f"_prominence_{config.prominence:g}.npy"
     )
-    assert loc_path.is_file(), f"Missing final localization output: {loc_path}"
-
-    locs = np.load(loc_path)
-    assert locs.dtype.names is not None
-
-    if "fit_success" in locs.dtype.names:
-        locs = locs[locs["fit_success"]]
+    locs = _load_final_localizations_if_available(loc_path)
 
     save_synthetic_localization_debug_artifacts(
         events=events,
@@ -356,6 +402,16 @@ def _run_synthetic_scenario(
         test_status="pre_assertion",
     )
 
+    assert result.event_count == events.size
+    assert len(result.slice_results) >= 1
+
+    total_rois = sum(s.roi_count for s in result.slice_results)
+    total_localizations = sum(s.localization_count for s in result.slice_results)
+
+    assert total_rois >= expected_count
+    assert total_localizations >= expected_count
+    assert loc_path.is_file(), f"Missing final localization output: {loc_path}"
+    assert locs.dtype.names is not None
     assert locs.size >= expected_count
 
     for truth in blinks[:expected_count]:
@@ -412,6 +468,17 @@ def _load_temp_arrays(input_path: Path, prefix: str) -> np.ndarray | None:
     return np.concatenate(arrays)
 
 
+def _load_final_localizations_if_available(loc_path: Path) -> np.ndarray:
+    if not loc_path.is_file():
+        return np.empty(0, dtype=MINIMAL_LOCALIZATION_DTYPE)
+    locs = np.load(loc_path)
+    if locs.dtype.names is None:
+        return np.empty(0, dtype=MINIMAL_LOCALIZATION_DTYPE)
+    if "fit_success" in locs.dtype.names:
+        return locs[locs["fit_success"]]
+    return locs
+
+
 def synthetic_event_recording(
     *,
     blinks: tuple[BlinkTruth, ...],
@@ -465,48 +532,104 @@ def _events_for_one_blink(
     )
 
     weights = _pixel_integrated_gaussian_weights(xs, ys, x0, y0, sigma_px)
-    probabilities = weights.ravel() / np.sum(weights)
-
-    rng = np.random.default_rng(blink.peak_us)
-    pos_counts = rng.multinomial(blink.n_pos, probabilities)
-    neg_counts = rng.multinomial(blink.n_neg, probabilities)
-
-    pixel_coords = [(int(y), int(x)) for y in ys for x in xs]
-
-    pos_times = _unique_burst_times(
-        start_us=blink.peak_us + blink.pos_start_offset_us,
-        stop_us=blink.peak_us + blink.pos_stop_offset_us,
-        count=blink.n_pos,
+    t0 = blink.peak_us - blink.turn_on_duration_us - blink.sample_step_us
+    t1 = (
+        blink.peak_us
+        + blink.plateau_duration_us
+        + blink.turn_off_duration_us
+        + blink.sample_step_us
     )
-    neg_times = _unique_burst_times(
-        start_us=blink.peak_us + blink.neg_start_offset_us,
-        stop_us=blink.peak_us + blink.neg_stop_offset_us,
-        count=blink.n_neg,
-    )
+    times = np.arange(t0, t1 + 1, blink.sample_step_us, dtype=np.int64)
+    envelope = _blink_envelope(times, blink)
 
     records: list[tuple[int, int, int, int]] = []
-    pos_cursor = 0
-    neg_cursor = 0
+    for iy, y in enumerate(ys):
+        for ix, x in enumerate(xs):
+            signal = blink.signal_peak * float(weights[iy, ix]) * envelope
+            intensity = blink.background + signal
+            log_intensity = np.log(np.maximum(intensity, 1e-12))
+            records.extend(
+                _threshold_crossing_events_for_pixel(
+                    x=int(x),
+                    y=int(y),
+                    times_us=times,
+                    log_intensity=log_intensity,
+                    contrast_threshold_log=blink.contrast_threshold_log,
+                    refractory_period_us=blink.refractory_period_us,
+                )
+            )
+    return records
 
-    for (y, x), n_pos, n_neg in zip(
-        pixel_coords,
-        pos_counts,
-        neg_counts,
-        strict=True,
-    ):
-        n_pos_int = int(n_pos)
-        n_neg_int = int(n_neg)
 
-        for t in pos_times[pos_cursor : pos_cursor + n_pos_int]:
-            records.append((x, y, 1, int(t)))
-        pos_cursor += n_pos_int
+def _smoothstep(u: np.ndarray) -> np.ndarray:
+    clipped = np.clip(u, 0.0, 1.0)
+    return clipped * clipped * (3.0 - 2.0 * clipped)
 
-        for t in neg_times[neg_cursor : neg_cursor + n_neg_int]:
-            records.append((x, y, 0, int(t)))
-        neg_cursor += n_neg_int
 
-    assert pos_cursor == blink.n_pos
-    assert neg_cursor == blink.n_neg
+def _blink_envelope(times_us: np.ndarray, blink: BlinkTruth) -> np.ndarray:
+    on_start = blink.peak_us - blink.turn_on_duration_us
+    plateau_start = blink.peak_us
+    plateau_stop = blink.peak_us + blink.plateau_duration_us
+    off_stop = plateau_stop + blink.turn_off_duration_us
+
+    envelope = np.zeros_like(times_us, dtype=np.float64)
+
+    on = (times_us >= on_start) & (times_us < plateau_start)
+    envelope[on] = _smoothstep((times_us[on] - on_start) / blink.turn_on_duration_us)
+
+    plateau = (times_us >= plateau_start) & (times_us < plateau_stop)
+    envelope[plateau] = 1.0
+
+    off = (times_us >= plateau_stop) & (times_us <= off_stop)
+    envelope[off] = 1.0 - _smoothstep(
+        (times_us[off] - plateau_stop) / blink.turn_off_duration_us
+    )
+
+    return envelope
+
+
+def _threshold_crossing_events_for_pixel(
+    *,
+    x: int,
+    y: int,
+    times_us: np.ndarray,
+    log_intensity: np.ndarray,
+    contrast_threshold_log: float,
+    refractory_period_us: int,
+) -> list[tuple[int, int, int, int]]:
+    records: list[tuple[int, int, int, int]] = []
+    last_crossing = float(log_intensity[0])
+    last_event_time = -(10**18)
+
+    for idx in range(1, len(times_us)):
+        t_prev = int(times_us[idx - 1])
+        t_curr = int(times_us[idx])
+        l_prev = float(log_intensity[idx - 1])
+        l_curr = float(log_intensity[idx])
+
+        if l_curr == l_prev:
+            continue
+
+        while True:
+            delta = l_curr - last_crossing
+            if delta >= contrast_threshold_log:
+                polarity = 1
+                target = last_crossing + contrast_threshold_log
+            elif delta <= -contrast_threshold_log:
+                polarity = 0
+                target = last_crossing - contrast_threshold_log
+            else:
+                break
+
+            alpha = (target - l_prev) / (l_curr - l_prev)
+            alpha = float(np.clip(alpha, 0.0, 1.0))
+            event_time = int(round(t_prev + alpha * (t_curr - t_prev)))
+
+            if event_time - last_event_time >= refractory_period_us:
+                records.append((x, y, polarity, event_time))
+                last_event_time = event_time
+
+            last_crossing = target
 
     return records
 
@@ -525,28 +648,6 @@ def _pixel_integrated_gaussian_weights(
 
     weights = np.outer(wy, wx)
     return np.clip(weights, 0.0, None)
-
-
-def _unique_burst_times(
-    *,
-    start_us: int,
-    stop_us: int,
-    count: int,
-) -> np.ndarray:
-    assert count > 0
-    assert stop_us > start_us
-
-    duration = stop_us - start_us
-    assert count < duration, (
-        "Synthetic blink has more events than unique integer timestamps in "
-        "the burst window. Increase the window or reduce event count."
-    )
-
-    step = max(duration // (count + 1), 1)
-    return np.asarray(
-        start_us + step * np.arange(1, count + 1, dtype=np.uint64),
-        dtype=np.uint64,
-    )
 
 
 def _assert_no_per_pixel_timestamp_collisions(events: np.ndarray) -> None:
