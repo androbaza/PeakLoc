@@ -15,6 +15,13 @@ FWHM_FROM_SIGMA = 2.354820045
 class LocalizationTables:
     attempted: np.ndarray
     filtered: np.ndarray
+    qc_table: np.ndarray
+
+
+@dataclass(frozen=True)
+class LocalizationFilterResult:
+    accepted: np.ndarray
+    qc_table: np.ndarray
 
 
 def concatenate_locs(localized_data: list[np.ndarray]) -> np.ndarray:
@@ -49,8 +56,12 @@ def localize_rois_with_attempts(
     if calibration is None:
         raise ValueError("calibration is required for poisson_joint localization")
     attempted = perform_joint_poisson_localization_parallel(rois, config, calibration)
-    filtered = filter_poisson_localizations(attempted, config)
-    return LocalizationTables(attempted=attempted, filtered=filtered)
+    filter_result = evaluate_poisson_localization_filters(attempted, config)
+    return LocalizationTables(
+        attempted=attempted,
+        filtered=filter_result.accepted,
+        qc_table=filter_result.qc_table,
+    )
 
 
 def perform_joint_poisson_localization_parallel(
@@ -74,7 +85,10 @@ def perform_joint_poisson_localization_parallel(
         if localized_chunk is not None and localized_chunk.size > 0
     ]
     if not localized_data:
-        return np.array([])
+        roi_rad = _roi_radius_from_dtype(rois)
+        if roi_rad is None:
+            roi_rad = config.roi_radius
+        return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
     return concatenate_locs(localized_data)
 
 
@@ -168,33 +182,179 @@ def filter_poisson_localizations(
     localizations: np.ndarray,
     config: PeakLocConfig,
 ) -> np.ndarray:
+    return evaluate_poisson_localization_filters(localizations, config).accepted
+
+
+def evaluate_poisson_localization_filters(
+    localizations: np.ndarray,
+    config: PeakLocConfig,
+) -> LocalizationFilterResult:
     if localizations.size == 0:
-        return localizations
-    keep = (
-        localizations["fit_success"]
-        & np.isfinite(localizations["x"])
-        & np.isfinite(localizations["y"])
-        & np.isfinite(localizations["sigma_x"])
+        return LocalizationFilterResult(
+            accepted=localizations,
+            qc_table=np.empty(0, dtype=localization_qc_dtype()),
+        )
+
+    uncertainty_px = localization_uncertainty_px(localizations)
+    uncertainty_nm = uncertainty_px * config.optical_pixel_size_nm
+    finite_position = np.isfinite(localizations["x"]) & np.isfinite(localizations["y"])
+    finite_uncertainty = (
+        np.isfinite(localizations["sigma_x"])
         & np.isfinite(localizations["sigma_y"])
         & np.isfinite(localizations["cov_xy"])
-        & (localizations["sigma_x"] > 0)
-        & (localizations["sigma_y"] > 0)
-        & (localizations["fit_cond"] < config.max_fit_cond)
-        & (localizations["valid_pixel_count"] >= config.min_valid_pixels)
+        & np.isfinite(uncertainty_px)
     )
-    uncertainty_px = localization_uncertainty_px(localizations)
-    keep &= np.isfinite(uncertainty_px)
+    positive_uncertainty = (localizations["sigma_x"] > 0) & (
+        localizations["sigma_y"] > 0
+    )
+    fit_cond_ok = localizations["fit_cond"] < config.max_fit_cond
+    valid_pixels_ok = localizations["valid_pixel_count"] >= config.min_valid_pixels
+
+    uncertainty_ok = finite_uncertainty.copy()
 
     if config.max_localization_uncertainty_px is not None:
-        keep &= uncertainty_px <= config.max_localization_uncertainty_px
+        uncertainty_ok &= uncertainty_px <= config.max_localization_uncertainty_px
 
     if config.max_localization_uncertainty_nm is not None:
         max_uncertainty_px = (
             config.max_localization_uncertainty_nm / config.optical_pixel_size_nm
         )
-        keep &= uncertainty_px <= max_uncertainty_px
+        uncertainty_ok &= uncertainty_px <= max_uncertainty_px
 
-    return localizations[keep]
+    keep = (
+        localizations["fit_success"]
+        & finite_position
+        & finite_uncertainty
+        & positive_uncertainty
+        & fit_cond_ok
+        & valid_pixels_ok
+        & uncertainty_ok
+    )
+
+    qc_table = np.zeros(localizations.size, dtype=localization_qc_dtype())
+    qc_table["id"] = _field_or_default(
+        localizations, "id", np.arange(localizations.size)
+    )
+    qc_table["accepted"] = keep
+    qc_table["fit_success"] = localizations["fit_success"]
+    qc_table["finite_position"] = finite_position
+    qc_table["finite_uncertainty"] = finite_uncertainty
+    qc_table["positive_uncertainty"] = positive_uncertainty
+    qc_table["fit_cond_ok"] = fit_cond_ok
+    qc_table["valid_pixels_ok"] = valid_pixels_ok
+    qc_table["uncertainty_px"] = uncertainty_px
+    qc_table["uncertainty_nm"] = uncertainty_nm
+    qc_table["uncertainty_ok"] = uncertainty_ok
+    qc_table["fit_cond"] = localizations["fit_cond"]
+    qc_table["valid_pixel_count"] = localizations["valid_pixel_count"]
+    qc_table["nll_per_event"] = _field_or_default(
+        localizations, "nll_per_event", np.nan
+    )
+    qc_table["E_total"] = _field_or_default(localizations, "E_total", 0)
+    qc_table["E_total_n"] = _field_or_default(localizations, "E_total_n", 0)
+    qc_table["primary_rejection_reason"] = _primary_rejection_reasons(
+        keep,
+        localizations["fit_success"],
+        finite_position,
+        finite_uncertainty,
+        positive_uncertainty,
+        fit_cond_ok,
+        valid_pixels_ok,
+        uncertainty_ok,
+    )
+    return LocalizationFilterResult(
+        accepted=localizations[keep],
+        qc_table=qc_table,
+    )
+
+
+def localization_qc_dtype() -> list[tuple[str, object]]:
+    return [
+        ("id", np.uint64),
+        ("accepted", np.bool_),
+        ("fit_success", np.bool_),
+        ("finite_position", np.bool_),
+        ("finite_uncertainty", np.bool_),
+        ("positive_uncertainty", np.bool_),
+        ("fit_cond_ok", np.bool_),
+        ("valid_pixels_ok", np.bool_),
+        ("uncertainty_px", np.float64),
+        ("uncertainty_nm", np.float64),
+        ("uncertainty_ok", np.bool_),
+        ("fit_cond", np.float64),
+        ("valid_pixel_count", np.uint32),
+        ("nll_per_event", np.float64),
+        ("E_total", np.uint64),
+        ("E_total_n", np.uint64),
+        ("primary_rejection_reason", "U64"),
+    ]
+
+
+def _primary_rejection_reasons(
+    accepted: np.ndarray,
+    fit_success: np.ndarray,
+    finite_position: np.ndarray,
+    finite_uncertainty: np.ndarray,
+    positive_uncertainty: np.ndarray,
+    fit_cond_ok: np.ndarray,
+    valid_pixels_ok: np.ndarray,
+    uncertainty_ok: np.ndarray,
+) -> np.ndarray:
+    reasons = np.full(accepted.size, "accepted", dtype="U64")
+    rejected = ~accepted
+    reasons[rejected & ~fit_success] = "fit_failed"
+    reasons[rejected & fit_success & ~finite_position] = "invalid_position"
+    reasons[rejected & fit_success & finite_position & ~finite_uncertainty] = (
+        "invalid_uncertainty"
+    )
+    reasons[
+        rejected
+        & fit_success
+        & finite_position
+        & finite_uncertainty
+        & ~positive_uncertainty
+    ] = "invalid_uncertainty"
+    reasons[
+        rejected
+        & fit_success
+        & finite_position
+        & finite_uncertainty
+        & positive_uncertainty
+        & ~fit_cond_ok
+    ] = "fit_condition"
+    reasons[
+        rejected
+        & fit_success
+        & finite_position
+        & finite_uncertainty
+        & positive_uncertainty
+        & fit_cond_ok
+        & ~valid_pixels_ok
+    ] = "valid_pixels"
+    reasons[
+        rejected
+        & fit_success
+        & finite_position
+        & finite_uncertainty
+        & positive_uncertainty
+        & fit_cond_ok
+        & valid_pixels_ok
+        & ~uncertainty_ok
+    ] = "uncertainty"
+    return reasons
+
+
+def _field_or_default(
+    localizations: np.ndarray, field_name: str, default: object
+) -> np.ndarray:
+    if (
+        localizations.dtype.names is not None
+        and field_name in localizations.dtype.names
+    ):
+        return localizations[field_name]
+    if np.isscalar(default):
+        return np.full(localizations.size, default)
+    return np.asarray(default)
 
 
 def _roi_radius_from_dtype(rois: np.ndarray) -> int | None:

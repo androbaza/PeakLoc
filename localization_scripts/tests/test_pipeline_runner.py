@@ -9,6 +9,7 @@ from localization_scripts.pipeline_runner import (
     RecordingResult,
     calibration_to_metadata,
     summarize_fit_qc,
+    write_structured_array_csv,
     write_run_report,
     write_effective_run_settings,
 )
@@ -92,6 +93,11 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     temp_folder = output_folder / "temp_files"
     temp_folder.mkdir(parents=True)
     loc_dtype = [("id", np.uint64), ("x", np.float64), ("y", np.float64)]
+    qc_dtype = [
+        ("id", np.uint64),
+        ("accepted", np.bool_),
+        ("primary_rejection_reason", "U64"),
+    ]
     roi_dtype = [("roi", np.uint32, (3, 3))]
     np.save(
         temp_folder / "localizations_time_slice_100.npy",
@@ -108,6 +114,14 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     np.save(
         temp_folder / "attempted_localizations_time_slice_200.npy",
         np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
+    )
+    np.save(
+        temp_folder / "localization_qc_time_slice_100.npy",
+        np.asarray([(0, True, "accepted"), (1, False, "fit_failed")], dtype=qc_dtype),
+    )
+    np.save(
+        temp_folder / "localization_qc_time_slice_200.npy",
+        np.asarray([(0, True, "accepted"), (1, False, "uncertainty")], dtype=qc_dtype),
     )
     np.save(
         temp_folder / "rois_time_slice_100.npy",
@@ -147,6 +161,13 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     )
     attempted_localizations = np.load(attempted_output_path)
     assert list(attempted_localizations["id"]) == [0, 1, 2, 3]
+    qc_output_path = output_folder / (
+        f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}.npy"
+    )
+    localization_qc = np.load(qc_output_path)
+    assert list(localization_qc["id"]) == [0, 1, 2, 3]
+    assert qc_output_path.with_suffix(".csv").is_file()
 
 
 def test_summarize_fit_qc_handles_poisson_fields():
@@ -181,6 +202,26 @@ def test_summarize_fit_qc_handles_poisson_fields():
     )
     assert summary["fit_success_fraction"] == 0.5
     assert summary["rejected_localization_count"] == 2
+
+
+def test_write_structured_array_csv_writes_header_and_rows(tmp_path):
+    path = tmp_path / "localization_qc.csv"
+    array = np.asarray(
+        [(1, True, "accepted"), (2, False, "fit_failed")],
+        dtype=[
+            ("id", np.uint64),
+            ("accepted", np.bool_),
+            ("primary_rejection_reason", "U64"),
+        ],
+    )
+
+    write_structured_array_csv(array, path)
+
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "id,accepted,primary_rejection_reason",
+        "1,True,accepted",
+        "2,False,fit_failed",
+    ]
 
 
 def test_write_run_report_includes_peak_interpolation_cutoff(tmp_path):
