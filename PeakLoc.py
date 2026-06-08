@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from localization_scripts.config_sweep import run_config_sweep
 from localization_scripts.pipeline_config import load_peakloc_config
 from localization_scripts.pipeline_runner import run_batch
 from localization_scripts.preflight import run_preflight, write_preflight_report
@@ -37,6 +38,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write a preflight report and exit without processing recordings",
     )
+    parser.add_argument(
+        "--sweep",
+        type=Path,
+        default=None,
+        help="Path to a JSON parameter sweep specification",
+    )
     return parser.parse_args()
 
 
@@ -57,6 +64,14 @@ def main() -> None:
             raise SystemExit(1)
         if args.preflight_only:
             return
+    if args.sweep is not None:
+        run_config_sweep(
+            config,
+            args.sweep,
+            preflight=args.preflight or args.strict_preflight,
+            strict_preflight=args.strict_preflight,
+        )
+        return
     run_batch(config)
 
 
