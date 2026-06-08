@@ -6,6 +6,7 @@
   "prominence": 12.0,
   "dataset_fwhm": 4.01,
   "peak_time_threshold": 40000.0,
+  "polarity_time_gate_us": 5000.0,
   "peak_neighbors": 9,
   "roi_radius": 8,
   "convolution_roi_radius": 1,
@@ -18,5 +19,17 @@
   "sensor_height": 720,
   "sensor_width": 1280,
   "max_raw_events": 1000000,
-  "cleanup_temp_outputs": true
+  "cleanup_temp_outputs": true,
+  "fit_model": "poisson_joint",
+  "allow_uncalibrated": true,
+  "calibration_path": null,
+  "sigma_psf_px": null,
+  "fit_sigma": false,
+  "psf_model": "pixel_integrated_gaussian",
+  "background_mode": "calibrated_plus_local",
+  "hot_pixel_policy": "mask",
+  "min_events_pos": 3,
+  "min_events_neg": 3,
+  "min_valid_pixels": 1,
+  "max_fit_cond": 10000000000.0
 }

@@ -6,12 +6,14 @@ import time
 import numpy as np
 from loguru import logger
 
+from localization_scripts.calibration import NullCalibration
 from localization_scripts.event_array_processing import (
     array_to_time_map,
     load_dict,
     raw_events_to_array,
 )
-from localization_scripts.localization_fitting import perfrom_localization_parallel
+from localization_scripts.localization_fitting import localize_rois
+from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 
 """
@@ -117,11 +119,24 @@ rois = generate_rois(
     max_y=max_y,
 )
 
+config = PeakLocConfig(
+    input_folder=os.path.dirname(filename),
+    num_cores=NUM_CORES,
+    prominence=PROMINENCE,
+    dataset_fwhm=DATASEET_FWHM,
+    peak_time_threshold=PEAK_TIME_THRESHOLD,
+    peak_neighbors=PEAK_NEIGHBORS,
+    roi_radius=ROI_RADIUS,
+    sensor_height=int(max_y) + 1,
+    sensor_width=int(max_x) + 1,
+)
+calibration = NullCalibration(config.sensor_shape)
+
 logger.info(
     "Performing localization; elapsed time: {:.2f} seconds",
     time.time() - start_time,
 )
-localizations = perfrom_localization_parallel(rois, dataset_FWHM=DATASEET_FWHM)
+localizations = localize_rois(rois, config, calibration)
 
 logger.info("Finished; total elapsed time: {:.2f} seconds", time.time() - start_time)
 

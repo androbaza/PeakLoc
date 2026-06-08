@@ -9,13 +9,31 @@ from scipy.ndimage import center_of_mass
 from scipy.signal import find_peaks
 from scipy.sparse import SparseEfficiencyWarning
 
-from localization_scripts.localization_fitting import (
-    double_gaussian2D,
-    est_coord,
-    fit_gaussian,
-    gaussian2D,
-)
 from localization_scripts.peak_finding import jit_interpolate
+
+FWHM_FROM_SIGMA = 2.354820045
+
+
+def _gaussian2d(height, center_x, center_y, sigma):
+    sigma = float(sigma)
+    return lambda x, y: (
+        height
+        * np.exp(-(((center_x - x) / sigma) ** 2 + ((center_y - y) / sigma) ** 2) / 2)
+    )
+
+
+def _double_gaussian2d(
+    height, center_x, center_y, sigma, height2, center_x_2, center_y_2, sigma2
+):
+    sigma, sigma2 = float(sigma), float(sigma2)
+    return lambda x, y: (
+        height
+        * np.exp(-(((center_x - x) / sigma) ** 2 + ((center_y - y) / sigma) ** 2) / 2)
+        + height2
+        * np.exp(
+            -(((center_x_2 - x) / sigma) ** 2 + ((center_y_2 - y) / sigma2) ** 2) / 2
+        )
+    )
 
 
 def plot_event_signals_2d(signal_and_peaks):
@@ -96,14 +114,12 @@ def plot_event_signals_3d(signal_and_peaks):
 
 
 def plot_single_fit(fit_params, rms, fit, data):
-    # fit_params, rms = fit_gaussian(data)
-    # fit = gaussian2D(*fit_params)
     fig = plt.figure(figsize=(7, 7))
     imm = plt.imshow(data, cmap="gray")
     plt.axis("off")
     (height, center_x, center_y, sigma) = fit_params
     yy, xx = np.indices(data.shape)
-    model = gaussian2D(height, center_x, center_y, sigma)
+    model = _gaussian2d(height, center_x, center_y, sigma)
     fit_img = model(xx, yy)
     plt.contour(fit_img)
     ax = plt.gca()
@@ -132,7 +148,6 @@ def plot_single_fit(fit_params, rms, fit, data):
 
 
 def plot_double_fit(fit_params, rms, fit, data):
-    # fit = double_gaussian2D(*fit_params)
     fig = plt.figure(figsize=(7, 7))
     imm = plt.imshow(data, cmap="gray")
     plt.axis("off")
@@ -141,7 +156,7 @@ def plot_double_fit(fit_params, rms, fit, data):
     )
     # plt.matshow(data)
     yy, xx = np.indices(data.shape)
-    model = double_gaussian2D(
+    model = _double_gaussian2d(
         height,
         center_x,
         center_y,
@@ -189,7 +204,6 @@ def plot_double_fit(fit_params, rms, fit, data):
 
 def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     subplot_index = 0
-    roi_rad = rois_list[0]["roi"].shape[0] // 2
     # data = data[data['E_total'] > 120]
     #   fig = plt.figure(figsize=(17,17), dpi=300)
     fig, axs = plt.subplots(subplotsize, subplotsize, figsize=(20, 20))
@@ -205,86 +219,16 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
 
         if not padded.any():
             continue
-        fit_params, rms = fit_gaussian(padded, dataset_FWHM=dataset_FWHM)
         ax = plt.subplot(
             subplotsize,
             subplotsize,
             subplot_index + 1,
         )
         plt.axis("off")
-        if fit_params.shape[0] == 8:
-            # 2 gaussians were fitted
-            (
-                height,
-                center_x,
-                center_y,
-                sigma,
-                height2,
-                center_x2,
-                center_y2,
-                sigma2,
-            ) = fit_params
-            yy, xx = np.indices(padded.shape)
-            model = double_gaussian2D(
-                height,
-                center_x,
-                center_y,
-                sigma,
-                height2,
-                center_x2,
-                center_y2,
-                sigma2,
-            )
-            fit_img = model(xx, yy)
-            plt.contour(fit_img)
-            plt.text(
-                0.97,
-                0.78,
-                """
-            FWHM #1: %.2f
-            FWHM #2: %.2f
-            RMS Error: %.2f"""
-                % (sigma * 2.35, sigma2 * 2.35, rms),
-                fontsize=17,
-                horizontalalignment="right",
-                verticalalignment="baseline",
-                transform=ax.transAxes,
-                c="w",
-            )
+        center_y, center_x = center_of_mass(padded)
+        if np.isfinite(center_x) and np.isfinite(center_y):
             plt.scatter(center_x, center_y, c="magenta", s=90, marker="x", zorder=100)
-            plt.scatter(center_x2, center_y2, c="magenta", s=90, marker="x", zorder=100)
-            # ax.set_title('%.2f, %.2f, %.2f, %.2f' %(x, y, x2, y2))
-            ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
-        else:
-            (height, center_x, center_y, sigma) = fit_params
-            yy, xx = np.indices(padded.shape)
-            model = gaussian2D(height, center_x, center_y, sigma)
-            fit_img = model(xx, yy)
-            roi_ft = np.fft.fft2(padded)
-            y_posp, x_posp = (
-                est_coord(roi_ft, (1, 0), roi_rad),
-                est_coord(roi_ft, (0, 1), roi_rad),
-            )
-            cmy, cmx = center_of_mass(padded)
-            plt.scatter(x_posp, y_posp, c="cyan", s=140, marker="x")
-            plt.scatter(cmx, cmy, c="r", s=140, marker="x")
-            plt.contour(fit_img)
-            plt.text(
-                0.97,
-                0.8,
-                """
-            FWHM: %.2f
-            RMS Error: %.2f"""
-                % (sigma * 2.35, rms),
-                fontsize=17,
-                horizontalalignment="right",
-                verticalalignment="baseline",
-                transform=ax.transAxes,
-                c="w",
-            )
-            plt.scatter(center_x, center_y, c="magenta", s=90, marker="x")
-            # ax.set_title('%.2f, %.2f' %(x, y))
-            ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
+        ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
 
         # ax.title.set_text(str(r['t_peak']) + str(r['rel_peak']))
         # ax.set_ylabel('#px__sum_px\n'+str(np.count_nonzero(padded)) +'__'+ str(np.sum(padded)), fontsize=17)
@@ -338,9 +282,7 @@ def plot_rois_from_locs(
         roi = rois_list["roi"][id]
         plt.axis("off")
         if rois_list["double"][id] == 1:
-            # 2 gaussians were fitted
             pass
-            # fit = double_gaussian2D(rois_list["I"][id], rois_list["x"][id], rois_list["y"][id], rois_list["FWHM"][id], rois_list["I"][id], rois_list["x2"][id], rois_list["y2"][id], rois_list["FWHM"][id])
             # yy, xx = np.indices(roi.shape)
             # plt.contour(fit(xx, yy))
             # plt.scatter(rois_list["x"][id], rois_list["y"][id], c="magenta", s=90, marker="x", zorder=100)
@@ -349,11 +291,12 @@ def plot_rois_from_locs(
             # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
             yy, xx = np.indices(roi.shape)
-            model = gaussian2D(
+            sigma = rois_list["FWHM"][id] / FWHM_FROM_SIGMA
+            model = _gaussian2d(
                 rois_list["I"][id],
                 rois_list["sub_x"][id],
                 rois_list["sub_y"][id],
-                rois_list["FWHM"][id],
+                sigma,
             )
             fit_img = model(xx, yy)
             plt.contour(fit_img)

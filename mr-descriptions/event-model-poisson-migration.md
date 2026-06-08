@@ -9,8 +9,7 @@ runner wiring needed to track calibration and fit QC provenance.
 
 ## Changes
 
-- Added event-model config fields, with `poisson_joint` as the default and
-  `legacy_lsq` retained as a selectable regression path.
+- Added event-model config fields with `poisson_joint` as the localization path.
 - Added `EventCalibration`, `NullCalibration`, NPZ calibration loading, and ROI
   calibrated-background extraction with hot-pixel masking.
 - Added calibration utilities for dark/blank rate-map generation and bead

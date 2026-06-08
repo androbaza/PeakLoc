@@ -1,4 +1,6 @@
 import json
+from dataclasses import fields
+from pathlib import Path
 
 import pytest
 
@@ -86,6 +88,9 @@ def test_peakloc_config_validates_event_model_settings():
     with pytest.raises(ValueError, match="fit_model must be"):
         PeakLocConfig.from_mapping({"fit_model": "not-a-model"})
 
+    with pytest.raises(ValueError, match="fit_model must be 'poisson_joint'"):
+        PeakLocConfig.from_mapping({"fit_model": "legacy_lsq"})
+
     with pytest.raises(ValueError, match="calibration_path is required"):
         PeakLocConfig.from_mapping({"allow_uncalibrated": False})
 
@@ -119,3 +124,11 @@ def test_write_effective_config_is_human_readable_json(tmp_path):
     assert config.sensor_shape == (720, 1280)
     assert payload["plot_result"] is True
     assert output_path.read_text(encoding="utf-8").endswith("\n")
+
+
+def test_root_config_includes_all_peakloc_config_fields():
+    payload = json.loads(Path("config.json").read_text(encoding="utf-8"))
+    expected_fields = {field.name for field in fields(PeakLocConfig)}
+
+    assert set(payload) == expected_fields
+    assert payload["fit_model"] == "poisson_joint"

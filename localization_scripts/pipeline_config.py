@@ -121,8 +121,8 @@ class PeakLocConfig:
         _require_bool("fit_sigma", self.fit_sigma)
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
-        if self.fit_model not in {"legacy_lsq", "poisson_joint"}:
-            raise ValueError("fit_model must be 'legacy_lsq' or 'poisson_joint'")
+        if self.fit_model != "poisson_joint":
+            raise ValueError("fit_model must be 'poisson_joint'")
         if self.psf_model != "pixel_integrated_gaussian":
             raise ValueError("psf_model must be 'pixel_integrated_gaussian'")
         if self.background_mode not in {
