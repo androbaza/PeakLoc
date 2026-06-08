@@ -50,11 +50,16 @@ class BlinkTruth:
     signal_peak: float = 10_000.0
     background: float = 1.0
     contrast_threshold_log: float = 0.08
+    negative_event_bias: float = 0.8
     refractory_period_us: int = 5
     turn_on_duration_us: int = 80_000
     plateau_duration_us: int = 10_000
     turn_off_duration_us: int = 80_000
     sample_step_us: int = 250
+    signal_event_jitter_us: int = 120
+    signal_event_dropout_probability: float = 0.08
+    signal_event_extra_probability: float = 0.15
+    background_noise_events_per_pixel: float = 4.0
     label: str | None = None
 
 
@@ -286,7 +291,7 @@ def test_synthetic_short_blink_is_localized(
     )
 
 
-def test_synthetic_blink_has_no_signal_events_during_plateau() -> None:
+def test_synthetic_blink_plateau_contains_only_sparse_background_noise() -> None:
     blink = BlinkTruth(
         x_px=30.35,
         y_px=31.70,
@@ -306,7 +311,7 @@ def test_synthetic_blink_has_no_signal_events_during_plateau() -> None:
         (events["t"] >= plateau_start) & (events["t"] <= plateau_stop)
     ]
 
-    assert plateau_events.size == 0
+    assert 0 < plateau_events.size < 0.15 * events.size
 
 
 def test_synthetic_event_times_are_not_ordered_by_pixel_scan_order() -> None:
@@ -332,6 +337,30 @@ def test_synthetic_event_times_are_not_ordered_by_pixel_scan_order() -> None:
 
     corr = np.corrcoef(scan_id, median_t)[0, 1]
     assert abs(corr) < 0.3
+
+
+def test_synthetic_negative_signal_events_are_biased_lower_than_positive() -> None:
+    blink = BlinkTruth(
+        x_px=40.0,
+        y_px=40.0,
+        peak_us=200_000,
+        signal_event_jitter_us=0,
+        signal_event_dropout_probability=0.0,
+        signal_event_extra_probability=0.0,
+        background_noise_events_per_pixel=0.0,
+    )
+    events = synthetic_event_recording(
+        blinks=(blink,),
+        sensor_shape=SENSOR_SHAPE,
+        sigma_px=SIGMA_PSF_PX,
+        support_radius_px=7,
+    )
+
+    positive_count = int(np.count_nonzero(events["p"] == 1))
+    negative_count = int(np.count_nonzero(events["p"] == 0))
+    negative_ratio = negative_count / positive_count
+
+    assert negative_ratio == pytest.approx(blink.negative_event_bias, abs=0.08)
 
 
 def _run_synthetic_scenario(
@@ -500,6 +529,7 @@ def synthetic_event_recording(
 
     events = np.asarray(records, dtype=EVENT_DTYPE)
     events.sort(order="t")
+    events = _deduplicate_per_pixel_timestamp_collisions(events)
 
     _assert_no_per_pixel_timestamp_collisions(events)
     return events
@@ -542,22 +572,46 @@ def _events_for_one_blink(
     times = np.arange(t0, t1 + 1, blink.sample_step_us, dtype=np.int64)
     envelope = _blink_envelope(times, blink)
 
+    rng = np.random.default_rng(_blink_seed(blink))
+    occupied: set[tuple[int, int, int]] = set()
     records: list[tuple[int, int, int, int]] = []
     for iy, y in enumerate(ys):
         for ix, x in enumerate(xs):
             signal = blink.signal_peak * float(weights[iy, ix]) * envelope
             intensity = blink.background + signal
             log_intensity = np.log(np.maximum(intensity, 1e-12))
+            signal_events = _threshold_crossing_events_for_pixel(
+                x=int(x),
+                y=int(y),
+                times_us=times,
+                log_intensity=log_intensity,
+                positive_contrast_threshold_log=blink.contrast_threshold_log,
+                negative_contrast_threshold_log=(
+                    blink.contrast_threshold_log / blink.negative_event_bias
+                ),
+                refractory_period_us=blink.refractory_period_us,
+            )
             records.extend(
-                _threshold_crossing_events_for_pixel(
-                    x=int(x),
-                    y=int(y),
-                    times_us=times,
-                    log_intensity=log_intensity,
-                    contrast_threshold_log=blink.contrast_threshold_log,
-                    refractory_period_us=blink.refractory_period_us,
+                _noisy_signal_events(
+                    signal_events,
+                    blink=blink,
+                    rng=rng,
+                    min_time_us=t0,
+                    max_time_us=t1,
+                    occupied=occupied,
                 )
             )
+    records.extend(
+        _background_noise_events_for_blink(
+            xs=xs,
+            ys=ys,
+            blink=blink,
+            rng=rng,
+            min_time_us=t0,
+            max_time_us=t1,
+            occupied=occupied,
+        )
+    )
     return records
 
 
@@ -594,7 +648,8 @@ def _threshold_crossing_events_for_pixel(
     y: int,
     times_us: np.ndarray,
     log_intensity: np.ndarray,
-    contrast_threshold_log: float,
+    positive_contrast_threshold_log: float,
+    negative_contrast_threshold_log: float,
     refractory_period_us: int,
 ) -> list[tuple[int, int, int, int]]:
     records: list[tuple[int, int, int, int]] = []
@@ -612,12 +667,12 @@ def _threshold_crossing_events_for_pixel(
 
         while True:
             delta = l_curr - last_crossing
-            if delta >= contrast_threshold_log:
+            if delta >= positive_contrast_threshold_log:
                 polarity = 1
-                target = last_crossing + contrast_threshold_log
-            elif delta <= -contrast_threshold_log:
+                target = last_crossing + positive_contrast_threshold_log
+            elif delta <= -negative_contrast_threshold_log:
                 polarity = 0
-                target = last_crossing - contrast_threshold_log
+                target = last_crossing - negative_contrast_threshold_log
             else:
                 break
 
@@ -632,6 +687,119 @@ def _threshold_crossing_events_for_pixel(
             last_crossing = target
 
     return records
+
+
+def _noisy_signal_events(
+    events: list[tuple[int, int, int, int]],
+    *,
+    blink: BlinkTruth,
+    rng: np.random.Generator,
+    min_time_us: int,
+    max_time_us: int,
+    occupied: set[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    noisy: list[tuple[int, int, int, int]] = []
+    for x, y, polarity, time_us in events:
+        if rng.random() < blink.signal_event_dropout_probability:
+            continue
+        event_time = _jittered_event_time(
+            time_us,
+            jitter_us=blink.signal_event_jitter_us,
+            min_time_us=min_time_us,
+            max_time_us=max_time_us,
+            rng=rng,
+        )
+        _append_unique_event(noisy, occupied, x, y, polarity, event_time)
+        if rng.random() < blink.signal_event_extra_probability:
+            extra_time = _jittered_event_time(
+                event_time,
+                jitter_us=max(blink.signal_event_jitter_us, blink.refractory_period_us),
+                min_time_us=min_time_us,
+                max_time_us=max_time_us,
+                rng=rng,
+            )
+            _append_unique_event(noisy, occupied, x, y, polarity, extra_time)
+    return noisy
+
+
+def _background_noise_events_for_blink(
+    *,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    blink: BlinkTruth,
+    rng: np.random.Generator,
+    min_time_us: int,
+    max_time_us: int,
+    occupied: set[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    records: list[tuple[int, int, int, int]] = []
+    for y in ys:
+        for x in xs:
+            positive_count = int(rng.poisson(blink.background_noise_events_per_pixel))
+            negative_count = int(
+                rng.poisson(
+                    blink.background_noise_events_per_pixel * blink.negative_event_bias
+                )
+            )
+            for polarity, count in [(1, positive_count), (0, negative_count)]:
+                if count == 0:
+                    continue
+                times = rng.integers(
+                    min_time_us,
+                    max_time_us + 1,
+                    size=count,
+                    endpoint=False,
+                )
+                for time_us in times:
+                    _append_unique_event(
+                        records,
+                        occupied,
+                        int(x),
+                        int(y),
+                        polarity,
+                        int(time_us),
+                    )
+    return records
+
+
+def _jittered_event_time(
+    time_us: int,
+    *,
+    jitter_us: int,
+    min_time_us: int,
+    max_time_us: int,
+    rng: np.random.Generator,
+) -> int:
+    if jitter_us <= 0:
+        return int(time_us)
+    jitter = int(rng.integers(-jitter_us, jitter_us + 1))
+    return int(np.clip(time_us + jitter, min_time_us, max_time_us))
+
+
+def _append_unique_event(
+    records: list[tuple[int, int, int, int]],
+    occupied: set[tuple[int, int, int]],
+    x: int,
+    y: int,
+    polarity: int,
+    time_us: int,
+) -> None:
+    key = (y, x, time_us)
+    if key in occupied:
+        return
+    records.append((x, y, polarity, time_us))
+    occupied.add(key)
+
+
+def _blink_seed(blink: BlinkTruth) -> int:
+    return int(
+        (
+            blink.peak_us * 31
+            + round(blink.x_px * 1_000) * 131
+            + round(blink.y_px * 1_000) * 257
+        )
+        % (2**32)
+    )
 
 
 def _pixel_integrated_gaussian_weights(
@@ -660,6 +828,22 @@ def _assert_no_per_pixel_timestamp_collisions(events: np.ndarray) -> None:
             "same pixel. That would make per-pixel event counting ambiguous."
         )
         seen.add(key)
+
+
+def _deduplicate_per_pixel_timestamp_collisions(events: np.ndarray) -> np.ndarray:
+    if events.size == 0:
+        return events
+    keys = np.empty(
+        events.size,
+        dtype=[("y", np.uint16), ("x", np.uint16), ("t", np.uint64)],
+    )
+    keys["y"] = events["y"]
+    keys["x"] = events["x"]
+    keys["t"] = events["t"]
+    _, unique_indices = np.unique(keys, return_index=True)
+    if unique_indices.size == events.size:
+        return events
+    return np.sort(events[np.sort(unique_indices)], order="t")
 
 
 def _make_config(tmp_path: Path) -> PeakLocConfig:
