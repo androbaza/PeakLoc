@@ -48,6 +48,7 @@ def generate_rois(
         polarity_time_gate_us=polarity_time_gate_us,
     )
 
+
 def roi_record_dtype(roi_rad: int):
     roi_shape = (roi_rad * 2 + 1, roi_rad * 2 + 1)
     return [
@@ -66,6 +67,7 @@ def roi_record_dtype(roi_rad: int):
         ("dt_pos_s", np.float64),
         ("dt_neg_s", np.float64),
     ]
+
 
 def get_coords_dicts(sliced_dict, num_cores):
     coords_dicts = []
