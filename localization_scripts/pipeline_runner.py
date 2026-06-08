@@ -38,6 +38,7 @@ from localization_scripts.peak_finding import (
 )
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plotting_functions import plot_rois_from_locs
+from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import save_run_qc_dashboard
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 from localization_scripts.smlm_visualization import save_smlm_visualization
@@ -404,6 +405,24 @@ def process_recording(
     np.save(localizations_path, localizations_full_list)
     np.save(rois_path, rois_full_list)
     recording.artifacts.extend([localizations_path, rois_path])
+    recording.artifacts.extend(
+        save_portable_outputs(
+            recording=recording,
+            config=config,
+            accepted_localizations=localizations_full_list,
+            attempted_localizations=(
+                attempted_localizations_full_list
+                if attempted_localizations_full_list is not None
+                else np.empty(0, dtype=localizations_full_list.dtype)
+            ),
+            localization_qc=(
+                localization_qc_full_list
+                if localization_qc_full_list is not None
+                else np.empty(0, dtype=localization_qc_dtype())
+            ),
+            timestamp=run_timestamp,
+        )
+    )
     recording.artifacts.extend(
         save_processed_plots(
             localizations_full_list,
