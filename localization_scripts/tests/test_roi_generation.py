@@ -12,15 +12,27 @@ def test_generate_coord_lists_uses_signed_coordinates():
 
 
 def test_generate_rois_rejects_true_boundary_overflow_and_keeps_metadata():
+    t_peak = 100_000
+    t_on = 40_000
+    t_off = 160_000
+    polarity_gate_us = 5_000
+
     unique_peaks = {
-        (1, 1): [(100, 20, (80, 130))],
-        (2, 2): [(100, 20, (80, 130))],
+        # Rejected: ROI radius 2 would extend below x/y = 0.
+        (1, 1): [(t_peak, 20, (t_on, t_off))],
+
+        # Kept: ROI [0:4, 0:4] is inside max_x/max_y = 5.
+        (2, 2): [(t_peak, 20, (t_on, t_off))],
     }
+
     events_t_p_dict = {
         (np.int32(2), np.int32(2)): [
-            (np.uint64(90), np.int8(1)),
-            (np.uint64(105), np.int8(0)),
-            (np.uint64(120), np.int8(1)),
+            # Positive events belong to the rising/on side.
+            (np.uint64(70_000), np.int8(1)),
+            (np.uint64(90_000), np.int8(1)),
+
+            # Negative event belongs to the falling/off side.
+            (np.uint64(115_000), np.int8(0)),
         ]
     }
 
@@ -33,19 +45,25 @@ def test_generate_rois_rejects_true_boundary_overflow_and_keeps_metadata():
         num_cores=1,
         max_x=5,
         max_y=5,
+        polarity_time_gate_us=polarity_gate_us,
     )
 
     assert len(rois) == 1
     assert rois["roi"].dtype == np.uint32
     assert rois["roi_n"].dtype == np.uint32
+
     assert rois["total_events_roi"][0] == 2
     assert rois["total_neg_events_roi"][0] == 1
-    assert rois["t_1st"][0] == 90
-    assert rois["t_last"][0] == 120
+
+    assert rois["t_1st"][0] == 70_000
+    assert rois["t_peak"][0] == t_peak
+    assert rois["t_last"][0] == 115_000
+
     assert rois["roi_y0"][0] == 0
     assert rois["roi_x0"][0] == 0
-    assert rois["dt_pos_s"][0] == pytest.approx(50e-6)
-    assert rois["dt_neg_s"][0] == pytest.approx(50e-6)
+
+    assert rois["dt_pos_s"][0] == pytest.approx(65_000e-6)
+    assert rois["dt_neg_s"][0] == pytest.approx(65_000e-6)
 
 
 def test_generate_rois_counts_non_peak_pixels_inside_roi():
