@@ -7,6 +7,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 import numpy as np
@@ -798,7 +799,7 @@ def _scientific_validation_lines(
         f"- Calibration status: `{_calibration_status(recording)}`",
     ]
     if qc_summary:
-        detection_funnel = qc_summary.get("detection_funnel", {})
+        detection_funnel = _dict_field(qc_summary, "detection_funnel")
         lines.extend(
             [
                 f"- Events loaded: `{detection_funnel.get('events_loaded', 'n/a')}`",
@@ -812,7 +813,7 @@ def _scientific_validation_lines(
                 f"{_format_json_float(qc_summary.get('p90_uncertainty_nm'))} nm`",
             ]
         )
-        rejection_reasons = qc_summary.get("rejection_reasons", {})
+        rejection_reasons = _dict_field(qc_summary, "rejection_reasons")
         if rejection_reasons:
             reason_text = ", ".join(
                 f"{reason}={count}"
@@ -848,11 +849,13 @@ def _scientific_validation_lines(
 
 
 def _validation_warnings(
-    qc_summary: dict[str, object] | None, config: PeakLocConfig
+    qc_summary: dict[str, Any] | None, config: PeakLocConfig
 ) -> list[str]:
     warnings = []
     if qc_summary:
-        warnings.extend(str(warning) for warning in qc_summary.get("warnings", []))
+        raw_warnings = qc_summary.get("warnings", [])
+        if isinstance(raw_warnings, list):
+            warnings.extend(str(warning) for warning in raw_warnings)
     if config.background_mode == "local_only" and config.calibration_path is None:
         warnings.append(
             "background_mode=local_only and calibration_path=None. This is acceptable "
@@ -882,11 +885,16 @@ def _preflight_status(preflight_report: Path | None) -> str:
 
 def _load_named_json_artifact(
     recording: RecordingResult, filename: str
-) -> dict[str, object] | None:
+) -> dict[str, Any] | None:
     artifact = _find_artifact(recording, filename)
     if artifact is None or not artifact.is_file():
         return None
     return json.loads(artifact.read_text(encoding="utf-8"))
+
+
+def _dict_field(payload: dict[str, Any], field_name: str) -> dict[str, Any]:
+    value = payload.get(field_name, {})
+    return value if isinstance(value, dict) else {}
 
 
 def _find_artifact(recording: RecordingResult, filename: str) -> Path | None:

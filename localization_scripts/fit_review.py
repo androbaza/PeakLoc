@@ -206,7 +206,13 @@ def _draw_fit_tile(
     sub_x = _float_field(row, "sub_x", (image.shape[1] - 1) / 2)
     sub_y = _float_field(row, "sub_y", (image.shape[0] - 1) / 2)
     axis.scatter(sub_x, sub_y, c=DEBUG_COLORS["residual"], s=24, marker="x", zorder=5)
-    _draw_psf_contour(axis, image.shape, sub_x, sub_y, config)
+    _draw_psf_contour(
+        axis,
+        (int(image.shape[0]), int(image.shape[1])),
+        sub_x,
+        sub_y,
+        config,
+    )
 
     bad_covariance = False
     if show_covariance:
