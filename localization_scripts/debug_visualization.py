@@ -62,9 +62,9 @@ class DebugVisualizationConfig:
     min_events_per_polarity: int | None = None
     overwrite: bool = True
     save_png: bool = True
-    save_svg: bool = True
-    save_pdf: bool = True
-    save_tiff: bool = True
+    save_svg: bool = False
+    save_pdf: bool = False
+    save_tiff: bool = False
     save_interactive_html: bool = True
     max_events_for_interactive: int = 50_000
     static_dpi: int = 450
