@@ -17,8 +17,13 @@ interactive spacetime HTML plot, and a short Markdown report.
   `localization_scripts/tests/test_synthetic_blinks_pipeline.py` before the
   final numerical assertions, so failing and xfailed scenarios still leave
   diagnostics.
+- Replaced count-first synthetic event timing with per-pixel log-threshold
+  crossings over a smooth turn-on, plateau, and turn-off envelope.
 - Added focused tests for safe overwrite behavior, matching, artifact creation,
-  and the `scatter(x, y)` overlay convention.
+  attempted/rejected overlays, Plotly event trace modes, plateau silence,
+  scan-order timing independence, and the `scatter(x, y)` overlay convention.
+- Kept event clouds point-based by default; residual vectors are optional and
+  hidden from the default 3D output.
 - Added `plotly` and conda-forge `python-kaleido` dependencies for interactive
   and export-capable visualization support.
 
@@ -38,15 +43,13 @@ interactive spacetime HTML plot, and a short Markdown report.
 ## Validation
 
 ```bash
-pixi run -e dev pytest localization_scripts/tests/test_debug_visualization.py
-pixi run -e dev pytest localization_scripts/tests/test_synthetic_blinks_pipeline.py
 pixi run -e dev ruff check --fix .
 pixi run -e dev ruff format .
 pixi run -e all ty check
+pixi run -e dev pytest localization_scripts/tests/test_debug_visualization.py localization_scripts/tests/test_synthetic_blinks_pipeline.py
 ```
 
 Results:
 
-- `test_debug_visualization.py`: 5 passed.
-- `test_synthetic_blinks_pipeline.py`: 9 passed, 1 xfailed.
+- Combined debug and synthetic pytest modules: 18 passed, 1 xfailed.
 - Ruff check, Ruff format, and ty check passed.

@@ -219,17 +219,17 @@ def test_static_summary_overlays_failed_and_rejected_attempts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scatter_calls: list[dict[str, object]] = []
+    scatter_calls: list[tuple[str | None, str | None, np.ndarray, np.ndarray]] = []
     original_scatter = matplotlib.axes.Axes.scatter
 
     def scatter_spy(self, x, y, *args, **kwargs):
         scatter_calls.append(
-            {
-                "x": np.asarray(x, dtype=np.float64),
-                "y": np.asarray(y, dtype=np.float64),
-                "label": kwargs.get("label"),
-                "marker": kwargs.get("marker"),
-            }
+            (
+                kwargs.get("label"),
+                kwargs.get("marker"),
+                np.asarray(x, dtype=np.float64),
+                np.asarray(y, dtype=np.float64),
+            )
         )
         return original_scatter(self, x, y, *args, **kwargs)
 
@@ -294,19 +294,19 @@ def test_static_summary_overlays_failed_and_rejected_attempts(
     )
 
     failed = [
-        call
-        for call in scatter_calls
-        if call["label"] == "failed fit attempt" and call["marker"] == "^"
+        (x_values, y_values)
+        for label, marker, x_values, y_values in scatter_calls
+        if label == "failed fit attempt" and marker == "^"
     ]
     rejected = [
-        call
-        for call in scatter_calls
-        if call["label"] == "filtered/rejected attempt" and call["marker"] == "s"
+        (x_values, y_values)
+        for label, marker, x_values, y_values in scatter_calls
+        if label == "filtered/rejected attempt" and marker == "s"
     ]
-    assert failed and failed[0]["x"].tolist() == [5.0]
-    assert failed[0]["y"].tolist() == [9.0]
-    assert rejected and rejected[0]["x"].tolist() == [6.0]
-    assert rejected[0]["y"].tolist() == [10.0]
+    assert failed and failed[0][0].tolist() == [5.0]
+    assert failed[0][1].tolist() == [9.0]
+    assert rejected and rejected[0][0].tolist() == [6.0]
+    assert rejected[0][1].tolist() == [10.0]
 
 
 def test_spacetime_event_traces_are_markers_not_lines() -> None:
