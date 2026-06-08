@@ -56,6 +56,15 @@ class PeakLocConfig:
     max_fit_cond: float = 1e10
     max_localization_uncertainty_px: float | None = None
     max_localization_uncertainty_nm: float | None = None
+    qc_enabled: bool = True
+    qc_output_dirname: str = "qc"
+    qc_static_dpi: int = 450
+    qc_save_vector: bool = False
+    qc_max_events_for_interactive: int = 50_000
+    qc_uncertainty_montage_n: int = 36
+    qc_generate_html: bool = True
+    qc_generate_interactive: bool = True
+    qc_keep_intermediates: bool = False
 
     @classmethod
     def from_json(cls, path: str | Path) -> Self:
@@ -117,6 +126,11 @@ class PeakLocConfig:
         _require_positive("min_events_neg", self.min_events_neg)
         _require_positive("min_valid_pixels", self.min_valid_pixels)
         _require_positive("max_fit_cond", self.max_fit_cond)
+        _require_positive("qc_static_dpi", self.qc_static_dpi)
+        _require_positive(
+            "qc_max_events_for_interactive", self.qc_max_events_for_interactive
+        )
+        _require_positive("qc_uncertainty_montage_n", self.qc_uncertainty_montage_n)
         if self.max_localization_uncertainty_px is not None:
             _require_positive(
                 "max_localization_uncertainty_px",
@@ -131,6 +145,13 @@ class PeakLocConfig:
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         _require_bool("allow_uncalibrated", self.allow_uncalibrated)
         _require_bool("fit_sigma", self.fit_sigma)
+        _require_bool("qc_enabled", self.qc_enabled)
+        _require_bool("qc_save_vector", self.qc_save_vector)
+        _require_bool("qc_generate_html", self.qc_generate_html)
+        _require_bool("qc_generate_interactive", self.qc_generate_interactive)
+        _require_bool("qc_keep_intermediates", self.qc_keep_intermediates)
+        if not self.qc_output_dirname:
+            raise ValueError("qc_output_dirname must not be empty")
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
         if self.fit_model != "poisson_joint":

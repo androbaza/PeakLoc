@@ -32,7 +32,7 @@ def select_uncertainty_extremes(
     include_rejected: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return indices of n lowest and n highest finite uncertainty fits."""
-    if localizations.size == 0:
+    if localizations.size == 0 or not _has_uncertainty_fields(localizations):
         empty = np.asarray([], dtype=np.int64)
         return empty, empty
 

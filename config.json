@@ -33,5 +33,14 @@
   "min_valid_pixels": 50,
   "max_localization_uncertainty_px": null,
   "max_localization_uncertainty_nm": 50.0,
-  "max_fit_cond": 10000000000.0
+  "max_fit_cond": 10000000000.0,
+  "qc_enabled": true,
+  "qc_output_dirname": "qc",
+  "qc_static_dpi": 450,
+  "qc_save_vector": false,
+  "qc_max_events_for_interactive": 50000,
+  "qc_uncertainty_montage_n": 36,
+  "qc_generate_html": true,
+  "qc_generate_interactive": true,
+  "qc_keep_intermediates": false
 }
