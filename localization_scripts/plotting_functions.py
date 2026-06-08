@@ -291,7 +291,10 @@ def plot_rois_from_locs(
             # ax.set_title(f"t:{roi['t_peak']}, tot_events: {roi['total_events_roi']}")
         else:
             yy, xx = np.indices(roi.shape)
-            sigma = rois_list["FWHM"][id] / FWHM_FROM_SIGMA
+            if "sigma_psf_px" in rois_list.dtype.names:
+                sigma = rois_list["sigma_psf_px"][id]
+            else:
+                sigma = rois_list["FWHM"][id] / FWHM_FROM_SIGMA
             model = _gaussian2d(
                 rois_list["I"][id],
                 rois_list["sub_x"][id],
