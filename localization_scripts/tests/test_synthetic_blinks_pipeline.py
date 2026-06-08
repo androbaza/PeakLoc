@@ -45,16 +45,16 @@ class BlinkTruth:
     x_px: float
     y_px: float
     peak_us: int
-    n_pos: int = 8_000
-    n_neg: int = 8_000
-    signal_peak: float = 10_000.0
+    n_pos: int = 80
+    n_neg: int = 60
+    signal_peak: float = 200
     background: float = 1.0
     contrast_threshold_log: float = 0.08
     negative_event_bias: float = 0.8
     refractory_period_us: int = 5
     turn_on_duration_us: int = 80_000
     plateau_duration_us: int = 10_000
-    turn_off_duration_us: int = 80_000
+    turn_off_duration_us: int = 50_000
     sample_step_us: int = 250
     signal_event_jitter_us: int = 120
     signal_event_dropout_probability: float = 0.08
@@ -67,9 +67,9 @@ SENSOR_HEIGHT = 96
 SENSOR_WIDTH = 96
 SENSOR_SHAPE = (SENSOR_HEIGHT, SENSOR_WIDTH)
 
-SIGMA_PSF_PX = 1.25
+SIGMA_PSF_PX = 1.703
 DATASET_FWHM_PX = 2.355 * SIGMA_PSF_PX
-ROI_RADIUS = 5
+ROI_RADIUS = 7
 
 TRUTH = (
     BlinkTruth(x_px=30.35, y_px=31.70, peak_us=200_000),
