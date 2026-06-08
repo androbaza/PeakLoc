@@ -17,6 +17,11 @@ from localization_scripts.debug_visualization import (
 )
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import process_recording
+from localization_scripts.synthetic_event_camera import (
+    EventCameraModel,
+    SyntheticBlink,
+    generate_synthetic_event_recording,
+)
 
 EVENT_DTYPE = np.dtype(
     [
@@ -361,6 +366,37 @@ def test_synthetic_negative_signal_events_are_biased_lower_than_positive() -> No
     negative_ratio = negative_count / positive_count
 
     assert negative_ratio == pytest.approx(blink.negative_event_bias, abs=0.08)
+
+
+def test_reusable_synthetic_event_camera_generator_emits_pipeline_conventions() -> None:
+    recording = generate_synthetic_event_recording(
+        (
+            SyntheticBlink(
+                x_px=40.0,
+                y_px=40.0,
+                start_us=10_000,
+                rise_us=20_000,
+                plateau_us=10_000,
+                fall_us=20_000,
+                amplitude=60.0,
+                sigma_px=SIGMA_PSF_PX,
+            ),
+        ),
+        sensor_shape=SENSOR_SHAPE,
+        model=EventCameraModel(
+            contrast_threshold_pos=0.08,
+            contrast_threshold_neg=0.08,
+            threshold_jitter=0.0,
+            refractory_us=50.0,
+            dark_rate_pos_hz=0.0,
+            dark_rate_neg_hz=0.0,
+            hot_pixel_rate_hz=0.0,
+            seed=1,
+        ),
+    )
+
+    assert set(recording.events.dtype.names) == {"x", "y", "p", "t"}
+    assert set(np.unique(recording.events["p"])) == {0, 1}
 
 
 def _run_synthetic_scenario(
