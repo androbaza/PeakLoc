@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 # from numba import njit, prange, set_num_threads
 
-EVENT_TYPE = np.dtype([("t", "f8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True)
+EVENT_TYPE = np.dtype([("t", "u8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True)
 
 TOL = 0.08
 
@@ -163,8 +163,8 @@ def esim(
         for i in range(spike_nums):
             output_events[count]["x"] = x % n_pix_row
             output_events[count]["y"] = x // n_pix_row
-            output_events[count]["t"] = np.round(current_time * 1e-6, 6)
-            output_events[count]["p"] = 1 if polarity > 0 else -1
+            output_events[count]["t"] = np.uint64(np.round(current_time * 1e6))
+            output_events[count]["p"] = 1 if polarity > 0 else 0
 
             count += 1
             current_time += (delta_time) / spike_nums

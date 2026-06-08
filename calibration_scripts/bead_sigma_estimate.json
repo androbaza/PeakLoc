@@ -1,0 +1,11 @@
+{
+  "bead_count": 914,
+  "dataset_name": "Beads40nm_coverslip_standard_sensitivity",
+  "fit_model": "least_squares_integrated_gaussian_approx",
+  "generated_at": "2026-06-07T17:59:51.077615+00:00",
+  "mad_sigma_px": 0.1261376960230135,
+  "median_sigma_px": 1.7030841295072676,
+  "pixel_size_nm": 67.0,
+  "roi_radius": 8,
+  "sensitivity": "standard"
+}

@@ -1,121 +1,23 @@
-import multiprocessing
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 import numpy as np
 from joblib import Parallel, delayed
-from numba import jit
-from scipy.ndimage import center_of_mass
-from scipy.optimize import least_squares
 
+from localization_scripts.calibration import EventCalibration
 from localization_scripts.event_array_processing import slice_data
+from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.poisson_fitting import fit_joint_poisson_roi
 
-if TYPE_CHECKING:
-    prange = range
-else:
-    from numba import prange
-
-
-def gaussian2D(height, center_x, center_y, width):
-    width = float(width)
-    return lambda x, y: (
-        height
-        * np.exp(-(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2)
-    )
+FWHM_FROM_SIGMA = 2.354820045
 
 
-def double_gaussian2D(
-    height, center_x, center_y, width, height2, center_x_2, center_y_2, width2
-):
-    width, width2 = float(width), float(width2)
-    return lambda x, y: (
-        height
-        * np.exp(-(((center_x - x) / width) ** 2 + ((center_y - y) / width) ** 2) / 2)
-        + height2
-        * np.exp(
-            -(((center_x_2 - x) / width) ** 2 + ((center_y_2 - y) / width2) ** 2) / 2
-        )
-    )
+@dataclass(frozen=True)
+class LocalizationTables:
+    attempted: np.ndarray
+    filtered: np.ndarray
 
 
-def moments(data):
-    x_mean = center_of_mass(data)[1]
-    y_mean = center_of_mass(data)[0]
-    sigma = 2.5
-    height = data.max()
-    return height, x_mean, y_mean, sigma
-
-
-def fit_single_gaussian(data):
-    params = moments(data)
-
-    def errorfunction(p):
-        return np.ravel(gaussian2D(*p)(*np.indices(data.shape)) - data)
-
-    bounds = ([0, 0, 0, 0], [2 * params[0], data.shape[1], data.shape[0], 10])
-    # print(bounds)
-    # print(params)
-    return least_squares(
-        errorfunction, params, method="trf", bounds=bounds, ftol=1e-2, xtol=1e-2
-    )
-    # return least_squares(errorfunction, params, method="lm")
-
-
-def fit_two_gaussians(data, lm=False):
-    params = moments(data)
-    params2 = [p - 0.5 for p in params]
-    params = np.append(params, params2)
-
-    def errorfunction(p):
-        return np.ravel(double_gaussian2D(*p)(*np.indices(data.shape)) - data)
-
-    bounds = (
-        (0, 0, 0, 0, 0, 0, 0, 0),
-        (
-            2 * params[0],
-            data.shape[1],
-            data.shape[0],
-            10,
-            2 * params[0],
-            data.shape[1],
-            data.shape[0],
-            10,
-        ),
-    )
-
-    if lm:
-        return least_squares(errorfunction, params, method="lm")
-    else:
-        return least_squares(
-            errorfunction, params, method="trf", bounds=bounds, ftol=1e-2, xtol=1e-2
-        )
-
-
-@jit(nopython=True, fastmath=True, cache=True)
-def res_rmse(residue):
-    return np.sqrt(np.mean(residue**2))
-
-
-def fit_gaussian(roi, dataset_FWHM=5.5):
-    fit_params = fit_single_gaussian(roi)
-    rms = res_rmse(fit_params.fun)
-    # FWHM=2.35*sigma
-    sigma_2_locs = dataset_FWHM / 2.35
-    if fit_params.x[3] > sigma_2_locs * 2.5:
-        return np.asarray([0, 0, 0, 0]), 5
-    if fit_params.x[3] > sigma_2_locs:
-        try:
-            fit_params2 = fit_two_gaussians(roi)
-        except Exception:
-            return np.asarray([0, 0, 0, 0]), 5
-        rms2 = res_rmse(fit_params2.fun)
-        if rms2 > rms:
-            return fit_params.x, rms
-        else:
-            return fit_params2.x, rms2
-    return fit_params.x, rms
-
-
-def concatenate_locs(localized_data):
+def concatenate_locs(localized_data: list[np.ndarray]) -> np.ndarray:
     id = localized_data[0]["id"][-1] + 1
     concatenated_data = localized_data[0]
     for i in range(1, len(localized_data)):
@@ -129,30 +31,46 @@ def concatenate_locs(localized_data):
     return concatenated_data
 
 
-def perfrom_localization_parallel(
-    rois: np.ndarray, dataset_FWHM: float = 5.5, num_cores: int | None = None
-):
-    """
-    Performs localization of ROIs on a given image.
+def localize_rois(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration | None = None,
+) -> np.ndarray:
+    return localize_rois_with_attempts(rois, config, calibration).filtered
 
-    Parameters
-    ----------
-    rois: list of ROIs (each ROI is a list of coordinates)
-    dataset_FWHM: FWHM of the dataset
 
-    Returns
-    -------
-    list of ROIs (each ROI is a list of coordinates)
-    """
-    n_jobs = multiprocessing.cpu_count() if num_cores is None else num_cores
-    rois = slice_data(rois, n_jobs)
-    RES = Parallel(n_jobs=n_jobs)(
-        delayed(localize_MLE)(rois[i], dataset_FWHM=dataset_FWHM)
-        for i in range(len(rois))
+def localize_rois_with_attempts(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration | None = None,
+) -> LocalizationTables:
+    if config.fit_model != "poisson_joint":
+        raise ValueError(f"Unsupported fit_model: {config.fit_model}")
+    if calibration is None:
+        raise ValueError("calibration is required for poisson_joint localization")
+    attempted = perform_joint_poisson_localization_parallel(rois, config, calibration)
+    filtered = filter_poisson_localizations(attempted, config)
+    return LocalizationTables(attempted=attempted, filtered=filtered)
+
+
+def perform_joint_poisson_localization_parallel(
+    rois: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration,
+) -> np.ndarray:
+    if rois.size == 0:
+        roi_rad = _roi_radius_from_dtype(rois)
+        if roi_rad is None:
+            return np.array([])
+        return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
+    rois_split = slice_data(rois, config.num_cores)
+    results = Parallel(n_jobs=config.num_cores)(
+        delayed(localize_joint_poisson)(chunk, config, calibration)
+        for chunk in rois_split
     )
     localized_data = [
         localized_chunk
-        for localized_chunk in RES
+        for localized_chunk in results
         if localized_chunk is not None and localized_chunk.size > 0
     ]
     if not localized_data:
@@ -160,222 +78,174 @@ def perfrom_localization_parallel(
     return concatenate_locs(localized_data)
 
 
-def est_coord(roi_ft, coord_type, roi_rad):
-    phase_angle = np.arctan(roi_ft[coord_type].imag / roi_ft[coord_type].real) - np.pi
-    return np.abs(phase_angle) / (2 * np.pi / (roi_rad * 2 + 1))
-
-
-def localize_MLE(rois_list, dataset_FWHM):
+def localize_joint_poisson(
+    rois_list: np.ndarray,
+    config: PeakLocConfig,
+    calibration: EventCalibration,
+) -> np.ndarray | None:
     if rois_list.size == 0:
         return None
-    else:
-        roi_rad = rois_list[0]["roi"].shape[0] // 2
-        localizations = np.zeros(
-            (len(rois_list)),
-            dtype=[
-                ("id", np.uint64),
-                ("t_peak", np.float64),
-                ("double", np.uint8),
-                # positives
-                ("x", np.float64),
-                ("x2", np.float64),
-                ("y", np.float64),
-                ("y2", np.float64),
-                ("x_p", np.float64),
-                ("y_p", np.float64),
-                ("I", np.float32),
-                ("FWHM", np.float32),
-                ("rms", np.float32),
-                ("E_total", np.uint16),
-                ("sub_x", np.float64),
-                ("sub_y", np.float64),
-                ("t_1st", np.float64),
-                # negatives
-                ("x_n", np.float64),
-                ("x_n2", np.float64),
-                ("y_n", np.float64),
-                ("y_n2", np.float64),
-                ("x_np", np.float64),
-                ("y_np", np.float64),
-                ("I_n", np.float32),
-                ("FWHM_n", np.float32),
-                ("rms_n", np.float32),
-                ("E_total_n", np.uint16),
-                ("sub_x_n", np.float64),
-                ("sub_y_n", np.float64),
-                ("t_last", np.float64),
-                # roi
-                ("roi_event_times", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi_event_times_n", np.uint64, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-                ("roi_n", np.uint16, (roi_rad * 2 + 1, roi_rad * 2 + 1)),
-            ],
+
+    roi_rad = rois_list[0]["roi"].shape[0] // 2
+    localizations = np.zeros(
+        (len(rois_list)),
+        dtype=_joint_poisson_localization_dtype(roi_rad),
+    )
+    id_to_remove = []
+    for row_id in range(len(rois_list)):
+        roi_record = rois_list[row_id]
+        if (
+            roi_record["total_events_roi"] < config.min_events_pos
+            or roi_record["total_neg_events_roi"] < config.min_events_neg
+        ):
+            id_to_remove.append(row_id)
+            continue
+        fit_result = fit_joint_poisson_roi(roi_record, calibration, config)
+        roi_y0 = int(roi_record["roi_y0"])
+        roi_x0 = int(roi_record["roi_x0"])
+        fwhm_px = FWHM_FROM_SIGMA * fit_result.sigma_psf_px
+        localizations[row_id] = (
+            row_id,
+            roi_record["t_peak"],
+            0,
+            fit_result.x,
+            0.0,
+            fit_result.y,
+            0.0,
+            fit_result.A_pos,
+            fwhm_px,
+            roi_record["total_events_roi"],
+            roi_record["total_neg_events_roi"],
+            fit_result.x - roi_x0,
+            fit_result.y - roi_y0,
+            roi_record["t_1st"],
+            roi_record["t_last"],
+            fit_result.sigma_x,
+            fit_result.sigma_y,
+            fit_result.cov_xy,
+            fit_result.A_pos,
+            fit_result.A_neg,
+            fit_result.bg_pos_local,
+            fit_result.bg_neg_local,
+            fit_result.bg_pos_cal_sum,
+            fit_result.bg_neg_cal_sum,
+            fit_result.sigma_psf_px,
+            fit_result.nll,
+            fit_result.nll_per_event,
+            fit_result.fit_success,
+            fit_result.fit_status,
+            fit_result.fit_cond,
+            fit_result.calibration_id,
+            fit_result.calibrated_background,
+            fit_result.uncertainty_mode,
+            fit_result.hot_pixel_count,
+            fit_result.valid_pixel_count,
+            roi_record["roi_event_times"][0],
+            roi_record["roi_event_times"][1],
+            roi_record["roi"],
+            roi_record["roi_n"],
         )
-
-        # print('Found '+str(len(rois_list))+' blinks, fitting...\n')
-        id_to_remove = []
-        for id in prange(len(rois_list)):
-            if not rois_list[id]["roi"].any() or not rois_list[id]["roi_n"].any():
-                continue
-            fit_result, rms = fit_gaussian(
-                rois_list[id]["roi"], dataset_FWHM=dataset_FWHM
-            )
-            fit_result_n, rms_n = fit_gaussian(
-                rois_list[id]["roi_n"], dataset_FWHM=dataset_FWHM
-            )
-
-            roi_ft = np.fft.fft2(rois_list[id]["roi"])
-            roi_ft_n = np.fft.fft2(rois_list[id]["roi_n"])
-            if rms == 5:
-                id_to_remove.append(id)
-                continue
-            if fit_result.shape[0] == 8 and fit_result_n.shape[0] == 8:
-                fit_results_1 = fit_result[:4]
-                fit_results_2 = fit_result[4:]
-                fit_results_1_n = fit_result_n[:4]
-                fit_results_2_n = fit_result_n[4:]
-                y_pos, x_pos = (
-                    (
-                        rois_list[id]["rel_peak"][0] + fit_results_1[2] - roi_rad,
-                        rois_list[id]["rel_peak"][0] + fit_results_2[2] - roi_rad,
-                    ),
-                    (
-                        rois_list[id]["rel_peak"][1] + fit_results_1[1] - roi_rad,
-                        rois_list[id]["rel_peak"][1] + fit_results_2[1] - roi_rad,
-                    ),
-                )
-                y_pos_n, x_pos_n = (
-                    (
-                        rois_list[id]["rel_peak"][0] + fit_results_1_n[2] - roi_rad,
-                        rois_list[id]["rel_peak"][0] + fit_results_2_n[2] - roi_rad,
-                    ),
-                    (
-                        rois_list[id]["rel_peak"][1] + fit_results_1_n[1] - roi_rad,
-                        rois_list[id]["rel_peak"][1] + fit_results_2_n[1] - roi_rad,
-                    ),
-                )
-                y_posp, x_posp = (
-                    rois_list[id]["rel_peak"][0]
-                    + est_coord(roi_ft, (1, 0), roi_rad)
-                    - roi_rad,
-                    rois_list[id]["rel_peak"][1]
-                    + est_coord(roi_ft, (0, 1), roi_rad)
-                    - roi_rad,
-                )
-                y_pos_np, x_pos_np = (
-                    rois_list[id]["rel_peak"][0]
-                    + est_coord(roi_ft_n, (1, 0), roi_rad)
-                    - roi_rad,
-                    rois_list[id]["rel_peak"][1]
-                    + est_coord(roi_ft_n, (0, 1), roi_rad)
-                    - roi_rad,
-                )
-
-                """write the localizations to ndarray"""
-                localizations[id] = (
-                    id,
-                    rois_list[id]["t_peak"],
-                    1,
-                    x_pos[0],
-                    x_pos[1],
-                    y_pos[0],
-                    y_pos[1],
-                    0,
-                    0,
-                    fit_result[0],
-                    fit_result[3],
-                    rms,
-                    rois_list[id]["total_events_roi"],
-                    fit_result[1],
-                    fit_result[2],
-                    rois_list[id]["t_1st"],
-                    x_pos_n[0],
-                    x_pos_n[1],
-                    y_pos_n[0],
-                    y_pos_n[1],
-                    0,
-                    0,
-                    fit_result_n[0],
-                    fit_result_n[3],
-                    rms_n,
-                    rois_list[id]["total_neg_events_roi"],
-                    fit_result_n[1],
-                    fit_result_n[2],
-                    rois_list[id]["t_last"],
-                    rois_list[id]["roi_event_times"][0],
-                    rois_list[id]["roi_event_times"][1],
-                    rois_list[id]["roi"],
-                    rois_list[id]["roi_n"],
-                )
-
-            elif fit_result.shape[0] == 8 and fit_result_n.shape[0] != 8:
-                id_to_remove.append(id)
-                continue
-            else:
-                y_pos, x_pos = (
-                    rois_list[id]["rel_peak"][0] + fit_result[2] - roi_rad,
-                    rois_list[id]["rel_peak"][1] + fit_result[1] - roi_rad,
-                )
-                y_pos_n, x_pos_n = (
-                    rois_list[id]["rel_peak"][0] + fit_result_n[2] - roi_rad,
-                    rois_list[id]["rel_peak"][1] + fit_result_n[1] - roi_rad,
-                )
-
-                y_posp, x_posp = (
-                    rois_list[id]["rel_peak"][0]
-                    + est_coord(roi_ft, (1, 0), roi_rad)
-                    - roi_rad,
-                    rois_list[id]["rel_peak"][1]
-                    + est_coord(roi_ft, (0, 1), roi_rad)
-                    - roi_rad,
-                )
-                y_pos_np, x_pos_np = (
-                    rois_list[id]["rel_peak"][0]
-                    + est_coord(roi_ft_n, (1, 0), roi_rad)
-                    - roi_rad,
-                    rois_list[id]["rel_peak"][1]
-                    + est_coord(roi_ft_n, (0, 1), roi_rad)
-                    - roi_rad,
-                )
-
-                """write the localizations to ndarray"""
-                localizations[id] = (
-                    id,
-                    rois_list[id]["t_peak"],
-                    0,
-                    x_pos,
-                    0,
-                    y_pos,
-                    0,
-                    x_posp,
-                    y_posp,
-                    fit_result[0],
-                    fit_result[3],
-                    rms,
-                    rois_list[id]["total_events_roi"],
-                    fit_result[1],
-                    fit_result[2],
-                    rois_list[id]["t_1st"],
-                    x_pos_n,
-                    0,
-                    y_pos_n,
-                    0,
-                    x_pos_np,
-                    y_pos_np,
-                    fit_result_n[0],
-                    fit_result_n[3],
-                    rms_n,
-                    rois_list[id]["total_neg_events_roi"],
-                    fit_result_n[1],
-                    fit_result_n[2],
-                    rois_list[id]["t_last"],
-                    rois_list[id]["roi_event_times"][0],
-                    rois_list[id]["roi_event_times"][1],
-                    rois_list[id]["roi"],
-                    rois_list[id]["roi_n"],
-                )
-        localizations = np.delete(
-            localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0
-        )
-
+    localizations = np.delete(
+        localizations, np.asarray(id_to_remove, dtype=np.uint64), axis=0
+    )
     return localizations
+
+
+def localization_uncertainty_px(localizations: np.ndarray) -> np.ndarray:
+    """Return worst-axis 1-sigma localization uncertainty in pixels."""
+    var_x = np.asarray(localizations["sigma_x"], dtype=np.float64) ** 2
+    var_y = np.asarray(localizations["sigma_y"], dtype=np.float64) ** 2
+    cov_xy = np.asarray(localizations["cov_xy"], dtype=np.float64)
+
+    trace = var_x + var_y
+    determinant_term = np.sqrt((var_x - var_y) ** 2 + 4.0 * cov_xy**2)
+
+    largest_eigenvalue = 0.5 * (trace + determinant_term)
+    return np.sqrt(np.maximum(largest_eigenvalue, 0.0))
+
+
+def filter_poisson_localizations(
+    localizations: np.ndarray,
+    config: PeakLocConfig,
+) -> np.ndarray:
+    if localizations.size == 0:
+        return localizations
+    keep = (
+        localizations["fit_success"]
+        & np.isfinite(localizations["x"])
+        & np.isfinite(localizations["y"])
+        & np.isfinite(localizations["sigma_x"])
+        & np.isfinite(localizations["sigma_y"])
+        & np.isfinite(localizations["cov_xy"])
+        & (localizations["sigma_x"] > 0)
+        & (localizations["sigma_y"] > 0)
+        & (localizations["fit_cond"] < config.max_fit_cond)
+        & (localizations["valid_pixel_count"] >= config.min_valid_pixels)
+    )
+    uncertainty_px = localization_uncertainty_px(localizations)
+    keep &= np.isfinite(uncertainty_px)
+
+    if config.max_localization_uncertainty_px is not None:
+        keep &= uncertainty_px <= config.max_localization_uncertainty_px
+
+    if config.max_localization_uncertainty_nm is not None:
+        max_uncertainty_px = (
+            config.max_localization_uncertainty_nm / config.optical_pixel_size_nm
+        )
+        keep &= uncertainty_px <= max_uncertainty_px
+
+    return localizations[keep]
+
+
+def _roi_radius_from_dtype(rois: np.ndarray) -> int | None:
+    if rois.dtype.names is None or "roi" not in rois.dtype.names:
+        return None
+    roi_shape = rois.dtype["roi"].shape
+    if len(roi_shape) != 2:
+        return None
+    return int(roi_shape[0] // 2)
+
+
+def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:
+    roi_shape = (roi_rad * 2 + 1, roi_rad * 2 + 1)
+    return [
+        ("id", np.uint64),
+        ("t_peak", np.float64),
+        ("double", np.uint8),
+        ("x", np.float64),
+        ("x2", np.float64),
+        ("y", np.float64),
+        ("y2", np.float64),
+        ("I", np.float32),
+        ("FWHM", np.float32),
+        ("E_total", np.uint64),
+        ("E_total_n", np.uint64),
+        ("sub_x", np.float64),
+        ("sub_y", np.float64),
+        ("t_1st", np.float64),
+        ("t_last", np.float64),
+        ("sigma_x", np.float64),
+        ("sigma_y", np.float64),
+        ("cov_xy", np.float64),
+        ("A_pos", np.float64),
+        ("A_neg", np.float64),
+        ("bg_pos_local", np.float64),
+        ("bg_neg_local", np.float64),
+        ("bg_pos_cal_sum", np.float64),
+        ("bg_neg_cal_sum", np.float64),
+        ("sigma_psf_px", np.float64),
+        ("nll", np.float64),
+        ("nll_per_event", np.float64),
+        ("fit_success", np.bool_),
+        ("fit_status", "U256"),
+        ("fit_cond", np.float64),
+        ("calibration_id", "U128"),
+        ("calibrated_background", np.bool_),
+        ("uncertainty_mode", "U64"),
+        ("hot_pixel_count", np.uint32),
+        ("valid_pixel_count", np.uint32),
+        ("roi_event_times", np.uint64, roi_shape),
+        ("roi_event_times_n", np.uint64, roi_shape),
+        ("roi", np.uint32, roi_shape),
+        ("roi_n", np.uint32, roi_shape),
+    ]

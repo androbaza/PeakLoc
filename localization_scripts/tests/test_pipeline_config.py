@@ -1,4 +1,6 @@
 import json
+from dataclasses import fields
+from pathlib import Path
 
 import pytest
 
@@ -64,6 +66,15 @@ def test_peakloc_config_validates_scientific_parameters():
     with pytest.raises(ValueError, match="optical_pixel_size must be positive"):
         PeakLocConfig.from_mapping({"optical_pixel_size": 0})
 
+    with pytest.raises(ValueError, match="sensor_height must be positive"):
+        PeakLocConfig.from_mapping({"sensor_height": 0})
+
+    with pytest.raises(ValueError, match="sensor_width must be positive"):
+        PeakLocConfig.from_mapping({"sensor_width": 0})
+
+    with pytest.raises(ValueError, match="peak_min_event_count must be positive"):
+        PeakLocConfig.from_mapping({"peak_min_event_count": 0})
+
     with pytest.raises(ValueError, match="spline_smooth must be between 0 and 1"):
         PeakLocConfig.from_mapping({"spline_smooth": 1.5})
 
@@ -71,6 +82,38 @@ def test_peakloc_config_validates_scientific_parameters():
 def test_peakloc_config_validates_boolean_parameters():
     with pytest.raises(ValueError, match="plot_result must be true or false"):
         PeakLocConfig.from_mapping({"plot_result": "yes"})
+
+
+def test_peakloc_config_validates_event_model_settings():
+    with pytest.raises(ValueError, match="fit_model must be"):
+        PeakLocConfig.from_mapping({"fit_model": "not-a-model"})
+
+    with pytest.raises(ValueError, match="fit_model must be 'poisson_joint'"):
+        PeakLocConfig.from_mapping({"fit_model": "legacy_lsq"})
+
+    with pytest.raises(ValueError, match="calibration_path is required"):
+        PeakLocConfig.from_mapping({"allow_uncalibrated": False})
+
+    with pytest.raises(ValueError, match="sigma_psf_px must be positive"):
+        PeakLocConfig.from_mapping({"sigma_psf_px": 0})
+
+    with pytest.raises(ValueError, match="min_valid_pixels must be positive"):
+        PeakLocConfig.from_mapping({"min_valid_pixels": 0})
+
+    with pytest.raises(
+        ValueError, match="max_localization_uncertainty_px must be positive"
+    ):
+        PeakLocConfig.from_mapping({"max_localization_uncertainty_px": 0})
+
+    with pytest.raises(
+        ValueError, match="max_localization_uncertainty_nm must be positive"
+    ):
+        PeakLocConfig.from_mapping({"max_localization_uncertainty_nm": 0})
+
+    assert PeakLocConfig.from_mapping({"background_mode": "calibrated_only"})
+
+    with pytest.raises(ValueError, match="background_mode must be"):
+        PeakLocConfig.from_mapping({"background_mode": "not-a-mode"})
 
 
 def test_write_effective_config_is_human_readable_json(tmp_path):
@@ -83,6 +126,21 @@ def test_write_effective_config_is_human_readable_json(tmp_path):
     assert payload["input_folder"] == "data"
     assert payload["num_cores"] == 1
     assert payload["optical_pixel_size"] == 67.0
+    assert payload["sensor_height"] == 720
+    assert payload["sensor_width"] == 1280
+    assert payload["peak_min_event_count"] == 2
+    assert payload["fit_model"] == "poisson_joint"
+    assert payload["max_localization_uncertainty_px"] is None
+    assert payload["max_localization_uncertainty_nm"] is None
     assert config.optical_pixel_size_nm == 67.0
+    assert config.sensor_shape == (720, 1280)
     assert payload["plot_result"] is True
     assert output_path.read_text(encoding="utf-8").endswith("\n")
+
+
+def test_root_config_includes_all_peakloc_config_fields():
+    payload = json.loads(Path("config.json").read_text(encoding="utf-8"))
+    expected_fields = {field.name for field in fields(PeakLocConfig)}
+
+    assert set(payload) == expected_fields
+    assert payload["fit_model"] == "poisson_joint"

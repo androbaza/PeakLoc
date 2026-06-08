@@ -52,7 +52,7 @@ def array_to_polarity_map(arr, coords):
     dict_out = {}
     for id in prange(len(coords)):
         y, x = coords[id]
-        key = (y, x)
+        key = (np.int32(y), np.int32(x))
         if key in dict_out:
             continue
         else:
@@ -62,7 +62,7 @@ def array_to_polarity_map(arr, coords):
             }
     max_len = 0
     for id in prange(len(arr)):
-        key = (arr[id]["y"], arr[id]["x"])
+        key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
         if len(dict_out[key][1]) > max_len:
             max_len = len(dict_out[key][1])
@@ -75,15 +75,14 @@ def array_to_polarity_map(arr, coords):
 def array_to_time_map(arr):
     """
     Converts a structured NumPy ndarray with fields x, y, p, t into a dictionary with keys as (x, y) pairs and
-    values as a nested dictionary with keys from t and corresponding values from p for that coordinate pair.
+    values as lists of (t, p) events for that coordinate pair.
     """
     dict_out = {}
     for id in prange(len(arr)):
-        key = (arr[id]["y"], arr[id]["x"])
-        if key in dict_out:
-            dict_out[key][arr[id]["t"]] = arr[id]["p"]
-        else:
-            dict_out[key] = {arr[id]["t"]: arr[id]["p"]}
+        key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
+        if key not in dict_out:
+            dict_out[key] = List.empty_list((np.uint64(0), np.int8(0)))
+        dict_out[key].append((arr[id]["t"], np.int8(arr[id]["p"])))
     return dict_out
 
 
@@ -133,7 +132,7 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
     times = np.empty(shape=(len(coords_split), max_len), dtype=np.uint64)
     cumsum = np.empty(shape=(len(coords_split), max_len), dtype=np.int32)
     lengths = np.empty(shape=(len(coords_split)), dtype=np.uint32)
-    coords = np.empty(shape=(len(coords_split), 2), dtype=np.uint16)
+    coords = np.empty(shape=(len(coords_split), 2), dtype=np.int32)
     for coord_pair in prange(len(coords_split)):
         coord_convolution_events = append_conv_data(
             coords_split[coord_pair], roi_rad, events_dict
@@ -172,20 +171,14 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
 def create_signal(dict_events, coords, max_len):
     times, cumsum, coordinates = [], [], []
     num_coords = 24
-    for i in range(num_coords, len(coords), num_coords):
-        output1, output2, output3 = process_conv_list_parallel(
-            dict_events, coords[i - num_coords : i], max_len
+    for start in range(0, len(coords), num_coords):
+        chunk = coords[start : start + num_coords]
+        output_times, output_cumsum, output_coords = process_conv_list_parallel(
+            dict_events, chunk, max_len
         )
-        times.extend(output1)
-        cumsum.extend(output2)
-        coordinates.extend(output3)
-        if i + num_coords > len(coords):
-            output1, output2, output3 = process_conv_list_parallel(
-                dict_events, coords[i:], max_len
-            )
-            times.extend(output1)
-            cumsum.extend(output2)
-            coordinates.extend(output3)
+        times.extend(output_times)
+        cumsum.extend(output_cumsum)
+        coordinates.extend(output_coords)
     gc.collect()
     return times, cumsum, coordinates
 

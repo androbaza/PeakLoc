@@ -69,8 +69,9 @@ structured NumPy array with one fitted event-localization row per blink. The mai
 coordinate fields are `x` and `y` in camera pixels. If `double == 1`, the
 secondary fitted component is stored in `x2` and `y2`. Convert coordinates to nm
 with `config.json` field `optical_pixel_size` (67 nm by default). Other useful
-fields include `t_peak`, `t_1st`, `t_last`, `I`, `FWHM`, `rms`, `E_total`, and the
-corresponding negative-polarity fit fields ending in `_n`.
+fields include `t_peak`, `t_1st`, `t_last`, `I`, `FWHM`, `E_total`,
+`E_total_n`, `sigma_x`, `sigma_y`, `nll_per_event`, `fit_success`, and
+`fit_status`.
 
 The ROI file,
 `rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy`, stores the fitted ROI
@@ -90,6 +91,7 @@ report with processed slice counts, localization counts, timings, and artifact
 paths.
 
 Common downstream processing starts from the localization `.npy`: filter by
-`rms`, `FWHM`, `E_total`, and time fields; convert `x`/`y` to nm; apply drift
-correction if needed; render density images; estimate resolution with FRC; or
-load the coordinate table as points in tools such as Napari.
+`fit_success`, `fit_status`, `FWHM`, `E_total`, `E_total_n`, and time fields;
+convert `x`/`y` to nm; apply drift correction if needed; render density images;
+estimate resolution with FRC; or load the coordinate table as points in tools
+such as Napari.

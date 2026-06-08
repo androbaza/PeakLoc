@@ -37,6 +37,7 @@ typecheck = "ty check"
 [environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+all = { features = ["dev"], solve-group = "default" }
 
 [tasks]
 clean-temp = "python -m scripts.clean_temp_files"

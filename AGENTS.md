@@ -1,9 +1,14 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch workflow. `localization_scripts/` contains event parsing, peak detection, ROI generation, fitting, plotting, and simulation code. `interface/` contains exploratory UI scripts. `figures/` stores README assets. Helper scripts such as `peaks_dict_to_locs.py` and `clean_temp_files.py` live in `scripts/` and should stay thin.
+PeakLoc is a Python event-camera SMLM pipeline. `PeakLoc.py` is the main batch workflow. `localization_scripts/` contains event parsing, peak detection, ROI generation, fitting, and plotting code. `scripts/event_sim.py` contains exploratory simulation code. `interface/` contains exploratory UI scripts. `figures/` stores README assets. Helper scripts such as `peaks_dict_to_locs.py` and `clean_temp_files.py` live in `scripts/` and should stay thin.
 
 Keep raw recordings, `.bias` files, generated `.npy`/`.pkl` outputs, temp folders, and machine-specific paths out of commits.
+
+Coordinate convention:
+- Image arrays are indexed as image[y, x] == image[row, col].
+- Matplotlib imshow overlays must use:
+    scatter(sub_x, sub_y)
 
 ## Environment & Commands
 Use pixi. Add dependencies with `pixi add <package>`.
@@ -26,7 +31,7 @@ Target Python 3.12. Type every function signature and use modern generics such a
 Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `snake_case` for functions and variables, `UPPER_CASE` for constants, and clear names: prefer `coefficients` over `coeffs`. Sort imports with ruff/isort. Comments should explain why, not what. Preserve event fields `x`, `y`, `p`, and `t` unless all consumers are updated together.
 
 ## Testing & Validation
-Use pytest. Place tests next to the module they cover, for example `localization_scripts/tests/test_peak_finding.py`; do not add a top-level `tests/` directory. New features need tests using tiny synthetic arrays or `localization_scripts/event_sim.py`. Tests must not require absolute lab paths or large raw recordings.
+Use pytest. Place tests next to the module they cover, for example `localization_scripts/tests/test_peak_finding.py`; do not add a top-level `tests/` directory. New features need tests using tiny synthetic arrays or `scripts/event_sim.py`. Tests must not require absolute lab paths or large raw recordings.
 
 Before finishing, run `pixi run -e dev ruff check --fix .`, `pixi run -e dev ruff format .`, and `pixi run -e all ty check`. Run `pixi run -e dev pytest` when tests are relevant; note any known broken tests in the PR.
 

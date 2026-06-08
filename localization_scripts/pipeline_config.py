@@ -28,16 +28,34 @@ class PeakLocConfig:
     prominence: float = 12.0
     dataset_fwhm: float = 6.0
     peak_time_threshold: float = 40e3
+    polarity_time_gate_us: float = 5e3
     peak_neighbors: int = 9
     roi_radius: int = 8
     convolution_roi_radius: int = 1
+    peak_min_event_count: int = 2
     interpolation_coefficient: int = 5
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
     plot_result: bool = True
     optical_pixel_size: float = 67.0
+    sensor_height: int = 720
+    sensor_width: int = 1280
     max_raw_events: int = 1_000_000
     cleanup_temp_outputs: bool = True
+    fit_model: str = "poisson_joint"
+    allow_uncalibrated: bool = True
+    calibration_path: str | None = None
+    sigma_psf_px: float | None = None
+    fit_sigma: bool = False
+    psf_model: str = "pixel_integrated_gaussian"
+    background_mode: str = "calibrated_plus_local"
+    hot_pixel_policy: str = "mask"
+    min_events_pos: int = 3
+    min_events_neg: int = 3
+    min_valid_pixels: int = 1
+    max_fit_cond: float = 1e10
+    max_localization_uncertainty_px: float | None = None
+    max_localization_uncertainty_nm: float | None = None
 
     @classmethod
     def from_json(cls, path: str | Path) -> Self:
@@ -84,17 +102,58 @@ class PeakLocConfig:
         _require_positive("prominence", self.prominence)
         _require_positive("dataset_fwhm", self.dataset_fwhm)
         _require_positive("peak_time_threshold", self.peak_time_threshold)
+        _require_non_negative("polarity_time_gate_us", self.polarity_time_gate_us)
         _require_positive("peak_neighbors", self.peak_neighbors)
         _require_positive("roi_radius", self.roi_radius)
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
+        _require_positive("peak_min_event_count", self.peak_min_event_count)
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)
+        _require_positive("sensor_height", self.sensor_height)
+        _require_positive("sensor_width", self.sensor_width)
         _require_positive("max_raw_events", self.max_raw_events)
+        _require_positive("min_events_pos", self.min_events_pos)
+        _require_positive("min_events_neg", self.min_events_neg)
+        _require_positive("min_valid_pixels", self.min_valid_pixels)
+        _require_positive("max_fit_cond", self.max_fit_cond)
+        if self.max_localization_uncertainty_px is not None:
+            _require_positive(
+                "max_localization_uncertainty_px",
+                self.max_localization_uncertainty_px,
+            )
+        if self.max_localization_uncertainty_nm is not None:
+            _require_positive(
+                "max_localization_uncertainty_nm",
+                self.max_localization_uncertainty_nm,
+            )
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
+        _require_bool("allow_uncalibrated", self.allow_uncalibrated)
+        _require_bool("fit_sigma", self.fit_sigma)
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
+        if self.fit_model != "poisson_joint":
+            raise ValueError("fit_model must be 'poisson_joint'")
+        if self.psf_model != "pixel_integrated_gaussian":
+            raise ValueError("psf_model must be 'pixel_integrated_gaussian'")
+        if self.background_mode not in {
+            "calibrated_only",
+            "calibrated_plus_local",
+            "local_only",
+        }:
+            raise ValueError(
+                "background_mode must be 'calibrated_only', "
+                "'calibrated_plus_local', or 'local_only'"
+            )
+        if self.hot_pixel_policy != "mask":
+            raise ValueError("hot_pixel_policy must be 'mask'")
+        if self.sigma_psf_px is not None:
+            _require_positive("sigma_psf_px", self.sigma_psf_px)
+        if self.calibration_path is None and not self.allow_uncalibrated:
+            raise ValueError(
+                "calibration_path is required when allow_uncalibrated is false"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -102,6 +161,10 @@ class PeakLocConfig:
     @property
     def optical_pixel_size_nm(self) -> float:
         return self.optical_pixel_size
+
+    @property
+    def sensor_shape(self) -> tuple[int, int]:
+        return self.sensor_height, self.sensor_width
 
 
 def load_peakloc_config(
