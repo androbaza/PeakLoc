@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import replace
+import os
 from pathlib import Path
+
 from loguru import logger
 import numpy as np
-from scipy.special import erf
 import pytest
+from scipy.special import erf
+
+from localization_scripts.debug_visualization import (
+    DebugVisualizationConfig,
+    TruthPoint,
+    save_synthetic_localization_debug_artifacts,
+)
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import process_recording
-from dataclasses import replace
 
 EVENT_DTYPE = np.dtype(
     [
         ("x", np.uint16),
         ("y", np.uint16),
-        ("p", np.int8),      # PeakLoc convention: 1 = positive, 0 = negative
-        ("t", np.uint64),    # microseconds
+        ("p", np.int8),  # PeakLoc convention: 1 = positive, 0 = negative
+        ("t", np.uint64),  # microseconds
     ]
 )
 
@@ -45,6 +53,8 @@ TRUTH = (
     BlinkTruth(x_px=30.35, y_px=31.70, peak_us=200_000),
     BlinkTruth(x_px=61.25, y_px=60.30, peak_us=600_000),
 )
+
+
 def test_synthetic_blinks_are_detected_and_localized_end_to_end(
     tmp_path: Path,
 ) -> None:
@@ -59,6 +69,7 @@ def test_synthetic_blinks_are_detected_and_localized_end_to_end(
     assert len(np.unique(locs["id"])) == locs.size, (
         "Localization IDs are not unique after concatenating time slices."
     )
+
 
 def test_synthetic_blinks_with_different_event_counts_are_localized(
     tmp_path: Path,
@@ -81,11 +92,14 @@ def test_synthetic_blinks_with_different_event_counts_are_localized(
         },
     )
 
+
 def test_late_high_count_synthetic_blink_is_localized(
     tmp_path: Path,
 ) -> None:
     blinks = (
-        BlinkTruth(x_px=72.20, y_px=70.60, peak_us=1_000_000, n_pos=12_000, n_neg=12_000),
+        BlinkTruth(
+            x_px=72.20, y_px=70.60, peak_us=1_000_000, n_pos=12_000, n_neg=12_000
+        ),
     )
 
     _run_synthetic_scenario(
@@ -100,6 +114,7 @@ def test_late_high_count_synthetic_blink_is_localized(
             "peak_min_event_count": 40,
         },
     )
+
 
 def test_temporally_separated_spatially_overlapping_blinks_are_localized(
     tmp_path: Path,
@@ -116,6 +131,7 @@ def test_temporally_separated_spatially_overlapping_blinks_are_localized(
         max_spatial_error_px=1.25,
         min_events_per_polarity=1_000,
     )
+
 
 @pytest.mark.xfail(
     reason=(
@@ -142,6 +158,7 @@ def test_simultaneous_spatially_overlapping_blinks_are_not_yet_resolved(
         min_events_per_polarity=1_000,
     )
 
+
 def test_synthetic_blink_near_upper_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +177,7 @@ def test_synthetic_blink_near_upper_sensor_edge_is_localized(
             "peak_min_event_count": 40,
         },
     )
+
 
 def test_synthetic_blink_near_lower_sensor_edge_is_localized(
     tmp_path: Path,
@@ -180,6 +198,7 @@ def test_synthetic_blink_near_lower_sensor_edge_is_localized(
         },
     )
 
+
 def test_synthetic_blink_close_to_lower_sensor_edge_is_localized(
     tmp_path: Path,
 ) -> None:
@@ -194,6 +213,7 @@ def test_synthetic_blink_close_to_lower_sensor_edge_is_localized(
         max_spatial_error_px=1.25,
         min_events_per_polarity=800,
     )
+
 
 def test_synthetic_long_blink_is_localized(
     tmp_path: Path,
@@ -220,6 +240,7 @@ def test_synthetic_long_blink_is_localized(
         min_events_per_polarity=800,
         max_abs_time_error_us=140_000,
     )
+
 
 def test_synthetic_short_blink_is_localized(
     tmp_path: Path,
@@ -250,6 +271,7 @@ def test_synthetic_short_blink_is_localized(
             "peak_min_event_count": 30,
         },
     )
+
 
 def _run_synthetic_scenario(
     *,
@@ -285,7 +307,11 @@ def _run_synthetic_scenario(
         run_timestamp=f"pytest_{name}",
     )
 
-    expected_count = len(blinks) if min_successful_localizations is None else min_successful_localizations
+    expected_count = (
+        len(blinks)
+        if min_successful_localizations is None
+        else min_successful_localizations
+    )
 
     assert result.event_count == events.size
     assert len(result.slice_results) >= 1
@@ -308,6 +334,27 @@ def _run_synthetic_scenario(
 
     if "fit_success" in locs.dtype.names:
         locs = locs[locs["fit_success"]]
+
+    save_synthetic_localization_debug_artifacts(
+        events=events,
+        localizations=locs,
+        attempted_localizations=_load_temp_arrays(
+            input_path, "attempted_localizations"
+        ),
+        rois=_load_temp_arrays(input_path, "rois"),
+        truth=_truth_points(blinks),
+        config=DebugVisualizationConfig(
+            output_dir=_debug_output_root(tmp_path) / name,
+            scenario_name=name,
+            sensor_shape=SENSOR_SHAPE,
+            optical_pixel_size_nm=config.optical_pixel_size_nm,
+            max_spatial_error_px=max_spatial_error_px,
+            max_abs_time_error_us=max_abs_time_error_us,
+            min_events_per_polarity=min_events_per_polarity,
+            overwrite=True,
+        ),
+        test_status="pre_assertion",
+    )
 
     assert locs.size >= expected_count
 
@@ -332,6 +379,38 @@ def _run_synthetic_scenario(
         assert int(best["E_total_n"]) >= min_events_per_polarity
 
     return locs
+
+
+def _truth_points(blinks: tuple[BlinkTruth, ...]) -> list[TruthPoint]:
+    return [
+        TruthPoint(
+            x_px=blink.x_px,
+            y_px=blink.y_px,
+            peak_us=blink.peak_us,
+            label=f"truth_{idx}",
+            n_pos=blink.n_pos,
+            n_neg=blink.n_neg,
+        )
+        for idx, blink in enumerate(blinks)
+    ]
+
+
+def _debug_output_root(tmp_path: Path) -> Path:
+    persistent = os.environ.get("PEAKLOC_DEBUG_ARTIFACT_DIR")
+    if persistent:
+        return Path(persistent) / "synthetic_blinks"
+    return tmp_path / "debug_artifacts"
+
+
+def _load_temp_arrays(input_path: Path, prefix: str) -> np.ndarray | None:
+    temp_dir = input_path.with_suffix("") / "temp_files"
+    paths = sorted(temp_dir.glob(f"{prefix}_*.npy"))
+    arrays = [np.load(path) for path in paths if path.is_file()]
+    arrays = [array for array in arrays if array.size > 0]
+    if not arrays:
+        return None
+    return np.concatenate(arrays)
+
 
 def synthetic_event_recording(
     *,
@@ -441,14 +520,8 @@ def _pixel_integrated_gaussian_weights(
 ) -> np.ndarray:
     sqrt2_sigma = np.sqrt(2.0) * sigma_px
 
-    wx = 0.5 * (
-        erf((xs + 0.5 - x0) / sqrt2_sigma)
-        - erf((xs - 0.5 - x0) / sqrt2_sigma)
-    )
-    wy = 0.5 * (
-        erf((ys + 0.5 - y0) / sqrt2_sigma)
-        - erf((ys - 0.5 - y0) / sqrt2_sigma)
-    )
+    wx = 0.5 * (erf((xs + 0.5 - x0) / sqrt2_sigma) - erf((xs - 0.5 - x0) / sqrt2_sigma))
+    wy = 0.5 * (erf((ys + 0.5 - y0) / sqrt2_sigma) - erf((ys - 0.5 - y0) / sqrt2_sigma))
 
     weights = np.outer(wy, wx)
     return np.clip(weights, 0.0, None)
@@ -517,19 +590,14 @@ def _make_config(tmp_path: Path) -> PeakLocConfig:
         sigma_psf_px=SIGMA_PSF_PX,
         fit_sigma=False,
         psf_model="pixel_integrated_gaussian",
-
         # Important for this synthetic generator:
         # it creates signal events, but no explicit dark/blank/local background.
         background_mode="calibrated_only",
-
         hot_pixel_policy="mask",
-
         # Keep these non-trivial. Do not lower them just to pass.
         min_events_pos=100,
         min_events_neg=100,
-
         min_valid_pixels=1,
-
         # Start with this; only raise if diagnostics show condition-only rejection.
         max_fit_cond=1e15,
     )
@@ -555,6 +623,7 @@ def _best_spatial_match(
     )
     idx = int(np.argmin(distances))
     return locs[idx], float(distances[idx])
+
 
 def _log_synthetic_pipeline_artifacts(input_path: Path, config: PeakLocConfig) -> None:
     temp_dir = input_path.with_suffix("") / "temp_files"
@@ -609,9 +678,8 @@ def _log_roi_file_summary(
     if rois.size == 0:
         return
 
-    eligible = (
-        (rois["total_events_roi"] >= config.min_events_pos)
-        & (rois["total_neg_events_roi"] >= config.min_events_neg)
+    eligible = (rois["total_events_roi"] >= config.min_events_pos) & (
+        rois["total_neg_events_roi"] >= config.min_events_neg
     )
 
     logger.warning(
@@ -704,6 +772,10 @@ def _log_localization_file_summary(loc_path: Path, locs: np.ndarray) -> None:
         logger.warning(
             "loc[{}]: {}",
             idx,
-            {field: locs[field][idx].item() if np.ndim(locs[field][idx]) == 0 else locs[field][idx].tolist()
-             for field in present},
+            {
+                field: locs[field][idx].item()
+                if np.ndim(locs[field][idx]) == 0
+                else locs[field][idx].tolist()
+                for field in present
+            },
         )
