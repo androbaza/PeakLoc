@@ -1,11 +1,18 @@
+"""Legacy exploratory rendering helpers.
+
+Drift correction and FRC now live in tested modules:
+`localization_scripts.drift`, `localization_scripts.frc`, and
+`localization_scripts.postprocessing`.
+"""
+
+from pathlib import Path
+
 import numpy as np
 import tifffile
 from scipy.interpolate import interp1d
 
-input_data = "/home/smlm-workstation/event-smlm/generated_data/localizations/npy/tubulin300x400[7, 1800]_localizations_full.npy"
-out_folder = (
-    "/home/smlm-workstation/event-smlm/event-smlm-localization/generated_images/"
-)
+input_data: str | None = None
+out_folder: str | None = None
 
 
 def neighbor_interpolation(
@@ -289,7 +296,11 @@ def drift_correction(
 """randomly shuffle localizations before binning for FRC resolution mesurement"""
 
 
-def FRC_split(localizations, pixel_dim=0.3):
+def FRC_split(localizations, pixel_dim=0.3, output_dir: str | Path | None = None):
+    if output_dir is None:
+        raise ValueError("output_dir must be provided for FRC_split")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
     data_shuffle = np.copy(localizations)
     np.random.shuffle(data_shuffle)
     s1, s2 = (
@@ -298,11 +309,11 @@ def FRC_split(localizations, pixel_dim=0.3):
     )
     frc1, frc2 = histogram_binning(s1, pixel_dim), histogram_binning(s2, pixel_dim)
     tifffile.imwrite(
-        "/home/smlm-workstation/event-smlm/event-smlm-localization/figures/FRC1.tif",
+        output_path / "FRC1.tif",
         frc1.T.astype("float32"),
     )
     tifffile.imwrite(
-        "/home/smlm-workstation/event-smlm/event-smlm-localization/figures/FRC2.tif",
+        output_path / "FRC2.tif",
         frc2.T.astype("float32"),
     )
 

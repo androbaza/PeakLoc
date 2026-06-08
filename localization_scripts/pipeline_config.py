@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Self
 
 
-DEFAULT_INPUT_FOLDER = "/home/smlm-workstation/event-smlm/Paris/process/"
+DEFAULT_INPUT_FOLDER = "data"
 DEFAULT_SLICE_DURATION = int(100e6)
 DEFAULT_CONFIG_PATH = Path("config.json")
 

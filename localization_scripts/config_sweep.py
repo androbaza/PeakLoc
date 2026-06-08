@@ -17,6 +17,7 @@ from matplotlib import pyplot as plt
 
 from localization_scripts.localization_fitting import localization_qc_dtype
 from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.plot_style import PLOT_COLORS, PREVIEW_DPI, SEQUENTIAL_CMAP
 from localization_scripts.preflight import run_preflight, write_preflight_report
 
 
@@ -309,11 +310,11 @@ def _save_pareto_plot(rows: list[dict[str, Any]], path: Path) -> Path:
             row.get("median_uncertainty_nm") or row.get("median_uncertainty_px")
             for row in rows
         ]
-        axis.scatter(x, y, color="#0072B2")
+        axis.scatter(x, y, color=PLOT_COLORS["blue"])
     axis.set_title("Pareto: localizations vs uncertainty")
     axis.set_xlabel("accepted localizations")
     axis.set_ylabel("median uncertainty")
-    fig.savefig(path, dpi=300, bbox_inches="tight")
+    fig.savefig(path, dpi=PREVIEW_DPI, bbox_inches="tight")
     plt.close(fig)
     return path
 
@@ -332,7 +333,7 @@ def _save_rejection_heatmap(rows: list[dict[str, Any]], path: Path) -> Path:
         matrix = np.asarray(
             [[row.get(field, 0.0) for field in reason_fields] for row in rows]
         )
-        image = axis.imshow(matrix, cmap="cividis", aspect="auto", vmin=0, vmax=1)
+        image = axis.imshow(matrix, cmap=SEQUENTIAL_CMAP, aspect="auto", vmin=0, vmax=1)
         axis.set_xticks(
             np.arange(len(reason_fields)),
             [field.replace("fraction_rejected_", "") for field in reason_fields],
@@ -352,7 +353,7 @@ def _save_rejection_heatmap(rows: list[dict[str, Any]], path: Path) -> Path:
         )
         axis.set_axis_off()
     axis.set_title("Rejection reason heatmap")
-    fig.savefig(path, dpi=300, bbox_inches="tight")
+    fig.savefig(path, dpi=PREVIEW_DPI, bbox_inches="tight")
     plt.close(fig)
     return path
 

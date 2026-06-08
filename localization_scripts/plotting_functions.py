@@ -60,9 +60,6 @@ def plot_event_signals_2d(signal_and_peaks):
         loc="upper left",
         fontsize=14,
     )
-    # plt.legend([maxes], ['Detected fluorophore excitation'], loc = 'upper left')
-    # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/roi_cumsum_calibration.png',dpi=300, bbox_inches = 'tight')
-    plt.show()
     return fig
 
 
@@ -144,7 +141,6 @@ def plot_single_fit(fit_params, rms, fit, data):
     cbar.ax.tick_params(size=4, labelsize=17, pad=1)
     # cbar.ax.fontsize = 7
     cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
-    # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/signle_to_double_gauss_fit.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
 
 
 def plot_double_fit(fit_params, rms, fit, data):
@@ -199,7 +195,6 @@ def plot_double_fit(fit_params, rms, fit, data):
     cbar = fig.colorbar(imm, fraction=0.01, pad=-0.0001, aspect=104)
     cbar.ax.tick_params(size=4, labelsize=17, pad=1)
     cbar.ax.set_ylabel("# of events", rotation=270, fontsize=17, labelpad=17)
-    # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/double_gauss_fit.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
 
 
 def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
@@ -260,7 +255,6 @@ def plot_rois(rois_list, subplotsize=6, sign=1, dataset_FWHM=7):
     )
     plt.gca().add_artist(scalebar)
     fig.tight_layout()
-    #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return padded_all
 
 
@@ -336,7 +330,6 @@ def plot_rois_from_locs(
     plt.gca().add_artist(scalebar)
     fig.tight_layout()
     # plt.savefig(filename[:-4] + '_rois_examples.png', dpi=300, transparent=True, bbox_inches = 'tight')
-    #   plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/12_rois_fit_example_negatives.png',dpi=300, bbox_inches = 'tight', pad_inches = 0.01)
     return fig
 
 
@@ -456,10 +449,6 @@ def plot_peak_ON_OFF_detection(
     )
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
-    #  plt.grid()
-    #  plt.legend([plots[0][0], plots[1][0], plots[2][0], plots[3][0]], ['y: 88, x: 22', 'y: 88, x: 23', 'y: 88, x: 24', 'y: 88, x: 25'], loc = 'upper left', fontsize = 14)
-    #  plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/roi_cumsum_on_off.png',dpi=300, bbox_inches = 'tight')
-    plt.show()
 
 
 def plot_on_off_interval_segments_3d(start_times, end_times):
@@ -527,5 +516,4 @@ def plot_on_off_interval_segments_3d(start_times, end_times):
         ax.set_zlim(np.min(nonzero_times), np.max(z_values))
     # plt.grid(True)
     # Show the plot
-    # plt.savefig('/home/smlm-workstation/event-smlm/event-smlm-thesis/figures/time_on_of_plot_single_roi.png',dpi=300, bbox_inches = 'tight', pad_inches = 0, transparent=True)
     return fig

@@ -37,6 +37,7 @@ from localization_scripts.peak_finding import (
     group_timestamps_by_coordinate,
 )
 from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.plot_style import PREVIEW_DPI
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import save_run_qc_dashboard
@@ -640,7 +641,7 @@ def save_processed_plots(
         )
         if roi_fit_figure is not None:
             roi_fit_path = figure_folder / f"roi_fits_{timestamp}.png"
-            roi_fit_figure.savefig(roi_fit_path, dpi=300, bbox_inches="tight")
+            roi_fit_figure.savefig(roi_fit_path, dpi=PREVIEW_DPI, bbox_inches="tight")
             plt.close(roi_fit_figure)
             artifacts.append(roi_fit_path)
             logger.info("Saved ROI fit plot to {}", roi_fit_path)

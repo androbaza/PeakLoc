@@ -16,17 +16,23 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib_scalebar.scalebar import ScaleBar
 
+from localization_scripts.plot_style import (
+    EVENT_DENSITY_CMAP,
+    PLOT_COLORS,
+    PUBLICATION_DPI,
+)
+
 
 DEBUG_MARKER = ".peakloc_debug_artifacts"
 DEBUG_COLORS = {
-    "positive_events": "#E69F00",
-    "negative_events": "#56B4E9",
-    "truth": "#0072B2",
-    "matched_localization": "#009E73",
-    "unmatched_localization": "#D55E00",
-    "residual": "#CC79A7",
-    "roi": "#F0E442",
-    "text_box": "#000000",
+    "positive_events": PLOT_COLORS["orange"],
+    "negative_events": PLOT_COLORS["sky_blue"],
+    "truth": PLOT_COLORS["blue"],
+    "matched_localization": PLOT_COLORS["green"],
+    "unmatched_localization": PLOT_COLORS["vermillion"],
+    "residual": PLOT_COLORS["reddish_purple"],
+    "roi": PLOT_COLORS["yellow"],
+    "text_box": PLOT_COLORS["black"],
 }
 
 
@@ -68,7 +74,7 @@ class DebugVisualizationConfig:
     save_interactive_html: bool = True
     show_residual_vectors: bool = False
     max_events_for_interactive: int = 50_000
-    static_dpi: int = 450
+    static_dpi: int = PUBLICATION_DPI
 
 
 @dataclass(frozen=True)
@@ -466,7 +472,7 @@ def save_xy_summary_figure(
     del events
     total_density = density_images[2]
     fig, ax = plt.subplots(figsize=(7.2, 7.2))
-    ax.imshow(np.log1p(total_density), origin="upper", cmap="magma")
+    ax.imshow(np.log1p(total_density), origin="upper", cmap=EVENT_DENSITY_CMAP)
     _draw_rois(ax, rois)
     _draw_attempted_localizations(ax, attempted_localizations, localizations)
     _draw_truth_and_localizations(ax, truth, localizations, matches)
@@ -682,7 +688,7 @@ def save_roi_montage_figure(
         ]
         for col, (title, image) in enumerate(images):
             ax = axes[row, col]
-            ax.imshow(image, origin="upper", cmap="magma")
+            ax.imshow(image, origin="upper", cmap=EVENT_DENSITY_CMAP)
             _draw_roi_local_markers(ax, loc, roi, truth, matches, loc_idx)
             ax.set_title(_roi_panel_title(title, loc), fontsize=8)
             ax.set_xticks([])
@@ -743,7 +749,11 @@ def save_qc_metrics_figure(
 
     uncertainty = _matched_uncertainty(localizations, matches)
     if uncertainty.size:
-        axes[1, 1].bar(indices[: uncertainty.size], uncertainty, color="#999999")
+        axes[1, 1].bar(
+            indices[: uncertainty.size],
+            uncertainty,
+            color=PLOT_COLORS["gray"],
+        )
     axes[1, 1].set_title("Localization uncertainty")
     axes[1, 1].set_ylabel("px")
     for ax in axes.flat:

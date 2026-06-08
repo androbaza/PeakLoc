@@ -1,7 +1,9 @@
-import gc
+from __future__ import annotations
+
+import argparse
 import multiprocessing
-import os
 import time
+from pathlib import Path
 
 import numpy as np
 from loguru import logger
@@ -16,155 +18,118 @@ from localization_scripts.localization_fitting import localize_rois
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 
-"""
-if the system complains about memory, run the following command:
-sudo echo 1 > /proc/sys/vm/overcommit_memory
-"""
 
-NUM_CORES = multiprocessing.cpu_count()
-
-"""PROMINENCE is the prominence of the peaks in the convolved signals.
-Smaller value detects more peaks, increasing the evaluation time."""
-PROMINENCE = 12
-
-"""DATASEET_FWHM is the FWHM of the PSF in the dataset in pixels."""
-DATASEET_FWHM = 7
-
-"""PEAK_TIME_THRESHOLD is the maximum time difference between two peaks in order to be considered as the same peak."""
-PEAK_TIME_THRESHOLD = 50e3
-
-"""PEAK_NEIGHBORS is the number of neighboring pixels to be considered when filtering same peaks."""
-PEAK_NEIGHBORS = 8
-
-"""ROI_RADIUS is the radius of the generated ROI in pixels."""
-ROI_RADIUS = 8
-
-"""RAW recording or converted events file location."""
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/our_ev_smlm_recordings/MT_5May_S2_reduced_bias_580sec/MT_5May_S2_reduced_bias_580sec.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/TubulinAF647/recording_2023-05-22T11-51-48.153Z.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-04-01.505Z.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-25-34.554Z.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/Tubulin+Clqthrin/recording_2023-05-22T13-44-30.494Z.raw" #crashes
-
-# MT
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-54-31.417Z.raw"
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-33-27.882Z.raw"
-
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z.raw"
-# INPUT_FILE_PEAKS = '/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z/unique_peaks_fwhm_7_prominence_12.pkl'
-
-INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-33-27.882Z.raw"
-INPUT_FILE_PEAKS = "/home/smlm-workstation/event-smlm/Paris/24.05/MT/recording_2023-05-24T09-12-08.025Z/unique_peaks_fwhm_7_prominence_15.pkl"
-
-# MT+CL
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/mt+cl/recording_2023-05-23T10-04-58.785Z.raw" #error in process conv list
-
-
-# CL
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Paris/23.05/cl/recording_2023-05-23T11-48-47.787Z.raw"
-
-# INPUT_FILE = "/home/smlm-workstation/event-smlm/Evb-SMLM/raw_data/tubulin300x400_200sec_cuts/tubulin300x400_both_[200, 400.0]reduced.npy"
-
-
-# def main(filename, peaks_file):
-filename = INPUT_FILE
-peaks_file = INPUT_FILE_PEAKS
-start_time = time.time()
-
-if os.path.basename(filename)[-4:] == ".raw":
-    events = raw_events_to_array(filename).astype(
-        [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate ROIs and localizations from a saved PeakLoc peaks dict"
     )
-elif os.path.basename(filename)[-4:] == ".npy":
-    events = np.load(filename)
-else:
-    raise ValueError("File format not recognized!")
-
-# Get the minimum and maximum x and y coordinates
-min_x = events["x"].min()
-min_y = events["y"].min()
-max_x = events["x"].max()
-max_y = events["y"].max()
-events = events[events["t"] < 550e6]
-
-# Create coordinate lists
-y_coords, x_coords = [min_y, max_y], [min_x, max_x]
-coords = generate_coord_lists(y_coords[0], y_coords[1], x_coords[0], x_coords[1])
-
-# Generate dictionaries and calculate max length
-logger.info("Analyzing the data using {} cores", NUM_CORES)
-logger.info(
-    "Converting events to dictionaries; elapsed time: {:.2f} seconds",
-    time.time() - start_time,
-)
-events_t_p_dict = array_to_time_map(events)
-del events
-gc.collect()
-
-unique_peaks = load_dict(peaks_file)
-
-out_folder_localizations = filename[:-4] + "/"
-if not os.path.exists(out_folder_localizations):
-    os.makedirs(out_folder_localizations)
-
-logger.info("Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time)
-rois = generate_rois(
-    unique_peaks,
-    events_t_p_dict,
-    roi_rad=ROI_RADIUS,
-    min_x=min_x,
-    min_y=min_y,
-    num_cores=NUM_CORES,
-    max_x=max_x,
-    max_y=max_y,
-)
-
-config = PeakLocConfig(
-    input_folder=os.path.dirname(filename),
-    num_cores=NUM_CORES,
-    prominence=PROMINENCE,
-    dataset_fwhm=DATASEET_FWHM,
-    peak_time_threshold=PEAK_TIME_THRESHOLD,
-    peak_neighbors=PEAK_NEIGHBORS,
-    roi_radius=ROI_RADIUS,
-    sensor_height=int(max_y) + 1,
-    sensor_width=int(max_x) + 1,
-)
-calibration = NullCalibration(config.sensor_shape)
-
-logger.info(
-    "Performing localization; elapsed time: {:.2f} seconds",
-    time.time() - start_time,
-)
-localizations = localize_rois(rois, config, calibration)
-
-logger.info("Finished; total elapsed time: {:.2f} seconds", time.time() - start_time)
+    parser.add_argument("input_file", type=Path, help="Raw or .npy event recording")
+    parser.add_argument("peaks_file", type=Path, help="Pickled unique peaks dictionary")
+    parser.add_argument("--prominence", type=float, default=12.0)
+    parser.add_argument("--dataset-fwhm", type=float, default=7.0)
+    parser.add_argument("--peak-time-threshold", type=float, default=50e3)
+    parser.add_argument("--peak-neighbors", type=int, default=8)
+    parser.add_argument("--roi-radius", type=int, default=8)
+    parser.add_argument("--num-cores", type=int, default=multiprocessing.cpu_count())
+    return parser.parse_args()
 
 
-np.save(
-    out_folder_localizations
-    + "localizations_prominence_fwhm_"
-    + str(DATASEET_FWHM)
-    + "_prominence_"
-    + str(PROMINENCE)
-    + ".npy",
-    localizations,
-)
-np.save(
-    out_folder_localizations
-    + "rois_prominence_fwhm_"
-    + str(DATASEET_FWHM)
-    + "_prominence_"
-    + str(PROMINENCE)
-    + ".npy",
-    rois,
-)
+def main() -> None:
+    args = parse_args()
+    localize_from_peaks(
+        input_file=args.input_file,
+        peaks_file=args.peaks_file,
+        prominence=args.prominence,
+        dataset_fwhm=args.dataset_fwhm,
+        peak_time_threshold=args.peak_time_threshold,
+        peak_neighbors=args.peak_neighbors,
+        roi_radius=args.roi_radius,
+        num_cores=args.num_cores,
+    )
 
 
-# if __name__ == "__main__":
-#     if len(sys.argv) > 1:
-#         filename = sys.argv[1]
-#     else:
-#         filename = INPUT_FILE
-#         peaks_file = INPUT_FILE_PEAKS
-#     main(filename, peaks_file)
+def localize_from_peaks(
+    *,
+    input_file: Path,
+    peaks_file: Path,
+    prominence: float,
+    dataset_fwhm: float,
+    peak_time_threshold: float,
+    peak_neighbors: int,
+    roi_radius: int,
+    num_cores: int,
+) -> tuple[Path, Path]:
+    start_time = time.time()
+    events = _load_events(input_file)
+    min_x = int(events["x"].min())
+    min_y = int(events["y"].min())
+    max_x = int(events["x"].max())
+    max_y = int(events["y"].max())
+
+    coords = generate_coord_lists(min_y, max_y, min_x, max_x)
+    logger.info("Generated {} coordinates", len(coords))
+    logger.info("Converting events to dictionaries")
+    events_t_p_dict = array_to_time_map(events)
+    unique_peaks = load_dict(str(peaks_file))
+
+    output_folder = input_file.with_suffix("")
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time
+    )
+    rois = generate_rois(
+        unique_peaks,
+        events_t_p_dict,
+        roi_rad=roi_radius,
+        min_x=min_x,
+        min_y=min_y,
+        num_cores=num_cores,
+        max_x=max_x,
+        max_y=max_y,
+    )
+
+    config = PeakLocConfig(
+        input_folder=str(input_file.parent),
+        num_cores=num_cores,
+        prominence=prominence,
+        dataset_fwhm=dataset_fwhm,
+        peak_time_threshold=peak_time_threshold,
+        peak_neighbors=peak_neighbors,
+        roi_radius=roi_radius,
+        sensor_height=max_y + 1,
+        sensor_width=max_x + 1,
+    )
+    calibration = NullCalibration(config.sensor_shape)
+
+    logger.info("Performing localization")
+    localizations = localize_rois(rois, config, calibration)
+    logger.info(
+        "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
+    )
+
+    localizations_path = output_folder / (
+        f"localizations_prominence_fwhm_{dataset_fwhm:g}_prominence_{prominence:g}.npy"
+    )
+    rois_path = output_folder / (
+        f"rois_prominence_fwhm_{dataset_fwhm:g}_prominence_{prominence:g}.npy"
+    )
+    np.save(localizations_path, localizations)
+    np.save(rois_path, rois)
+    return localizations_path, rois_path
+
+
+def _load_events(input_file: Path) -> np.ndarray:
+    if not input_file.is_file():
+        raise FileNotFoundError(f"Input file does not exist: {input_file}")
+    if input_file.suffix == ".raw":
+        return raw_events_to_array(str(input_file)).astype(
+            [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
+        )
+    if input_file.suffix == ".npy":
+        return np.load(input_file)
+    raise ValueError(f"Unsupported input file suffix: {input_file.suffix}")
+
+
+if __name__ == "__main__":
+    main()
