@@ -23,13 +23,13 @@
   "fit_model": "poisson_joint",
   "allow_uncalibrated": true,
   "calibration_path": null,
-  "sigma_psf_px": null,
+  "sigma_psf_px": 1.703,
   "fit_sigma": false,
   "psf_model": "pixel_integrated_gaussian",
   "background_mode": "calibrated_plus_local",
   "hot_pixel_policy": "mask",
-  "min_events_pos": 3,
-  "min_events_neg": 3,
+  "min_events_pos": 10,
+  "min_events_neg": 10,
   "min_valid_pixels": 1,
   "max_fit_cond": 10000000000.0
 }
