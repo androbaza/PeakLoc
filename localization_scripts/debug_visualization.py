@@ -62,8 +62,8 @@ class DebugVisualizationConfig:
     min_events_per_polarity: int | None = None
     overwrite: bool = True
     save_png: bool = True
-    save_svg: bool = True
-    save_pdf: bool = True
+    save_svg: bool = False # keep false by default
+    save_pdf: bool = False # keep false by default
     save_tiff: bool = True
     save_interactive_html: bool = True
     show_residual_vectors: bool = False
