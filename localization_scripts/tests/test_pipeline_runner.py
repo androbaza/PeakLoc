@@ -270,3 +270,70 @@ def test_write_run_report_includes_peak_interpolation_cutoff(tmp_path):
     assert "- Peak interpolation min events: `7`" in report_path.read_text(
         encoding="utf-8"
     )
+
+
+def test_write_run_report_includes_scientific_validation_summary(tmp_path):
+    output_folder = tmp_path / "recording"
+    qc_dir = output_folder / "qc"
+    qc_dir.mkdir(parents=True)
+    summary_path = qc_dir / "run_qc_summary.json"
+    frc_path = qc_dir / "frc_summary.json"
+    preflight_path = qc_dir / "preflight_report.md"
+    index_path = qc_dir / "index.html"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "attempted_fit_count": 4,
+                "accepted_from_qc_count": 2,
+                "detection_funnel": {
+                    "events_loaded": 10,
+                    "peak_candidates": 3,
+                    "rois_generated": 4,
+                },
+                "median_uncertainty_px": 0.2,
+                "median_uncertainty_nm": 13.4,
+                "p90_uncertainty_px": 0.4,
+                "p90_uncertainty_nm": 26.8,
+                "rejection_reasons": {"accepted": 2, "uncertainty": 2},
+                "warnings": ["No accepted localizations were produced."],
+            }
+        ),
+        encoding="utf-8",
+    )
+    frc_path.write_text(
+        json.dumps(
+            {
+                "resolution_nm": 45.0,
+                "threshold": 1 / 7,
+                "warning": None,
+                "drift_method": "binned_median",
+            }
+        ),
+        encoding="utf-8",
+    )
+    preflight_path.write_text("- Status: `passed`\n", encoding="utf-8")
+    index_path.write_text("<html></html>\n", encoding="utf-8")
+    recording = RecordingResult(
+        input_file=tmp_path / "recording.npy",
+        output_folder=output_folder,
+        event_count=10,
+        time_min=0,
+        time_max=100,
+        calibration_metadata={"calibration_id": "none", "calibrated": False},
+        artifacts=[summary_path, frc_path, preflight_path, index_path],
+    )
+
+    report_path = write_run_report(
+        recording,
+        PeakLocConfig(background_mode="local_only", calibration_path=None),
+        "20260608_120000",
+    )
+    text = report_path.read_text(encoding="utf-8")
+
+    assert "## Scientific Validation" in text
+    assert "- Preflight status: `passed`" in text
+    assert "- Attempted fits: `4`" in text
+    assert "- Accepted fits: `2`" in text
+    assert "- Rejection reasons: `accepted=2, uncertainty=2`" in text
+    assert "- FRC resolution: `45 nm`" in text
+    assert "background_mode=local_only and calibration_path=None" in text

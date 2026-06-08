@@ -729,6 +729,8 @@ def write_run_report(
         f"- Calibration ID: `{recording.calibration_metadata.get('calibration_id')}`",
         f"- Calibrated background: `{recording.calibration_metadata.get('calibrated')}`",
         "",
+        *_scientific_validation_lines(recording, config),
+        "",
         "## Settings",
         "",
         "```json",
@@ -777,3 +779,127 @@ def _format_optional_float(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:.3g}"
+
+
+def _scientific_validation_lines(
+    recording: RecordingResult, config: PeakLocConfig
+) -> list[str]:
+    qc_summary = _load_named_json_artifact(recording, "run_qc_summary.json")
+    frc_summary = _load_named_json_artifact(recording, "frc_summary.json")
+    qc_index = _find_artifact(recording, "index.html")
+    preflight_report = _find_artifact(recording, "preflight_report.md")
+    preflight_status = _preflight_status(preflight_report)
+    warnings = _validation_warnings(qc_summary, config)
+
+    lines = [
+        "## Scientific Validation",
+        "",
+        f"- Preflight status: `{preflight_status}`",
+        f"- Calibration status: `{_calibration_status(recording)}`",
+    ]
+    if qc_summary:
+        detection_funnel = qc_summary.get("detection_funnel", {})
+        lines.extend(
+            [
+                f"- Events loaded: `{detection_funnel.get('events_loaded', 'n/a')}`",
+                f"- Peak candidates: `{detection_funnel.get('peak_candidates', 'n/a')}`",
+                f"- ROIs generated: `{detection_funnel.get('rois_generated', 'n/a')}`",
+                f"- Attempted fits: `{qc_summary.get('attempted_fit_count', 'n/a')}`",
+                f"- Accepted fits: `{qc_summary.get('accepted_from_qc_count', 'n/a')}`",
+                f"- Median uncertainty: `{_format_json_float(qc_summary.get('median_uncertainty_px'))} px / "
+                f"{_format_json_float(qc_summary.get('median_uncertainty_nm'))} nm`",
+                f"- 90th percentile uncertainty: `{_format_json_float(qc_summary.get('p90_uncertainty_px'))} px / "
+                f"{_format_json_float(qc_summary.get('p90_uncertainty_nm'))} nm`",
+            ]
+        )
+        rejection_reasons = qc_summary.get("rejection_reasons", {})
+        if rejection_reasons:
+            reason_text = ", ".join(
+                f"{reason}={count}"
+                for reason, count in sorted(rejection_reasons.items())
+            )
+            lines.append(f"- Rejection reasons: `{reason_text}`")
+        else:
+            lines.append("- Rejection reasons: `none recorded`")
+    else:
+        lines.append("- QC dashboard summary: `not available`")
+
+    if frc_summary:
+        lines.append(
+            f"- FRC resolution: `{_format_json_float(frc_summary.get('resolution_nm'))} nm`"
+        )
+        lines.append(
+            f"- Drift correction status: `{frc_summary.get('drift_method', 'n/a')}`"
+        )
+        if frc_summary.get("warning"):
+            warnings.append(f"FRC warning: {frc_summary['warning']}")
+    else:
+        lines.append("- FRC resolution: `not available`")
+        lines.append("- Drift correction status: `not available`")
+
+    if qc_index is not None:
+        lines.append(f"- QC dashboard: `{qc_index}`")
+    lines.extend(["", "### Warnings Requiring Attention", ""])
+    if warnings:
+        lines.extend(f"- {warning}" for warning in warnings)
+    else:
+        lines.append("- None.")
+    return lines
+
+
+def _validation_warnings(
+    qc_summary: dict[str, object] | None, config: PeakLocConfig
+) -> list[str]:
+    warnings = []
+    if qc_summary:
+        warnings.extend(str(warning) for warning in qc_summary.get("warnings", []))
+    if config.background_mode == "local_only" and config.calibration_path is None:
+        warnings.append(
+            "background_mode=local_only and calibration_path=None. This is acceptable "
+            "for exploratory tuning, but publication-grade real-data analysis should "
+            "use dark and laser-on blank calibration maps or explicitly justify "
+            "local-only background."
+        )
+    return warnings
+
+
+def _calibration_status(recording: RecordingResult) -> str:
+    calibration_id = recording.calibration_metadata.get("calibration_id")
+    calibrated = recording.calibration_metadata.get("calibrated")
+    return f"calibration_id={calibration_id}, calibrated={calibrated}"
+
+
+def _preflight_status(preflight_report: Path | None) -> str:
+    if preflight_report is None or not preflight_report.is_file():
+        return "not available"
+    text = preflight_report.read_text(encoding="utf-8")
+    if "- Status: `passed`" in text:
+        return "passed"
+    if "- Status: `failed`" in text:
+        return "failed"
+    return "available"
+
+
+def _load_named_json_artifact(
+    recording: RecordingResult, filename: str
+) -> dict[str, object] | None:
+    artifact = _find_artifact(recording, filename)
+    if artifact is None or not artifact.is_file():
+        return None
+    return json.loads(artifact.read_text(encoding="utf-8"))
+
+
+def _find_artifact(recording: RecordingResult, filename: str) -> Path | None:
+    for artifact in recording.artifacts:
+        artifact_path = Path(artifact)
+        if artifact_path.name == filename:
+            return artifact_path
+    return None
+
+
+def _format_json_float(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, int | float):
+        return f"{value:.3g}"
+    return str(value)
