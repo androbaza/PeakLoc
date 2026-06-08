@@ -27,6 +27,7 @@ from localization_scripts.event_array_processing import (
 from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import (
     localization_uncertainty_px,
+    localization_qc_dtype,
     localize_rois_with_attempts,
 )
 from localization_scripts.peak_finding import (
@@ -37,6 +38,7 @@ from localization_scripts.peak_finding import (
 )
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plotting_functions import plot_rois_from_locs
+from localization_scripts.qc_dashboard import save_run_qc_dashboard
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 from localization_scripts.smlm_visualization import save_smlm_visualization
 
@@ -413,6 +415,29 @@ def process_recording(
             localization_qc_full_list,
         )
     )
+    if config.qc_enabled:
+        qc_table = (
+            localization_qc_full_list
+            if localization_qc_full_list is not None
+            else np.empty(0, dtype=localization_qc_dtype())
+        )
+        attempted_table = (
+            attempted_localizations_full_list
+            if attempted_localizations_full_list is not None
+            else np.empty(0, dtype=localizations_full_list.dtype)
+        )
+        recording.artifacts.extend(
+            save_run_qc_dashboard(
+                recording=recording,
+                config=config,
+                localizations=localizations_full_list,
+                attempted_localizations=attempted_table,
+                localization_qc=qc_table,
+                rois=rois_full_list,
+                events=events,
+                timestamp=run_timestamp,
+            )
+        )
 
     if config.cleanup_temp_outputs:
         remove_temp_artifacts(recording, temp_files_localization, sorted_names)
