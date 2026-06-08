@@ -20,6 +20,7 @@ from localization_scripts.frc import (
     split_localizations_for_frc,
 )
 from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.plot_style import PLOT_COLORS, SEQUENTIAL_CMAP
 
 
 def save_postprocessing_qc(
@@ -100,7 +101,7 @@ def _save_render(localizations: np.ndarray, path: Path, config: PeakLocConfig) -
             localizations["y"],
             bins=100,
             range=[[0, config.sensor_width], [0, config.sensor_height]],
-            cmap="cividis",
+            cmap=SEQUENTIAL_CMAP,
         )
         axis.invert_yaxis()
     else:
@@ -124,8 +125,16 @@ def _save_render(localizations: np.ndarray, path: Path, config: PeakLocConfig) -
 def _save_frc_curve(result: FRCResult, path: Path, config: PeakLocConfig) -> Path:
     fig, axis = plt.subplots(figsize=(5, 3.5), constrained_layout=True)
     if result.spatial_frequency_per_nm.size:
-        axis.plot(result.spatial_frequency_per_nm, result.frc, color="#0072B2")
-        axis.axhline(result.threshold, color="#D55E00", linestyle="--")
+        axis.plot(
+            result.spatial_frequency_per_nm,
+            result.frc,
+            color=PLOT_COLORS["blue"],
+        )
+        axis.axhline(
+            result.threshold,
+            color=PLOT_COLORS["vermillion"],
+            linestyle="--",
+        )
     else:
         axis.text(
             0.5,

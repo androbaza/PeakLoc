@@ -16,6 +16,11 @@ from matplotlib import pyplot as plt
 from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import localization_uncertainty_px
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
+from localization_scripts.plot_style import (
+    EVENT_DENSITY_CMAP,
+    PLOT_COLORS,
+    SEQUENTIAL_CMAP,
+)
 from localization_scripts.postprocessing import save_postprocessing_qc
 from localization_scripts.preflight import run_preflight, write_preflight_report
 
@@ -410,7 +415,7 @@ def _event_density_images(
 
 
 def _plot_image(axis, image: np.ndarray, title: str) -> None:
-    im = axis.imshow(image, cmap="magma", origin="upper")
+    im = axis.imshow(image, cmap=EVENT_DENSITY_CMAP, origin="upper")
     axis.set_title(title)
     axis.set_xlabel("x px")
     axis.set_ylabel("y px")
@@ -452,7 +457,7 @@ def _plot_bar(axis, values: dict[str, int], title: str) -> None:
         return
     labels = list(values)
     counts = [values[label] for label in labels]
-    axis.bar(labels, counts, color="#0072B2")
+    axis.bar(labels, counts, color=PLOT_COLORS["blue"])
     axis.set_title(title)
     axis.tick_params(axis="x", rotation=35)
     axis.set_ylabel("count")
@@ -466,10 +471,12 @@ def _plot_uncertainty_histogram(
     if finite.size == 0:
         _empty_axis(axis, "No finite uncertainty")
         return
-    axis.hist(finite, bins=30, color="#009E73", alpha=0.85)
+    axis.hist(finite, bins=30, color=PLOT_COLORS["green"], alpha=0.85)
     if config.max_localization_uncertainty_nm is not None:
         axis.axvline(
-            config.max_localization_uncertainty_nm, color="#D55E00", linestyle="--"
+            config.max_localization_uncertainty_nm,
+            color=PLOT_COLORS["vermillion"],
+            linestyle="--",
         )
     axis.set_title("Localization uncertainty")
     axis.set_xlabel("uncertainty nm")
@@ -485,7 +492,7 @@ def _plot_uncertainty_vs_field(
     if not np.any(valid):
         _empty_axis(axis, f"No {x_label} data")
         return
-    axis.scatter(x[valid], y[valid], s=8, color="#0072B2", alpha=0.7)
+    axis.scatter(x[valid], y[valid], s=8, color=PLOT_COLORS["blue"], alpha=0.7)
     axis.set_title(f"Uncertainty vs {x_label}")
     axis.set_xlabel(x_label)
     axis.set_ylabel("uncertainty nm")
@@ -506,7 +513,13 @@ def _plot_background_vs_signal(axis, attempted_localizations: np.ndarray) -> Non
     if not np.any(valid):
         _empty_axis(axis, "No finite signal/background")
         return
-    axis.scatter(background[valid], signal[valid], s=8, color="#CC79A7", alpha=0.7)
+    axis.scatter(
+        background[valid],
+        signal[valid],
+        s=8,
+        color=PLOT_COLORS["reddish_purple"],
+        alpha=0.7,
+    )
     axis.set_title("Background vs signal")
     axis.set_xlabel("local background events")
     axis.set_ylabel("signal events")
@@ -523,7 +536,7 @@ def _plot_localization_density(
         localizations["y"],
         bins=100,
         range=[[0, config.sensor_width], [0, config.sensor_height]],
-        cmap="cividis",
+        cmap=SEQUENTIAL_CMAP,
     )
     axis.invert_yaxis()
     axis.set_title("Accepted localization density")
@@ -538,7 +551,7 @@ def _plot_time_binned_count(axis, localizations: np.ndarray) -> None:
     axis.hist(
         localizations["t_peak"],
         bins=min(30, max(1, localizations.size)),
-        color="#E69F00",
+        color=PLOT_COLORS["orange"],
     )
     axis.set_title("Time-binned localization count")
     axis.set_xlabel("t_peak us")
@@ -557,7 +570,10 @@ def _plot_time_binned_uncertainty(
         _empty_axis(axis, "No finite uncertainty")
         return
     axis.scatter(
-        localizations["t_peak"][valid], uncertainty[valid], s=8, color="#009E73"
+        localizations["t_peak"][valid],
+        uncertainty[valid],
+        s=8,
+        color=PLOT_COLORS["green"],
     )
     axis.set_title("Time vs uncertainty")
     axis.set_xlabel("t_peak us")
@@ -580,7 +596,7 @@ def _plot_spatial_uncertainty(
         localizations["y"][valid],
         c=uncertainty[valid],
         s=8,
-        cmap="cividis",
+        cmap=SEQUENTIAL_CMAP,
     )
     axis.invert_yaxis()
     axis.set_title("Spatial uncertainty heatmap")
@@ -599,7 +615,7 @@ def _plot_hot_pixel_overlay(
             attempted_localizations["x"][hot],
             attempted_localizations["y"][hot],
             s=8,
-            color="#D55E00",
+            color=PLOT_COLORS["vermillion"],
         )
     axis.set_title("Hot-pixel overlay")
     axis.set_xlabel("x px")
