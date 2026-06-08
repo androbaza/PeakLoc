@@ -1,8 +1,10 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from localization_scripts.pipeline_config import load_peakloc_config
 from localization_scripts.pipeline_runner import run_batch
+from localization_scripts.preflight import run_preflight, write_preflight_report
 
 """
 if the system complains about memory, run the following command:
@@ -20,12 +22,41 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to a JSON PeakLoc configuration file",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Write a preflight report before processing and continue only if it passes",
+    )
+    parser.add_argument(
+        "--strict-preflight",
+        action="store_true",
+        help="Run preflight in publication-oriented strict mode",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Write a preflight report and exit without processing recordings",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     config = load_peakloc_config(args.config)
+    if args.preflight or args.strict_preflight or args.preflight_only:
+        report = run_preflight(
+            config,
+            config_path=args.config,
+            strict_mode=args.strict_preflight,
+        )
+        report_path = (
+            Path("reports") / f"preflight_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        )
+        write_preflight_report(report, report_path)
+        if report.has_errors:
+            raise SystemExit(1)
+        if args.preflight_only:
+            return
     run_batch(config)
 
 
