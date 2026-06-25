@@ -1,97 +1,203 @@
 # PeakLoc
-A framework for Single Molecule Localization Microscopy using an event-based camera.
+
+PeakLoc is an event-camera localization pipeline for experimental Single-Molecule Localization Microscopy-like analysis.
+
+It reads event-camera `.raw` recordings, detects blinking-like event peaks, extracts local regions of interest, fits event-count models, filters uncertain localizations, and can render localization tables into SMLM-style images.
+
+This repository is currently best treated as a research pipeline, not as a polished black-box end-user application. For publication-grade use, calibrated acquisition data, careful parameter validation, and independent quality control are required.
+
+## What PeakLoc does
+
+PeakLoc converts event-camera recordings into localization outputs.
+
+A typical workflow is:
+
+1. Read `.raw` event-camera files.
+2. Convert events into per-pixel time traces.
+3. Detect candidate peaks in cumulative event signals.
+4. Merge nearby peak candidates in space and time.
+5. Extract positive and negative polarity event-count ROIs.
+6. Fit a pixel-integrated Gaussian event model.
+7. Estimate localization uncertainty.
+8. Filter bad or uncertain fits.
+9. Save localization tables, ROI arrays, QC tables, reports, figures, and optional rendered SMLM images.
+
+## Who this documentation is for
+
+The documentation assumes the reader has no prior understanding of event cameras, SMLM, or this repository.
+
+Start here:
+
+- [Documentation overview](docs/index.md)
+- [Data preparation](docs/data-preparation.md)
+- [Configuration guide](docs/configuration.md)
+- [Run modes](docs/run-modes.md)
+- [Output interpretation](docs/output-interpretation.md)
+- [Use cases and limitations](docs/use-cases-and-limitations.md)
 
 ## Installation
-Clone the repository and install the pixi environment.
 
-`git clone https://github.com/androbaza/PeakLoc.git`
+PeakLoc uses [Pixi](https://pixi.sh/) for the Python environment.
 
-`pixi install`
+Clone the repository:
 
-PeakLoc uses the Ubuntu `metavision-openeb` Python bindings for RAW file reading. On
-Ubuntu 24 these are expected under `/usr/lib/python3/dist-packages`; Installation steps: [docs.prophesee.ai](https://docs.prophesee.ai/stable/installation/linux_openeb_with_packages.html)
+```bash
+git clone https://github.com/androbaza/PeakLoc.git
+cd PeakLoc
+```
 
-`pixi.toml`
-bridges that path into the pixi Python 3.12 environment.
+Install the environment:
 
-## Usage
+```bash
+pixi install
+```
 
-PeakLoc.py is the main script. Run it through pixi:
+Run a basic import test:
 
-`pixi run peakloc`
+```bash
+pixi run import-test
+```
 
-By default, `PeakLoc.py` reads settings from `config.json` at the repository root.
-The checked-in config points to `data/` for local smoke runs and records the
-effective settings in each output folder's `reports/` subfolder. To process
-another directory, edit `input_folder` in `config.json` or pass a separate config:
+## Required external dependency: OpenEB / Metavision bindings
 
-`pixi run python PeakLoc.py --config /path/to/config.json`
+PeakLoc reads `.raw` files using Prophesee/OpenEB Python bindings.
 
-Environment overrides are still available for quick runs:
+On Ubuntu, the bindings are expected under:
 
-`PEAKLOC_INPUT_FOLDER=/path/to/raw/files pixi run peakloc`
+```text
+/usr/lib/python3/dist-packages
+```
 
-The script creates a folder with the same name as each input file and saves the
-localizations there. Configure `slice_start` and `slice_duration` in `config.json`
-or set `PEAKLOC_SLICE_START` and `PEAKLOC_SLICE_DURATION` to adjust time slicing.
-Helper scripts are in `scripts/`, with pixi tasks such as `pixi run import-test`
-and `pixi run peaks-dict-to-locs`. To render an existing localization file as an
-SMLM image, run:
+Installation steps: [docs.prophesee.ai](https://docs.prophesee.ai/stable/installation/linux_openeb_with_packages.html)
+The repository currently bridges this system path into the Pixi Python 3.12 environment.
 
-`pixi run plot-result /path/to/localizations.npy`
 
-If no path is provided, the plotting script prompts for one.
 
-128Gb of RAM is recommended. For a full-schip (1280x720) recording of 600 seconds, the script will take about 10 minutes to run on a 24-core machine.
+## Quick start
 
-## Results
+Edit `config.json` so that `input_folder` points to the folder containing your `.raw` files.
 
-The blinks are detected from each pixel's graph from the cumulative sum of events. Theoretically, the method extracts all blinks from the recording, not affected by psf overlaps and the blinking duration. It precisely identifies the 'Turning_ON' and 'Turning_OFF' timestamps as well, based on a spline interpolation of the signal. 
+Then run:
 
-![peaks](figures/roi_cumsum_on_off.png)
+```bash
+pixi run peakloc
+```
 
-This extracts the statistics about each individual fluorophore at the given location and the global sample photophysical statistics as well.
+The pipeline creates one output folder per input recording.
 
-![stats](figures/fluorophore_time_statisctics_background.png)
+Example:
 
-A simulation for a simple point spread function overlap is shown below. The simulated event camera response is shown on the bottom row. This should allow for denser labeling acquisition using the event camera.
+```text
+data/
+├── AF647_coverslip.raw
+└── AF647_coverslip/
+    ├── localizations_*.npy
+    ├── rois_*.npy
+    ├── localization_qc_*.npy
+    ├── figures/
+    ├── reports/
+    └── qc/
+```
 
-![sim](figures/sim.gif)
+## Minimal smoke run
 
-## Output Files
+A smoke run should use a short time slice and low memory load.
 
-For every processed recording, PeakLoc creates an output folder next to the input
-file. For example, `data/AF647_coverslip.raw` produces `data/AF647_coverslip/`.
+In `config.json`:
 
-The main result file is
-`localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy`. It is a
-structured NumPy array with one fitted event-localization row per blink. The main
-coordinate fields are `x` and `y` in camera pixels. If `double == 1`, the
-secondary fitted component is stored in `x2` and `y2`. Convert coordinates to nm
-with `config.json` field `optical_pixel_size` (67 nm by default). Other useful
-fields include `t_peak`, `t_1st`, `t_last`, `I`, `FWHM`, `E_total`,
-`E_total_n`, `sigma_x`, `sigma_y`, `nll_per_event`, `fit_success`, and
-`fit_status`.
+```json
+{
+  "input_folder": "data",
+  "slice_start": 0,
+  "slice_duration": 10000000,
+  "max_raw_events": 1000000,
+  "num_cores": 4,
+  "plot_result": true
+}
+```
 
-The ROI file,
-`rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy`, stores the fitted ROI
-event-count images and timing maps used to produce the localization table. It is
-mainly useful for quality control, re-fitting experiments, and debugging fitting
-or ROI-generation changes.
+Then run:
 
-The `figures/` subfolder contains diagnostic ROI-fit images and, when
-`plot_result` is `true`, SMLM result renders:
+```bash
+pixi run python PeakLoc.py --preflight
+```
 
-- `*_smlm_<datetime>.png`: 8-bit annotated preview with a scalebar.
-- `*_smlm_<datetime>_12bit.tiff`: 12-bit grayscale render without annotations,
-  suitable for downstream image analysis.
+## Preflight checks
 
-The `reports/` subfolder stores the effective settings JSON and a Markdown run
-report with processed slice counts, localization counts, timings, and artifact
-paths.
+Run a preflight check and exit without processing:
 
-Common downstream processing starts from the localization `.npy`: filter by
-`fit_success`, `fit_status`, `FWHM`, `E_total`, `E_total_n`, and time fields;
-convert `x`/`y` to nm; apply drift correction if needed; render density images;
-estimate resolution with FRC; or load the coordinate table as points in tools
-such as Napari.
+```bash
+pixi run python PeakLoc.py --preflight-only
+```
+
+## Parameter sweep
+
+Create a sweep specification, for example:
+
+```json
+{
+  "prominence": [8.0, 12.0, 16.0],
+  "max_localization_uncertainty_nm": [30.0, 50.0, 80.0]
+}
+```
+
+Save it as:
+
+```text
+sweep/prominence_uncertainty_sweep.json
+```
+
+Run:
+
+```bash
+pixi run python PeakLoc.py --config config.json --sweep sweep/prominence_uncertainty_sweep.json --preflight
+```
+
+Sweep outputs are written to:
+
+```text
+sweep/
+├── sweep_results.csv
+├── sweep_results.json
+├── pareto_localizations_vs_uncertainty.png
+├── rejection_reason_heatmap.png
+└── parameter_effects.html
+```
+
+## Rendering an existing localization file
+
+To render an existing localization `.npy` file:
+
+```bash
+pixi run plot-result /path/to/localizations.npy
+```
+
+If no path is provided, the script prompts for one.
+
+## Hardware and RAM expectations
+
+PeakLoc can be memory-intensive because event streams are expanded into per-pixel or per-ROI intermediate structures.
+
+A practical starting point is:
+
+- Small smoke tests: laptop or workstation, short slices only.
+- Full-chip 1280 × 720 recordings: high-memory workstation.
+- Long recordings: 128 GB RAM is recommended.
+- Example reference workload: full-chip 1280 × 720, 600 seconds, about 10 minutes on a 24-core machine, assuming suitable data and configuration.
+
+Use short `slice_duration` values first. Do not start with a full 600-second recording when validating a new dataset.
+
+## Current important limitations
+
+PeakLoc is under active development. Important limitations are:
+
+- `fit_sigma=true` is not currently the recommended or implemented production path. The current model uses a fixed `sigma_psf_px`.
+- Simultaneous overlapping emitters are not fully resolved as independent emitters.
+- Uncalibrated mode can be useful for exploration, but is not publication-grade.
+- The default calibration-free settings are not a substitute for dark and blank calibration recordings.
+- Legacy drift helper functionality exists, but should not be presented as the recommended final drift-correction path.
+- Parameter values are dataset-dependent. Defaults are starting points, not universal microscope settings.
+
+## License
+
+This repository is licensed under GPL-3.0. See [LICENSE](LICENSE).
