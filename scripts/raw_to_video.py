@@ -15,6 +15,7 @@ from localization_scripts.event_array_processing import add_openeb_system_site_p
 
 
 DEFAULT_INTEGRATION_TIME_MS = 50.0
+DEFAULT_VIDEO_FPS = 30.0
 DEFAULT_MAX_EVENTS_BUFFER = 1_000_000
 DEFAULT_CODEC = "libx264"
 DEFAULT_CRF = 23
@@ -70,8 +71,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fps",
         type=float,
-        default=None,
-        help="Video frame rate. Defaults to real-time playback from integration time.",
+        default=DEFAULT_VIDEO_FPS,
+        help="Video frame rate. Default: 30.",
     )
     parser.add_argument(
         "--codec",
@@ -189,7 +190,7 @@ def convert_raw_to_video(
         raise ValueError(f"Expected a .raw recording, got {raw_path}")
 
     integration_time_us = integration_time_ms_to_us(integration_time_ms)
-    video_fps = video_fps_from_integration_time(integration_time_ms, fps)
+    video_fps = resolve_video_fps(fps)
     reader = (
         open_raw_reader(raw_path, max_events_buffer)
         if reader_factory is None
@@ -276,14 +277,12 @@ def integration_time_ms_to_us(integration_time_ms: float) -> int:
     return max(1, int(round(integration_time_ms * 1_000)))
 
 
-def video_fps_from_integration_time(
-    integration_time_ms: float, fps: float | None
-) -> float:
-    if fps is not None:
-        if not np.isfinite(fps) or fps <= 0:
-            raise ValueError("fps must be a finite positive value")
-        return float(fps)
-    return 1_000.0 / integration_time_ms
+def resolve_video_fps(fps: float | None = DEFAULT_VIDEO_FPS) -> float:
+    if fps is None:
+        return DEFAULT_VIDEO_FPS
+    if not np.isfinite(fps) or fps <= 0:
+        raise ValueError("fps must be a finite positive value")
+    return float(fps)
 
 
 def video_path(raw_path: Path, integration_time_ms: float, codec: str) -> Path:

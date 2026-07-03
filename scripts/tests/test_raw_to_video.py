@@ -12,7 +12,7 @@ from scripts.raw_to_video import (
     events_to_uint8_frame,
     frame_to_video_rgb,
     integration_time_ms_to_us,
-    video_fps_from_integration_time,
+    resolve_video_fps,
     video_path,
 )
 
@@ -87,10 +87,10 @@ def test_convert_raw_to_video_writes_8bit_frames_next_to_raw(
     assert result.video_path == raw_path.with_name("sample_dt12p5ms_h264.mp4")
     assert result.frame_count == 2
     assert result.integration_time_us == 12_500
-    assert result.fps == 80.0
+    assert result.fps == 30.0
     assert reader.loaded_delta_t == [12_500, 12_500]
     assert writer.closed
-    assert writer_calls == [(result.video_path, 80.0, "libx264", 23, "medium")]
+    assert writer_calls == [(result.video_path, 30.0, "libx264", 23, "medium")]
 
     assert writer.frames[0].dtype == np.uint8
     assert writer.frames[0].shape == (4, 4, 3)
@@ -141,7 +141,7 @@ def test_integration_time_ms_to_us_rejects_non_positive_values() -> None:
 
 def test_video_fps_rejects_non_positive_overrides() -> None:
     with pytest.raises(ValueError, match="finite positive"):
-        video_fps_from_integration_time(50.0, 0)
+        resolve_video_fps(0)
 
 
 def test_events_to_uint8_frame_ignores_out_of_bounds_events() -> None:
