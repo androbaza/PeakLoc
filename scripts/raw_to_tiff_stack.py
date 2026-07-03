@@ -16,6 +16,7 @@ from localization_scripts.event_array_processing import add_openeb_system_site_p
 
 DEFAULT_INTEGRATION_TIME_MS = 50.0
 DEFAULT_MAX_EVENTS_BUFFER = 1_000_000
+STACK_USES_BIGTIFF = True
 
 
 class RawEventReader(Protocol):
@@ -151,7 +152,7 @@ def convert_raw_to_tiff_stack(
         output_path,
         integration_time_us,
     )
-    with tifffile.TiffWriter(output_path) as stack_writer:
+    with tifffile.TiffWriter(output_path, bigtiff=STACK_USES_BIGTIFF) as stack_writer:
         while not reader.is_done():
             events = reader.load_delta_t(integration_time_us)
             frame = events_to_uint8_frame(events, sensor_shape)
@@ -170,6 +171,7 @@ def convert_raw_to_tiff_stack(
         tifffile.imwrite(
             output_path,
             frame,
+            bigtiff=STACK_USES_BIGTIFF,
             photometric="minisblack",
             metadata=_tiff_metadata(integration_time_ms),
         )

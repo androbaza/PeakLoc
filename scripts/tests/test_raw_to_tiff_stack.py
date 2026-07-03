@@ -74,6 +74,8 @@ def test_convert_raw_to_tiff_stack_writes_8bit_frames_next_to_raw(
     assert stack[0, 0, 0] == 1
     assert stack[0, 0, 3] == 0
     assert stack[1, 2, 3] == 1
+    with tifffile.TiffFile(result.tiff_path) as tiff:
+        assert tiff.is_bigtiff
 
 
 def test_convert_raw_path_recurses_through_subfolders(tmp_path: Path) -> None:
