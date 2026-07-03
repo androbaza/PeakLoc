@@ -33,7 +33,7 @@ Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `sna
 ## Testing & Validation
 Use pytest. Place tests next to the module they cover, for example `localization_scripts/tests/test_peak_finding.py`; do not add a top-level `tests/` directory. New features need tests using tiny synthetic arrays or `scripts/event_sim.py`. Tests must not require absolute lab paths or large raw recordings.
 
-Before finishing, run `pixi run -e dev ruff check --fix .`, `pixi run -e dev ruff format .`, and `pixi run -e all ty check`. Run `pixi run -e dev pytest` when tests are relevant; note any known broken tests in the PR.
+Before finishing, run `pixi run -e dev ruff check --fix .`, `pixi run -e dev ruff format .`, and `pixi run -e all ty check`. Only run focused tests, not the entire test suite.
 
 ## Workflow, Commits & PRs
 For substantial planning, write the plan as Markdown in `plans/` and include focused, atomic commits. After executing a plan, write a merge-request description in `mr-descriptions/`.
