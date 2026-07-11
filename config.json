@@ -18,7 +18,7 @@
   "optical_pixel_size": 67.0,
   "sensor_height": 720,
   "sensor_width": 1280,
-  "max_raw_events": 3000000000,
+  "max_raw_events": 100000000,
   "cleanup_temp_outputs": true,
   "fit_model": "poisson_joint",
   "allow_uncalibrated": false,
@@ -43,5 +43,6 @@
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
   "qc_generate_interactive": false,
+  "qc_generate_temporal_3d": true,
   "qc_keep_intermediates": false
 }

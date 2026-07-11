@@ -65,6 +65,7 @@ class PeakLocConfig:
     qc_uncertainty_montage_n: int = 36
     qc_generate_html: bool = True
     qc_generate_interactive: bool = False
+    qc_generate_temporal_3d: bool = True
     qc_keep_intermediates: bool = False
 
     @classmethod
@@ -154,6 +155,7 @@ class PeakLocConfig:
         _require_bool("qc_save_vector", self.qc_save_vector)
         _require_bool("qc_generate_html", self.qc_generate_html)
         _require_bool("qc_generate_interactive", self.qc_generate_interactive)
+        _require_bool("qc_generate_temporal_3d", self.qc_generate_temporal_3d)
         _require_bool("qc_keep_intermediates", self.qc_keep_intermediates)
         if not self.qc_output_dirname:
             raise ValueError("qc_output_dirname must not be empty")

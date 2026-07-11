@@ -13,6 +13,7 @@ import numpy as np
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
+from localization_scripts.blink_temporal_qc import save_blink_temporal_qc
 from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import localization_uncertainty_px
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
@@ -106,6 +107,15 @@ def save_run_qc_dashboard(
             events=events,
         )
         artifacts.extend(interactive_paths)
+
+    temporal_paths = save_blink_temporal_qc(localizations, output_dir, config)
+    artifacts.extend(temporal_paths)
+    static_paths.extend(
+        path
+        for path in temporal_paths
+        if path.suffix in {".png", ".json", ".md", ".csv"}
+    )
+    interactive_paths.extend(path for path in temporal_paths if path.suffix == ".html")
 
     if config.qc_generate_html:
         index_path = output_dir / "index.html"
@@ -713,7 +723,7 @@ def _index_html(
     links = "\n".join(
         f'<li><a href="{path.name}">{path.name}</a></li>'
         for path in static_paths + interactive_paths
-        if path.suffix in {".png", ".html"}
+        if path.suffix in {".png", ".html", ".json", ".md", ".csv"}
     )
     warnings = "".join(f"<li>{warning}</li>" for warning in summary.warnings)
     return f"""<!doctype html>
