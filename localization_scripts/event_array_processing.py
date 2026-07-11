@@ -1,4 +1,6 @@
 import gc
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib import import_module
 import pickle
 import sys
@@ -26,21 +28,37 @@ def add_openeb_system_site_packages() -> None:
         sys.path.append(openeb_path)
 
 
-def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
+@contextmanager
+def temporary_openeb_system_site_packages() -> Iterator[None]:
+    """Expose OpenEB only while decoding RAW events.
+
+    Loky copies the parent's import path into workers. Leaving the system OpenEB
+    path in place lets system-only packages override Pixi dependencies there.
+    """
+    openeb_path = str(OPENEB_SYSTEM_SITE_PACKAGES)
+    was_present = openeb_path in sys.path
     add_openeb_system_site_packages()
+    try:
+        yield
+    finally:
+        if not was_present and openeb_path in sys.path:
+            sys.path.remove(openeb_path)
 
-    RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
-    EventCD = import_module("metavision_sdk_base").EventCD
 
-    record_raw = RawReader(filename, max_events=max_events)
-    event_chunks = []
-    while not record_raw.is_done():
-        events = record_raw.load_delta_t(50000)
-        if events.size:
-            event_chunks.append(events.copy())
-    if not event_chunks:
-        return np.empty(0, dtype=EventCD)
-    return np.concatenate(event_chunks)
+def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
+    with temporary_openeb_system_site_packages():
+        RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
+        EventCD = import_module("metavision_sdk_base").EventCD
+
+        record_raw = RawReader(filename, max_events=max_events)
+        event_chunks = []
+        while not record_raw.is_done():
+            events = record_raw.load_delta_t(50000)
+            if events.size:
+                event_chunks.append(events.copy())
+        if not event_chunks:
+            return np.empty(0, dtype=EventCD)
+        return np.concatenate(event_chunks)
 
 
 @njit(cache=True, nogil=True, fastmath=True)

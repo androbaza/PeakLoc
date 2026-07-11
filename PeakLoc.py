@@ -2,27 +2,34 @@ import argparse
 from datetime import datetime
 import os
 from pathlib import Path
-import site
 import sys
 import sysconfig
 
 
+def _remove_sys_path_entry(entry: str) -> None:
+    while entry in sys.path:
+        sys.path.remove(entry)
+
+
 def configure_worker_environment() -> None:
-    """Keep the parent and spawned workers on the active Python environment."""
+    """Keep the parent and spawned workers isolated to the active Pixi environment."""
     purelib = sysconfig.get_paths().get("purelib")
     if purelib is None:
         return
-    user_site = site.getusersitepackages()
-    if user_site in sys.path:
-        sys.path.remove(user_site)
-    if purelib in sys.path:
-        sys.path.remove(purelib)
-    sys.path.insert(0, purelib)
 
-    pythonpath = os.environ.get("PYTHONPATH", "")
-    entries = [entry for entry in pythonpath.split(os.pathsep) if entry]
-    entries = [purelib, *(entry for entry in entries if entry != purelib)]
-    os.environ["PYTHONPATH"] = os.pathsep.join(entries)
+    inherited_pythonpath = os.environ.get("PYTHONPATH", "")
+    for entry in inherited_pythonpath.split(os.pathsep):
+        if entry:
+            _remove_sys_path_entry(entry)
+    for entry in tuple(sys.path):
+        if entry != purelib and Path(entry).name in {"site-packages", "dist-packages"}:
+            _remove_sys_path_entry(entry)
+
+    project_root = str(Path(__file__).resolve().parent)
+    _remove_sys_path_entry(project_root)
+    _remove_sys_path_entry(purelib)
+    sys.path[:0] = [project_root, purelib]
+    os.environ["PYTHONPATH"] = os.pathsep.join([project_root, purelib])
     os.environ["PYTHONNOUSERSITE"] = "1"
 
 
