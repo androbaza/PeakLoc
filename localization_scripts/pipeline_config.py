@@ -53,17 +53,18 @@ class PeakLocConfig:
     min_events_pos: int = 3
     min_events_neg: int = 3
     min_valid_pixels: int = 1
-    max_fit_cond: float = 1e10
+    max_fit_cond: float = 100.0
+    max_fit_center_offset_px: float | None = 3.0
     max_localization_uncertainty_px: float | None = None
     max_localization_uncertainty_nm: float | None = None
     qc_enabled: bool = True
     qc_output_dirname: str = "qc"
-    qc_static_dpi: int = 450
+    qc_static_dpi: int = 200
     qc_save_vector: bool = False
     qc_max_events_for_interactive: int = 50_000
     qc_uncertainty_montage_n: int = 36
     qc_generate_html: bool = True
-    qc_generate_interactive: bool = True
+    qc_generate_interactive: bool = False
     qc_keep_intermediates: bool = False
 
     @classmethod
@@ -126,6 +127,10 @@ class PeakLocConfig:
         _require_positive("min_events_neg", self.min_events_neg)
         _require_positive("min_valid_pixels", self.min_valid_pixels)
         _require_positive("max_fit_cond", self.max_fit_cond)
+        if self.max_fit_center_offset_px is not None:
+            _require_positive("max_fit_center_offset_px", self.max_fit_center_offset_px)
+            if self.max_fit_center_offset_px > self.roi_radius:
+                raise ValueError("max_fit_center_offset_px must not exceed roi_radius")
         _require_positive("qc_static_dpi", self.qc_static_dpi)
         _require_positive(
             "qc_max_events_for_interactive", self.qc_max_events_for_interactive

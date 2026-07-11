@@ -120,6 +120,7 @@ def _run_metadata(
         "background_mode": config.background_mode,
         "filtering_thresholds": {
             "max_fit_cond": config.max_fit_cond,
+            "max_fit_center_offset_px": config.max_fit_center_offset_px,
             "min_valid_pixels": config.min_valid_pixels,
             "max_localization_uncertainty_px": config.max_localization_uncertainty_px,
             "max_localization_uncertainty_nm": config.max_localization_uncertainty_nm,

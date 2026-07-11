@@ -16,6 +16,7 @@ from localization_scripts.psf_model import (
 
 MIN_MU = 1e-9
 MIN_PARAM = 1e-6
+FISHER_PINV_RCOND = 1e-12
 
 
 @dataclass(frozen=True)
@@ -87,9 +88,13 @@ def fit_joint_poisson_roi(
         valid_mask,
         config.background_mode,
     )
+    center_x = (roi_pos.shape[1] - 1) / 2.0
+    center_y = (roi_pos.shape[0] - 1) / 2.0
+    x_bounds = _center_bounds(center_x, roi_pos.shape[1], config)
+    y_bounds = _center_bounds(center_y, roi_pos.shape[0], config)
     bounds = [
-        (0.0, float(roi_pos.shape[1] - 1)),
-        (0.0, float(roi_pos.shape[0] - 1)),
+        x_bounds,
+        y_bounds,
         (np.log(MIN_PARAM), np.log(max(float(np.sum(roi_pos)) * 2.0, 1.0))),
         (np.log(MIN_PARAM), np.log(max(float(np.sum(roi_neg)) * 2.0, 1.0))),
         (np.log(MIN_PARAM), np.log(max(float(np.max(roi_pos)) * 2.0, 1.0))),
@@ -113,7 +118,24 @@ def fit_joint_poisson_roi(
             valid_mask,
         )
 
-    result = minimize(objective, initial, method="L-BFGS-B", bounds=bounds)
+    initial[0] = np.clip(initial[0], *x_bounds)
+    initial[1] = np.clip(initial[1], *y_bounds)
+    center_initial = initial.copy()
+    center_initial[0] = center_x
+    center_initial[1] = center_y
+    initial_candidates = [initial]
+    if not np.allclose(initial[:2], center_initial[:2]):
+        initial_candidates.append(center_initial)
+
+    fit_attempts = [
+        minimize(objective, candidate, method="L-BFGS-B", bounds=bounds)
+        for candidate in initial_candidates
+    ]
+    finite_attempts = [attempt for attempt in fit_attempts if np.isfinite(attempt.fun)]
+    converged_attempts = [attempt for attempt in finite_attempts if attempt.success]
+    result = min(
+        converged_attempts or finite_attempts or fit_attempts, key=lambda fit: fit.fun
+    )
     params = np.asarray(result.x, dtype=np.float64)
     psf = pixel_integrated_gaussian(
         _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
@@ -136,7 +158,6 @@ def fit_joint_poisson_roi(
         mu_neg,
         valid_mask,
         sigma_psf_px,
-        config.max_fit_cond,
         config.background_mode,
     )
     status = str(result.message)
@@ -213,6 +234,17 @@ def _initial_parameters(
     )
 
 
+def _center_bounds(
+    center: float,
+    size: int,
+    config: PeakLocConfig,
+) -> tuple[float, float]:
+    offset = config.max_fit_center_offset_px
+    if offset is None:
+        return 0.0, float(size - 1)
+    return max(0.0, center - offset), min(float(size - 1), center + offset)
+
+
 def _mean_maps(
     params: np.ndarray,
     psf: np.ndarray,
@@ -252,7 +284,6 @@ def _estimate_covariance(
     mu_neg: np.ndarray,
     valid_mask: np.ndarray,
     sigma_psf_px: float,
-    max_fit_cond: float,
     background_mode: str,
 ) -> tuple[np.ndarray, float]:
     dpsf_dx, dpsf_dy = finite_difference_psf_derivatives(
@@ -306,8 +337,15 @@ def _estimate_covariance(
             )
     active_indices = _active_fisher_indices(background_mode)
     active_fisher = fisher[np.ix_(active_indices, active_indices)]
-    condition = float(np.linalg.cond(active_fisher))
-    covariance = np.linalg.pinv(fisher, rcond=1.0 / max_fit_cond)
+    active_covariance = np.linalg.pinv(active_fisher, rcond=FISHER_PINV_RCOND)
+    covariance = np.zeros_like(fisher)
+    covariance[np.ix_(active_indices, active_indices)] = active_covariance
+
+    # Amplitude and background parameters use different numerical scales and can
+    # be mutually degenerate without compromising x/y. Condition the marginalized
+    # positional covariance; absolute positional weakness is handled separately by
+    # the configured localization-uncertainty limit.
+    condition = float(np.linalg.cond(active_covariance[:2, :2]))
     return covariance, condition
 
 
