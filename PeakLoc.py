@@ -1,11 +1,40 @@
 import argparse
 from datetime import datetime
+import os
 from pathlib import Path
+import site
+import sys
+import sysconfig
 
-from localization_scripts.config_sweep import run_config_sweep
-from localization_scripts.pipeline_config import load_peakloc_config
-from localization_scripts.pipeline_runner import run_batch
-from localization_scripts.preflight import run_preflight, write_preflight_report
+
+def configure_worker_environment() -> None:
+    """Keep the parent and spawned workers on the active Python environment."""
+    purelib = sysconfig.get_paths().get("purelib")
+    if purelib is None:
+        return
+    user_site = site.getusersitepackages()
+    if user_site in sys.path:
+        sys.path.remove(user_site)
+    if purelib in sys.path:
+        sys.path.remove(purelib)
+    sys.path.insert(0, purelib)
+
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    entries = [entry for entry in pythonpath.split(os.pathsep) if entry]
+    entries = [purelib, *(entry for entry in entries if entry != purelib)]
+    os.environ["PYTHONPATH"] = os.pathsep.join(entries)
+    os.environ["PYTHONNOUSERSITE"] = "1"
+
+
+configure_worker_environment()
+
+from localization_scripts.config_sweep import run_config_sweep  # noqa: E402
+from localization_scripts.pipeline_config import load_peakloc_config  # noqa: E402
+from localization_scripts.pipeline_runner import run_batch  # noqa: E402
+from localization_scripts.preflight import (  # noqa: E402
+    run_preflight,
+    write_preflight_report,
+)
 
 """
 if the system complains about memory, run the following command:
@@ -48,6 +77,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    configure_worker_environment()
     args = parse_args()
     config = load_peakloc_config(args.config)
     if args.preflight or args.strict_preflight or args.preflight_only:
