@@ -44,8 +44,13 @@ def test_create_signal_processes_all_coordinate_chunks(
     processed_chunk_lengths = []
 
     def process_chunk_stub(
-        _dict_events: object, coords_split: np.ndarray, _max_len: int
+        _dict_events: object,
+        coords_split: np.ndarray,
+        _max_len: int,
+        *,
+        roi_rad: int,
     ) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[np.int32, np.int32]]]:
+        assert roi_rad == 1
         processed_chunk_lengths.append(len(coords_split))
         output_times = [np.array([row[0]], dtype=np.uint64) for row in coords_split]
         output_cumsum = [np.array([row[1]], dtype=np.int32) for row in coords_split]

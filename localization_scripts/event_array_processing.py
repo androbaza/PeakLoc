@@ -168,13 +168,13 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
 
 
 # @njit(cache=True)
-def create_signal(dict_events, coords, max_len):
+def create_signal(dict_events, coords, max_len, convolution_roi_radius=1):
     times, cumsum, coordinates = [], [], []
     num_coords = 24
     for start in range(0, len(coords), num_coords):
         chunk = coords[start : start + num_coords]
         output_times, output_cumsum, output_coords = process_conv_list_parallel(
-            dict_events, chunk, max_len
+            dict_events, chunk, max_len, roi_rad=convolution_roi_radius
         )
         times.extend(output_times)
         cumsum.extend(output_cumsum)
@@ -184,14 +184,23 @@ def create_signal(dict_events, coords, max_len):
 
 
 def create_convolved_signals(
-    dict_events: Dict[int, List[int]], coords: np.ndarray, max_len: int, num_cores: int
+    dict_events: Dict[int, List[int]],
+    coords: np.ndarray,
+    max_len: int,
+    num_cores: int,
+    convolution_roi_radius: int = 1,
 ) -> List[np.ndarray]:
     """
     Create the convolved signals for the given events and coordinates.
     Cals the create_signal function that gives the data to convolve in chucks.
     Then slices the data into the given number of cores.
     """
-    times, cumsum, coordinates = create_signal(dict_events, coords, max_len)
+    times, cumsum, coordinates = create_signal(
+        dict_events,
+        coords,
+        max_len,
+        convolution_roi_radius=convolution_roi_radius,
+    )
     ind = []
     for i in range(len(times)):
         res = check_monotonicity(times[i])

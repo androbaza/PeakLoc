@@ -46,6 +46,14 @@ from localization_scripts.roi_generation import generate_coord_lists, generate_r
 from localization_scripts.smlm_visualization import save_smlm_visualization
 
 
+SLICE_TEMP_ARTIFACT_PREFIXES = (
+    "attempted_localizations",
+    "localizations",
+    "localization_qc",
+    "rois",
+)
+
+
 @dataclass
 class SliceResult:
     time_slice: int
@@ -143,7 +151,11 @@ def process_time_slice(
     )
     max_len = int(max_len * 2 * (config.convolution_roi_radius * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
-        dict_events, coords, max_len, config.num_cores
+        dict_events,
+        coords,
+        max_len,
+        config.num_cores,
+        convolution_roi_radius=config.convolution_roi_radius,
     )
     del dict_events, max_len
 
@@ -308,6 +320,9 @@ def process_recording(
         logger.info("No time slices to process for {}", filename)
         recording.elapsed_seconds = time.time() - recording_start
         return recording
+
+    temp_files_localization = out_folder_localizations / "temp_files"
+    clear_stale_slice_artifacts(temp_files_localization)
 
     for time_slice in time_slices:
         event_slice = events[
@@ -685,19 +700,28 @@ def remove_temp_artifacts(
 ) -> None:
     removed_artifacts = set()
     for loc_file in sorted_names:
-        if (
-            loc_file.startswith("attempted_localizations")
-            or loc_file.startswith("localizations")
-            or loc_file.startswith("rois")
-        ):
+        if is_slice_temp_artifact(loc_file):
             temp_artifact = temp_folder / loc_file
-            temp_artifact.unlink()
+            temp_artifact.unlink(missing_ok=True)
             removed_artifacts.add(temp_artifact)
     recording.artifacts = [
         artifact
         for artifact in recording.artifacts
         if artifact not in removed_artifacts
     ]
+
+
+def clear_stale_slice_artifacts(temp_folder: Path) -> None:
+    """Remove prior per-slice arrays before aggregating a new recording run."""
+    if not temp_folder.is_dir():
+        return
+    for path in temp_folder.iterdir():
+        if path.is_file() and is_slice_temp_artifact(path.name):
+            path.unlink()
+
+
+def is_slice_temp_artifact(filename: str) -> bool:
+    return filename.startswith(SLICE_TEMP_ARTIFACT_PREFIXES)
 
 
 def write_run_report(

@@ -81,13 +81,13 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     tmp_path, monkeypatch
 ):
     events = np.zeros(
-        3,
+        2,
         dtype=[("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")],
     )
-    events["x"] = [10, 10, 10]
-    events["y"] = [20, 20, 20]
-    events["p"] = [1, 1, 1]
-    events["t"] = [10, 110, 210]
+    events["x"] = [10, 10]
+    events["y"] = [20, 20]
+    events["p"] = [1, 1]
+    events["t"] = [10, 110]
     input_path = tmp_path / "recording.npy"
     np.save(input_path, events)
     output_folder = input_path.with_suffix("")
@@ -100,38 +100,41 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
         ("primary_rejection_reason", "U64"),
     ]
     roi_dtype = [("roi", np.uint32, (3, 3))]
-    np.save(
-        temp_folder / "localizations_time_slice_100.npy",
-        np.asarray([(0, 1.0, 2.0), (1, 3.0, 4.0)], dtype=loc_dtype),
-    )
-    np.save(
-        temp_folder / "attempted_localizations_time_slice_100.npy",
-        np.asarray([(0, 1.0, 2.0), (1, 3.0, 4.0)], dtype=loc_dtype),
-    )
-    np.save(
-        temp_folder / "localizations_time_slice_200.npy",
-        np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
-    )
-    np.save(
-        temp_folder / "attempted_localizations_time_slice_200.npy",
-        np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
-    )
-    np.save(
-        temp_folder / "localization_qc_time_slice_100.npy",
-        np.asarray([(0, True, "accepted"), (1, False, "fit_failed")], dtype=qc_dtype),
-    )
-    np.save(
-        temp_folder / "localization_qc_time_slice_200.npy",
-        np.asarray([(0, True, "accepted"), (1, False, "uncertainty")], dtype=qc_dtype),
-    )
-    np.save(
-        temp_folder / "rois_time_slice_100.npy",
-        np.zeros(1, dtype=roi_dtype),
-    )
-    np.save(
-        temp_folder / "rois_time_slice_200.npy",
-        np.zeros(1, dtype=roi_dtype),
-    )
+    stale_path = temp_folder / "localizations_stale.npy"
+    np.save(stale_path, np.asarray([(99, 99.0, 99.0)], dtype=loc_dtype))
+
+    slice_arrays = {
+        100: np.asarray([(0, 1.0, 2.0), (1, 3.0, 4.0)], dtype=loc_dtype),
+        200: np.asarray([(0, 5.0, 6.0), (1, 7.0, 8.0)], dtype=loc_dtype),
+    }
+
+    def process_time_slice_stub(
+        _event_slice,
+        time_slice,
+        _filename,
+        _config,
+        _calibration,
+    ):
+        localizations = slice_arrays[time_slice]
+        np.save(
+            temp_folder / f"localizations_time_slice_{time_slice}.npy",
+            localizations,
+        )
+        np.save(
+            temp_folder / f"attempted_localizations_time_slice_{time_slice}.npy",
+            localizations,
+        )
+        np.save(
+            temp_folder / f"localization_qc_time_slice_{time_slice}.npy",
+            np.asarray(
+                [(0, True, "accepted"), (1, False, "uncertainty")], dtype=qc_dtype
+            ),
+        )
+        np.save(
+            temp_folder / f"rois_time_slice_{time_slice}.npy",
+            np.zeros(1, dtype=roi_dtype),
+        )
+        return None
 
     monkeypatch.setattr(
         pipeline_runner,
@@ -140,7 +143,7 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
             sensor_shape
         ),
     )
-    monkeypatch.setattr(pipeline_runner, "process_time_slice", lambda *args: None)
+    monkeypatch.setattr(pipeline_runner, "process_time_slice", process_time_slice_stub)
     monkeypatch.setattr(pipeline_runner, "save_processed_plots", lambda *args: [])
     config = PeakLocConfig(
         input_folder=str(tmp_path),
@@ -149,6 +152,8 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     )
 
     pipeline_runner.process_recording(input_path, config, "20260607_120000")
+
+    assert not stale_path.exists()
 
     output_path = output_folder / (
         f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
