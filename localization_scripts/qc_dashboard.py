@@ -271,15 +271,17 @@ def save_static_qc_figures(
     for filename, plotter in figure_specs:
         paths.extend(_save_single_axis_figure(output_dir / filename, config, plotter))
 
-    montage_paths = save_uncertainty_montages(
-        attempted_localizations,
-        localizations,
-        localization_qc,
-        output_dir,
-        config=config,
-        n=config.qc_uncertainty_montage_n,
-        dpi=config.qc_static_dpi,
-    )
+    montage_paths = _reuse_uncertainty_montages(recording, output_dir)
+    if not montage_paths:
+        montage_paths = save_uncertainty_montages(
+            attempted_localizations,
+            localizations,
+            localization_qc,
+            output_dir,
+            config=config,
+            n=config.qc_uncertainty_montage_n,
+            dpi=config.qc_static_dpi,
+        )
     paths.extend(montage_paths)
     lowest = (
         output_dir
@@ -629,6 +631,16 @@ def _copy_if_exists(copies: list[tuple[Path, Path]]) -> list[Path]:
             shutil.copyfile(source, destination)
             paths.append(destination)
     return paths
+
+
+def _reuse_uncertainty_montages(recording: Any, output_dir: Path) -> list[Path]:
+    source_dir = Path(recording.output_folder) / "figures"
+    sources = sorted(
+        path
+        for path in source_dir.glob("uncertainty_*")
+        if path.suffix in {".png", ".svg", ".pdf"}
+    )
+    return _copy_if_exists([(source, output_dir / source.name) for source in sources])
 
 
 def _write_static_interactive_map(

@@ -630,11 +630,11 @@ def save_processed_plots(
     figure_folder.mkdir(parents=True, exist_ok=True)
     artifacts = []
 
-    if localizations.size == 0:
+    if config.plot_result and localizations.size == 0:
         logger.info(
             "Skipping accepted-localization plots because no fits were accepted"
         )
-    else:
+    elif config.plot_result:
         roi_fit_figure = plot_rois_from_locs(
             localizations,
             subplotsize=config.plot_subplotsize,
@@ -660,7 +660,11 @@ def save_processed_plots(
             logger.info("Saved SMLM result PNG to {}", result.png_path)
             logger.info("Saved SMLM result TIFF to {}", result.tiff_path)
 
-    if attempted_localizations is not None and localization_qc is not None:
+    if (
+        config.qc_enabled
+        and attempted_localizations is not None
+        and localization_qc is not None
+    ):
         montage_paths = save_uncertainty_montages(
             attempted_localizations,
             localizations,
