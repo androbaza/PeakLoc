@@ -494,9 +494,10 @@ def _save_plotly_spatial_map_2d(
     for index, metric in enumerate(TEMPORAL_METRICS):
         cmin, cmax = _value_range(data[metric.field], padding=0.0)
         traces.append(
-            go.Scattergl(
+            go.Scatter3d(
                 x=data["x"],
                 y=data["y"],
+                z=np.zeros_like(data["x"]),
                 mode="markers",
                 name=metric.label,
                 visible=index == 0,
@@ -518,17 +519,11 @@ def _save_plotly_spatial_map_2d(
         )
     figure = go.Figure(data=traces)
     figure.update_layout(
-        title="Full-resolution temporal blink spatial map",
+        title="Full-resolution temporal blink spatial map (flat z=0 plane)",
         height=850,
-        margin={"l": 70, "r": 100, "t": 110, "b": 70},
-        xaxis={"title": "x (sensor pixel)", "range": [0, config.sensor_width]},
-        yaxis={
-            "title": "y (sensor pixel)",
-            "range": [config.sensor_height, 0],
-            "scaleanchor": "x",
-            "scaleratio": 1,
-        },
-        updatemenus=[_metric_2d_menu()],
+        margin={"l": 0, "r": 0, "t": 110, "b": 0},
+        scene=_flat_spatial_scene(config),
+        updatemenus=[_metric_2d_menu(), _camera_menu()],
     )
     plot_id = "temporal-blink-spatial-map-2d"
     ranges = {
@@ -1065,6 +1060,25 @@ def _spatial_scene(
     }
 
 
+def _flat_spatial_scene(config: PeakLocConfig) -> dict[str, Any]:
+    """Return a rotatable spatial scene whose data remain on z=0."""
+    return {
+        "xaxis": {"title": "x (sensor pixel)", "range": [0, config.sensor_width]},
+        "yaxis": {"title": "y (sensor pixel)", "range": [config.sensor_height, 0]},
+        "zaxis": {"visible": False, "range": [-1, 1]},
+        "aspectmode": "manual",
+        "aspectratio": {
+            "x": config.sensor_width / config.sensor_height,
+            "y": 1,
+            "z": 0.15,
+        },
+        "camera": {
+            "eye": {"x": 0.0, "y": 0.0, "z": 2.4},
+            "projection": {"type": "orthographic"},
+        },
+    }
+
+
 def _render_scene(
     width: int,
     height: int,
@@ -1127,7 +1141,7 @@ def _two_d_controls_html(plot_id: str) -> str:
       value="2.5" step="0.25"></label>
   <label>Opacity <input id="{plot_id}-opacity" type="range" min="0.05" max="1"
       value="0.72" step="0.05"></label>
-  <p>Choose a timing proxy from the menu above; color controls apply to that map.</p>
+  <p>Choose a timing proxy from the menu above; drag to rotate the flat z=0 plane.</p>
 </section>
 """
 

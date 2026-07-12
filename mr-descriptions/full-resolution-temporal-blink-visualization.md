@@ -17,8 +17,8 @@ fractions of the five-minute recording hard to inspect.
 - Make the existing spatial 3D Plotly visualization use full-data time/color axis
   ranges, while retaining deterministic point sampling only for responsive orbiting.
 - Add self-contained Plotly artifacts for:
-  - a full-data 2D spatial timing map with continuous color-range, size, and opacity
-    controls;
+  - a full-data spatial timing map that remains flat at `z=0` but can be orbit-rotated,
+    with continuous color-range, size, and opacity controls;
   - median temporal values per occupied sensor pixel in the 5x SMLM-render
     coordinate system;
   - time-binned temporal-dynamics trends through the acquisition; and
