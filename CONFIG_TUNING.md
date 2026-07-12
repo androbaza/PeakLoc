@@ -90,6 +90,26 @@ had 283-289 valid pixels per attempted ROI, only 23 pre-fit event-count drops, 1
 uncertainty rejections, and 3 condition rejections. These observations support the
 current values but do not justify loosening them to increase accepted counts.
 
+### Diffuse focus-light flashes
+
+The rapid-switching recording contains broad illumination changes that pass a PSF fit
+despite having no local spatial peak. For example, accepted IDs `81487` and `221482`
+contained 3,162 and 3,995 positive events respectively, every one of their 17×17 ROI
+pixels was active, and their brightest 3×3 patch held only 4.0% and 4.6% of the
+positive events. Compact candidates in the same run typically placed 20–40% in that
+patch.
+
+Keep the diffuse-flash gate enabled with its conservative defaults:
+
+- `diffuse_flash_min_positive_events: 1000`
+- `diffuse_flash_min_active_pixel_fraction: 0.9`
+- `diffuse_flash_max_local_fraction: 0.1`
+
+It is evaluated before an ROI is retained or fitted. It cannot affect a candidate
+below 1,000 positive events, and it retains bright candidates that still have a
+spatially concentrated 3×3 core. Disable it only for an audit comparison and inspect
+the per-slice skip counts in the run report.
+
 ## Calibration and Fixed Implementation Settings
 
 - `fit_sigma: true` is not implemented. Keep it `false`.

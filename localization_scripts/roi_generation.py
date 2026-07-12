@@ -1,6 +1,6 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 import warnings
-from typing import TYPE_CHECKING
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -9,10 +9,13 @@ from numba import jit, njit, types
 from numba.core.errors import NumbaTypeSafetyWarning
 from numba.typed import Dict, List
 
-if TYPE_CHECKING:
-    prange = range
-else:
-    from numba import prange
+
+@dataclass(frozen=True)
+class RoiGenerationResult:
+    """ROIs retained for fitting and candidates removed before ROI output."""
+
+    rois: np.ndarray
+    diffuse_flash_rejected_count: int
 
 
 def generate_rois(
@@ -25,10 +28,44 @@ def generate_rois(
     max_x: int,
     max_y: int,
     polarity_time_gate_us: float = 5e3,
+    diffuse_flash_min_positive_events: int = 1_000,
+    diffuse_flash_min_active_pixel_fraction: float = 0.9,
+    diffuse_flash_max_local_fraction: float = 0.1,
 ) -> np.ndarray:
-    """
-    Generate ROIs from peak data.
-    """
+    """Generate ROIs from peak data, omitting diffuse high-event flashes."""
+    return generate_rois_with_selection_stats(
+        unique_peaks,
+        events_t_p_dict,
+        roi_rad,
+        min_x,
+        min_y,
+        num_cores,
+        max_x,
+        max_y,
+        polarity_time_gate_us=polarity_time_gate_us,
+        diffuse_flash_min_positive_events=diffuse_flash_min_positive_events,
+        diffuse_flash_min_active_pixel_fraction=(
+            diffuse_flash_min_active_pixel_fraction
+        ),
+        diffuse_flash_max_local_fraction=diffuse_flash_max_local_fraction,
+    ).rois
+
+
+def generate_rois_with_selection_stats(
+    unique_peaks: Mapping[tuple[int, int], object],
+    events_t_p_dict: dict,
+    roi_rad: int,
+    min_x: int,
+    min_y: int,
+    num_cores: int,
+    max_x: int,
+    max_y: int,
+    polarity_time_gate_us: float = 5e3,
+    diffuse_flash_min_positive_events: int = 1_000,
+    diffuse_flash_min_active_pixel_fraction: float = 0.9,
+    diffuse_flash_max_local_fraction: float = 0.1,
+) -> RoiGenerationResult:
+    """Generate ROIs and retain the count of rejected diffuse flash candidates."""
     sliced_dict = split_dict_to_multiple(unique_peaks, num_cores)
     event_coords = list(events_t_p_dict.keys())
     dict_indices = tuples_to_dict(event_coords)
@@ -45,6 +82,11 @@ def generate_rois(
         max_x=max_x,
         max_y=max_y,
         polarity_time_gate_us=polarity_time_gate_us,
+        diffuse_flash_min_positive_events=diffuse_flash_min_positive_events,
+        diffuse_flash_min_active_pixel_fraction=(
+            diffuse_flash_min_active_pixel_fraction
+        ),
+        diffuse_flash_max_local_fraction=diffuse_flash_max_local_fraction,
     )
 
 
@@ -264,6 +306,49 @@ def slice_t_p_dict(
     )
 
 
+@njit(cache=True, fastmath=True, nogil=True)
+def is_diffuse_flash_roi(
+    positive_roi,
+    total_positive_events,
+    min_positive_events,
+    min_active_pixel_fraction,
+    max_local_fraction,
+):
+    """Identify broad illumination flashes before their ROI is retained.
+
+    PeakLoc detects an ON peak, so only its positive-event image is relevant here.
+    A single-molecule blink has a compact local maximum, while focus-light changes
+    produce a high-count image with nearly every ROI pixel active and no local core.
+    """
+    if (
+        min_positive_events <= 0
+        or total_positive_events < min_positive_events
+        or positive_roi.shape[0] < 3
+    ):
+        return False
+
+    active_pixels = 0
+    for y in range(positive_roi.shape[0]):
+        for x in range(positive_roi.shape[1]):
+            if positive_roi[y, x] > 0:
+                active_pixels += 1
+    active_fraction = active_pixels / positive_roi.size
+    if active_fraction < min_active_pixel_fraction:
+        return False
+
+    max_local_events = 0
+    for y in range(positive_roi.shape[0] - 2):
+        for x in range(positive_roi.shape[1] - 2):
+            local_events = 0
+            for local_y in range(y, y + 3):
+                for local_x in range(x, x + 3):
+                    local_events += positive_roi[local_y, local_x]
+            if local_events > max_local_events:
+                max_local_events = local_events
+
+    return max_local_events / total_positive_events <= max_local_fraction
+
+
 def gen_rois_from_peaks_dict(
     coords_dict,
     dict_indices,
@@ -275,10 +360,14 @@ def gen_rois_from_peaks_dict(
     image_start=(0, 0),
     i=1,
     polarity_time_gate_us=5e3,
+    diffuse_flash_min_positive_events=1_000,
+    diffuse_flash_min_active_pixel_fraction=0.9,
+    diffuse_flash_max_local_fraction=0.1,
 ):
     id_data = 0
     id_loc = 0
     roi_chunks = []
+    diffuse_flash_rejected_count = 0
     total_coordinates = len(list(coords_dict.keys()))
     numba_dict_indices = Dict.empty(
         key_type=types.UniTuple(types.int32, 2),
@@ -310,13 +399,14 @@ def gen_rois_from_peaks_dict(
         coord_list = generate_coord_lists(
             y - roi_rad, y + roi_rad, x - roi_rad, x + roi_rad
         )
-        full_rois_list = np.zeros(
+        full_rois_list = np.empty(
             (len(data)),
             dtype=roi_record_dtype(roi_rad),
         )
+        retained_count = 0
 
-        for id in prange(len(data)):
-            full_rois_list[id] = slice_t_p_dict(
+        for id in range(len(data)):
+            roi_data = slice_t_p_dict(
                 numba_dict_indices,
                 numba_times,
                 numba_polarities,
@@ -330,13 +420,31 @@ def gen_rois_from_peaks_dict(
                 image_start=image_start,
                 polarity_time_gate_us=polarity_time_gate_us,
             )
+            if is_diffuse_flash_roi(
+                roi_data[0],
+                roi_data[3],
+                diffuse_flash_min_positive_events,
+                diffuse_flash_min_active_pixel_fraction,
+                diffuse_flash_max_local_fraction,
+            ):
+                diffuse_flash_rejected_count += 1
+                continue
+            full_rois_list[retained_count] = roi_data
+            retained_count += 1
             id_loc += 1
-        roi_chunks.append(full_rois_list)
+        if retained_count:
+            roi_chunks.append(full_rois_list[:retained_count])
 
         id_data += 1
     if not roi_chunks:
-        return np.empty(0, dtype=roi_record_dtype(roi_rad))
-    return np.concatenate(roi_chunks)
+        return RoiGenerationResult(
+            rois=np.empty(0, dtype=roi_record_dtype(roi_rad)),
+            diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+        )
+    return RoiGenerationResult(
+        rois=np.concatenate(roi_chunks),
+        diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+    )
 
 
 def generate_rois_parallel(
@@ -351,6 +459,9 @@ def generate_rois_parallel(
     max_x,
     max_y,
     polarity_time_gate_us=5e3,
+    diffuse_flash_min_positive_events=1_000,
+    diffuse_flash_min_active_pixel_fraction=0.9,
+    diffuse_flash_max_local_fraction=0.1,
 ):
     RES = Parallel(
         n_jobs=num_cores,
@@ -369,12 +480,26 @@ def generate_rois_parallel(
             max_x=max_x,
             max_y=max_y,
             polarity_time_gate_us=polarity_time_gate_us,
+            diffuse_flash_min_positive_events=diffuse_flash_min_positive_events,
+            diffuse_flash_min_active_pixel_fraction=(
+                diffuse_flash_min_active_pixel_fraction
+            ),
+            diffuse_flash_max_local_fraction=diffuse_flash_max_local_fraction,
         )
         for i in range(len(sliced_dict))
     )
-    non_empty_results = [result for result in RES if result.size]
+    diffuse_flash_rejected_count = sum(
+        result.diffuse_flash_rejected_count for result in RES
+    )
+    non_empty_results = [result.rois for result in RES if result.rois.size]
     if not non_empty_results:
-        return np.empty(0, dtype=roi_record_dtype(roi_rad))
+        return RoiGenerationResult(
+            rois=np.empty(0, dtype=roi_record_dtype(roi_rad)),
+            diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+        )
 
     rois = np.concatenate(non_empty_results)
-    return np.sort(rois, order="t_peak")
+    return RoiGenerationResult(
+        rois=np.sort(rois, order="t_peak"),
+        diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+    )

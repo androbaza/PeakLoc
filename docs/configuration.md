@@ -186,6 +186,28 @@ it for quantitative conclusions.
 Set `PEAKLOC_SPATIAL_MASK_ENABLED=false` to make an unmasked comparison run without
 editing the JSON file.
 
+## Diffuse focus-light flashes
+
+PeakLoc can skip a candidate before it is retained as an ROI when an unusually large
+positive-event burst is nearly uniform across the ROI. This prevents broad focus-light
+changes from being passed to the fitter as apparently precise point localizations.
+
+```json
+{
+  "diffuse_flash_rejection_enabled": true,
+  "diffuse_flash_min_positive_events": 1000,
+  "diffuse_flash_min_active_pixel_fraction": 0.9,
+  "diffuse_flash_max_local_fraction": 0.1
+}
+```
+
+All three conditions must hold: the ROI must have at least the configured number of
+positive events, at least the configured fraction of pixels must be active, and no
+3×3 patch may contain more than the configured fraction of those events. Compact,
+bright blinks therefore remain eligible even above the event threshold. The run report
+records how many candidates were skipped before ROI output. Set
+`diffuse_flash_rejection_enabled` to `false` for an audit comparison.
+
 ## Peak detection
 
 ### `prominence`

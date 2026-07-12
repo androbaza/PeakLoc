@@ -42,6 +42,10 @@ class PeakLocConfig:
     roi_radius: int = 8
     convolution_roi_radius: int = 1
     peak_min_event_count: int = 2
+    diffuse_flash_rejection_enabled: bool = True
+    diffuse_flash_min_positive_events: int = 1_000
+    diffuse_flash_min_active_pixel_fraction: float = 0.9
+    diffuse_flash_max_local_fraction: float = 0.1
     interpolation_coefficient: int = 5
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
@@ -136,6 +140,10 @@ class PeakLocConfig:
         _require_positive("roi_radius", self.roi_radius)
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
         _require_positive("peak_min_event_count", self.peak_min_event_count)
+        _require_positive(
+            "diffuse_flash_min_positive_events",
+            self.diffuse_flash_min_positive_events,
+        )
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)
@@ -168,6 +176,9 @@ class PeakLocConfig:
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         _require_bool("spatial_mask_enabled", self.spatial_mask_enabled)
+        _require_bool(
+            "diffuse_flash_rejection_enabled", self.diffuse_flash_rejection_enabled
+        )
         _require_bool("allow_uncalibrated", self.allow_uncalibrated)
         _require_bool("fit_sigma", self.fit_sigma)
         _require_bool("qc_enabled", self.qc_enabled)
@@ -183,6 +194,14 @@ class PeakLocConfig:
         if not 0 < self.spatial_mask_max_support_coverage <= 1:
             raise ValueError(
                 "spatial_mask_max_support_coverage must be in the interval (0, 1]"
+            )
+        if not 0 < self.diffuse_flash_min_active_pixel_fraction <= 1:
+            raise ValueError(
+                "diffuse_flash_min_active_pixel_fraction must be in the interval (0, 1]"
+            )
+        if not 0 < self.diffuse_flash_max_local_fraction <= 1:
+            raise ValueError(
+                "diffuse_flash_max_local_fraction must be in the interval (0, 1]"
             )
         if self.fit_model != "poisson_joint":
             raise ValueError("fit_model must be 'poisson_joint'")

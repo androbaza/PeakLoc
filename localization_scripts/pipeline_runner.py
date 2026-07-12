@@ -47,7 +47,10 @@ from localization_scripts.plot_style import PREVIEW_DPI
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_dashboard
-from localization_scripts.roi_generation import generate_coord_lists, generate_rois
+from localization_scripts.roi_generation import (
+    generate_coord_lists,
+    generate_rois_with_selection_stats,
+)
 from localization_scripts.smlm_visualization import save_smlm_visualization
 from localization_scripts.spatial_mask import (
     SpatialMask,
@@ -80,6 +83,7 @@ class SliceResult:
     median_nll_per_event: float | None = None
     hot_pixel_fraction: float | None = None
     rejected_localization_count: int = 0
+    diffuse_flash_rejected_count: int = 0
     artifacts: list[Path] = field(default_factory=list)
 
 
@@ -254,7 +258,7 @@ def process_time_slice(
     logger.info(
         "Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time
     )
-    rois = generate_rois(
+    roi_generation = generate_rois_with_selection_stats(
         unique_peaks,
         events_t_p_dict,
         roi_rad=config.roi_radius,
@@ -264,7 +268,24 @@ def process_time_slice(
         max_x=config.sensor_width - 1,
         max_y=config.sensor_height - 1,
         polarity_time_gate_us=config.polarity_time_gate_us,
+        diffuse_flash_min_positive_events=(
+            config.diffuse_flash_min_positive_events
+            if config.diffuse_flash_rejection_enabled
+            else 0
+        ),
+        diffuse_flash_min_active_pixel_fraction=(
+            config.diffuse_flash_min_active_pixel_fraction
+        ),
+        diffuse_flash_max_local_fraction=config.diffuse_flash_max_local_fraction,
     )
+    rois = roi_generation.rois
+    diffuse_flash_rejected_count = roi_generation.diffuse_flash_rejected_count
+    del roi_generation
+    if diffuse_flash_rejected_count:
+        logger.info(
+            "Skipped {} diffuse flash candidates before ROI output",
+            diffuse_flash_rejected_count,
+        )
     del events_t_p_dict, unique_peaks
     release_unused_memory()
 
@@ -331,6 +352,7 @@ def process_time_slice(
         median_nll_per_event=fit_qc["median_nll_per_event"],
         hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
         rejected_localization_count=rejected_localization_count,
+        diffuse_flash_rejected_count=diffuse_flash_rejected_count,
         artifacts=[
             unique_peaks_path,
             attempted_localizations_path,
@@ -1075,6 +1097,9 @@ def write_run_report(
     total_unique_peaks = sum(
         result.unique_peak_count for result in recording.slice_results
     )
+    total_diffuse_flash_rejections = sum(
+        result.diffuse_flash_rejected_count for result in recording.slice_results
+    )
     total_rois = sum(result.roi_count for result in recording.slice_results)
     total_localizations = sum(
         result.localization_count for result in recording.slice_results
@@ -1090,6 +1115,8 @@ def write_run_report(
         f"- Event time range: `{recording.time_min}` to `{recording.time_max}`",
         f"- Processed slices: `{len(recording.slice_results)}`",
         f"- Total unique peaks: `{total_unique_peaks}`",
+        "- Diffuse flash candidates skipped before ROI output: "
+        f"`{total_diffuse_flash_rejections}`",
         f"- Total ROIs: `{total_rois}`",
         f"- Total localizations: `{total_localizations}`",
         f"- Elapsed time: `{recording.elapsed_seconds:.2f} s`",
@@ -1113,15 +1140,16 @@ def write_run_report(
     if recording.slice_results:
         lines.extend(
             [
-                "| Time slice | Events | Unique peaks | ROIs | Localizations | "
-                "Success | Unc. px | NLL/event | Hot px | Rejected | Seconds |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                "| Time slice | Events | Unique peaks | Diffuse skipped | ROIs | "
+                "Localizations | Success | Unc. px | NLL/event | Hot px | Rejected | Seconds |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for result in recording.slice_results:
             lines.append(
                 f"| {result.time_slice} | {result.event_count} | "
-                f"{result.unique_peak_count} | {result.roi_count} | "
+                f"{result.unique_peak_count} | {result.diffuse_flash_rejected_count} | "
+                f"{result.roi_count} | "
                 f"{result.localization_count} | "
                 f"{_format_optional_float(result.fit_success_fraction)} | "
                 f"{_format_optional_float(result.median_uncertainty_px)} | "
