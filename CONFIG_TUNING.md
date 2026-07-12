@@ -101,11 +101,12 @@ current values but do not justify loosening them to increase accepted counts.
 
 ## Runtime and QC
 
-- `num_cores` controls peak, ROI, and fit parallelism. Use the available logical cores
-  when memory permits.
+- `num_cores` is the available CPU ceiling; `max_parallel_workers` is the safety cap
+  used for memory-intensive peak, ROI, and fit stages. Start with four workers even on
+  larger machines, then raise the cap only after a full run is stable.
 - `max_raw_events` is the OpenEB RAW-reader rolling buffer size, not a processing cap.
-  The current 100,000,000-event value was sufficient for this recording; much larger
-  values reserve memory before fitting and can exhaust the machine.
+  Keep it near 1,000,000 for long recordings. A 100,000,000-event buffer reserves a
+  large amount of memory before fitting and can exhaust the machine.
 - Set `plot_result` to `false` for parameter sweeps that do not need rendered outputs.
 - Set `qc_enabled` to `false` for fast iterations. Attempted, accepted, ROI, and QC
   arrays are still written.
@@ -133,5 +134,6 @@ validate any biological claim with signal-associated event timing or an independ
 measurement.
 
 The current `slice_duration` creates repeated bins from `slice_start` through the end
-of a recording. It does not limit a RAW run to one bin. Use a pre-sliced `.npy` for a
-single diagnostic interval until bounded RAW processing is implemented.
+of a recording. It does not limit a RAW run to one bin. RAW inputs are staged on disk
+and processed one time slice at a time, so long recordings no longer require the full
+event array to remain resident.

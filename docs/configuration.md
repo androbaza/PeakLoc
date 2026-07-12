@@ -135,6 +135,22 @@ Higher values can speed up processing but can also increase memory use.
 
 Use conservative values for first runs.
 
+### `max_parallel_workers`
+
+Upper bound for concurrently running memory-intensive workers. PeakLoc uses the lower
+of `num_cores` and this value. The default is `4`, which avoids sending a large event
+slice to every logical CPU at once.
+
+```json
+{
+  "num_cores": 32,
+  "max_parallel_workers": 4
+}
+```
+
+Increase this only after a complete recording runs with stable memory use. The
+environment override `PEAKLOC_MAX_PARALLEL_WORKERS` is useful for one-off tuning.
+
 ## Peak detection
 
 ### `prominence`
@@ -771,6 +787,10 @@ Example:
 ```
 
 Set false when debugging intermediate arrays.
+
+For `.raw` input, PeakLoc also creates a temporary disk-backed normalized event cache
+inside `temp_files/`. Leave enough free disk space for that cache and the per-slice
+arrays; it is removed with the other temporary outputs when this setting is true.
 
 ## Recommended beginner configs
 

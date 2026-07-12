@@ -1,4 +1,3 @@
-import copy
 from collections.abc import Mapping
 import warnings
 from typing import TYPE_CHECKING
@@ -89,10 +88,6 @@ def tuples_to_dict(lst):
 def split_dict_to_multiple(input_dict, num_cores):
     """Splits dict into multiple dicts with given maximum size.
     Returns a list of dictionaries."""
-    num_nonzero = 0
-    for value in input_dict.values():
-        if value != []:
-            num_nonzero += 1
     max_limit = len(list(input_dict.keys())) // num_cores + 1
     chunks = []
     curr_dict = {}
@@ -102,7 +97,9 @@ def split_dict_to_multiple(input_dict, num_cores):
         if len(curr_dict.keys()) < max_limit:
             curr_dict.update({k: v})
         else:
-            chunks.append(copy.deepcopy(curr_dict))
+            # ROI chunks are read-only. Copying their peak payloads multiplies the
+            # per-slice memory footprint before workers even start.
+            chunks.append(curr_dict)
             curr_dict = {k: v}
     chunks.append(curr_dict)
     return chunks
@@ -130,7 +127,7 @@ def get_times_polarities(coords_dict, events_t_p_dict):
     return times_arr, polarities_arr
 
 
-@jit(nopython=True, cache=True)
+@jit(nopython=True, cache=True, nogil=True)
 def generate_coord_lists(start_y, fin_y, start_x, fin_x):
     return np.array(
         [(y, x) for x in range(start_x, fin_x + 1) for y in range(start_y, fin_y + 1)],
@@ -138,7 +135,7 @@ def generate_coord_lists(start_y, fin_y, start_x, fin_x):
     )
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def count_values_in_range(
     times_arr,
     polarities_arr,
@@ -168,7 +165,7 @@ def count_values_in_range(
     return count_positive, count_negative, t_1st, t_last
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def slice_t_p_dict(
     dict_indices,
     times_arr,
@@ -281,8 +278,8 @@ def gen_rois_from_peaks_dict(
 ):
     id_data = 0
     id_loc = 0
-    rois_list = []
-    all = len(list(coords_dict.keys()))
+    roi_chunks = []
+    total_coordinates = len(list(coords_dict.keys()))
     numba_dict_indices = Dict.empty(
         key_type=types.UniTuple(types.int32, 2),
         value_type=types.int64,
@@ -296,10 +293,10 @@ def gen_rois_from_peaks_dict(
         numba_polarities.append(np.asarray(polarities, dtype=np.int8))
     # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
-        if (id_data % 2e3 == 0 or id_data == all - 1) and i == 1:
+        if (id_data % 2e3 == 0 or id_data == total_coordinates - 1) and i == 1:
             logger.debug(
                 "completed {} % --> ~{} localizations found",
-                int(id_data / all * 100),
+                int(id_data / total_coordinates * 100),
                 id_loc * 10,
             )
         y, x = center_coord
@@ -334,14 +331,12 @@ def gen_rois_from_peaks_dict(
                 polarity_time_gate_us=polarity_time_gate_us,
             )
             id_loc += 1
-        rois_list = (
-            np.concatenate((rois_list, full_rois_list))
-            if id_data != 0
-            else full_rois_list
-        )
+        roi_chunks.append(full_rois_list)
 
         id_data += 1
-    return rois_list
+    if not roi_chunks:
+        return np.empty(0, dtype=roi_record_dtype(roi_rad))
+    return np.concatenate(roi_chunks)
 
 
 def generate_rois_parallel(
@@ -357,7 +352,12 @@ def generate_rois_parallel(
     max_y,
     polarity_time_gate_us=5e3,
 ):
-    RES = Parallel(n_jobs=num_cores, backend="loky")(
+    RES = Parallel(
+        n_jobs=num_cores,
+        backend="threading",
+        pre_dispatch="n_jobs",
+        batch_size=1,
+    )(
         delayed(gen_rois_from_peaks_dict)(
             coords_dict=sliced_dict[i],
             dict_indices=dict_indices,
@@ -372,12 +372,9 @@ def generate_rois_parallel(
         )
         for i in range(len(sliced_dict))
     )
-    rois = []
-
-    for i in np.arange(len(RES)):
-        rois.extend(RES[i])
-
-    if not rois:
+    non_empty_results = [result for result in RES if result.size]
+    if not non_empty_results:
         return np.empty(0, dtype=roi_record_dtype(roi_rad))
 
-    return np.sort(np.asarray(rois, dtype=roi_record_dtype(roi_rad)), order="t_peak")
+    rois = np.concatenate(non_empty_results)
+    return np.sort(rois, order="t_peak")

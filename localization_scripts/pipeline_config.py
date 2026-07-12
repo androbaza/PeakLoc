@@ -16,6 +16,7 @@ ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_INPUT_FOLDER": "input_folder",
     "PEAKLOC_SLICE_START": "slice_start",
     "PEAKLOC_SLICE_DURATION": "slice_duration",
+    "PEAKLOC_MAX_PARALLEL_WORKERS": "max_parallel_workers",
 }
 
 
@@ -25,6 +26,7 @@ class PeakLocConfig:
     slice_start: int = 0
     slice_duration: int = DEFAULT_SLICE_DURATION
     num_cores: int = multiprocessing.cpu_count()
+    max_parallel_workers: int = 4
     prominence: float = 12.0
     dataset_fwhm: float = 6.0
     peak_time_threshold: float = 40e3
@@ -110,6 +112,7 @@ class PeakLocConfig:
         _require_non_negative("slice_start", self.slice_start)
         _require_positive("slice_duration", self.slice_duration)
         _require_positive("num_cores", self.num_cores)
+        _require_positive("max_parallel_workers", self.max_parallel_workers)
         _require_positive("prominence", self.prominence)
         _require_positive("dataset_fwhm", self.dataset_fwhm)
         _require_positive("peak_time_threshold", self.peak_time_threshold)
@@ -189,6 +192,11 @@ class PeakLocConfig:
     @property
     def optical_pixel_size_nm(self) -> float:
         return self.optical_pixel_size
+
+    @property
+    def parallel_workers(self) -> int:
+        """Return the bounded worker count used for memory-intensive stages."""
+        return min(self.num_cores, self.max_parallel_workers)
 
     @property
     def sensor_shape(self) -> tuple[int, int]:

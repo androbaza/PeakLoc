@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import csv
+import ctypes
 import gc
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 import json
+import shutil
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +26,7 @@ from localization_scripts.event_array_processing import (
     array_to_polarity_map,
     array_to_time_map,
     create_convolved_signals,
-    raw_events_to_array,
+    materialize_raw_events,
     save_dict,
 )
 from localization_scripts.fit_review import save_uncertainty_montages
@@ -41,7 +45,7 @@ from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plot_style import PREVIEW_DPI
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.provenance import save_portable_outputs
-from localization_scripts.qc_dashboard import save_run_qc_dashboard
+from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_dashboard
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 from localization_scripts.smlm_visualization import save_smlm_visualization
 
@@ -51,7 +55,9 @@ SLICE_TEMP_ARTIFACT_PREFIXES = (
     "localizations",
     "localization_qc",
     "rois",
+    "unique_peaks",
 )
+JOBLIB_TEMP_DIRNAME = "joblib"
 
 
 @dataclass
@@ -81,6 +87,15 @@ class RecordingResult:
     artifacts: list[Path] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     calibration_metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class EventStore:
+    """A recording-backed array and the optional temporary RAW cache behind it."""
+
+    events: np.ndarray
+    cache_path: Path | None = None
+    timestamps_monotonic: bool = True
 
 
 def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
@@ -127,6 +142,14 @@ def process_time_slice(
         return None
 
     start_time = time.time()
+    event_count = int(event_slice.size)
+    out_folder_localizations = filename.with_suffix("")
+    temp_files_localization = out_folder_localizations / "temp_files"
+    joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME
+    out_folder_localizations.mkdir(parents=True, exist_ok=True)
+    temp_files_localization.mkdir(parents=True, exist_ok=True)
+    joblib_temp_folder.mkdir(parents=True, exist_ok=True)
+    worker_count = config.parallel_workers
 
     min_x = events["x"].min()
     min_y = events["y"].min()
@@ -135,15 +158,15 @@ def process_time_slice(
 
     coords = generate_coord_lists(min_y, max_y, min_x, max_x)
 
-    logger.info("Analyzing the data using {} cores", config.num_cores)
+    logger.info("Analyzing the data using {} bounded workers", worker_count)
     logger.info(
         "Converting events to dictionaries; elapsed time: {:.2f} seconds",
         time.time() - start_time,
     )
     dict_events, max_len = array_to_polarity_map(events, coords)
     events_t_p_dict = array_to_time_map(events)
-    del events
-    gc.collect()
+    del events, event_slice
+    release_unused_memory()
 
     logger.info(
         "Creating convolved signals; elapsed time: {:.2f} seconds",
@@ -154,26 +177,31 @@ def process_time_slice(
         dict_events,
         coords,
         max_len,
-        config.num_cores,
+        worker_count,
         convolution_roi_radius=config.convolution_roi_radius,
     )
-    del dict_events, max_len
+    del dict_events, max_len, coords
+    release_unused_memory()
 
     logger.info("Finding peaks; elapsed time: {:.2f} seconds", time.time() - start_time)
     peak_list = find_peaks_parallel(
         times,
         cumsum,
         coordinates,
-        config.num_cores,
+        worker_count,
         prominence=config.prominence,
         interpolation_coefficient=config.interpolation_coefficient,
         cutoff_event_count=config.peak_min_event_count,
         spline_smooth=config.spline_smooth,
+        joblib_temp_folder=joblib_temp_folder,
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
+    del times, cumsum, coordinates, peak_list
+    release_unused_memory()
     peaks_dict = group_timestamps_by_coordinate(
         coordinates_peaks, peaks, prominences, on_times
     )
+    del peaks, prominences, on_times, coordinates_peaks
 
     logger.info(
         "Filtering peaks; elapsed time: {:.2f} seconds", time.time() - start_time
@@ -183,11 +211,7 @@ def process_time_slice(
         threshold=config.peak_time_threshold,
         neighbors=config.peak_neighbors,
     )
-
-    out_folder_localizations = filename.with_suffix("")
-    temp_files_localization = out_folder_localizations / "temp_files"
-    out_folder_localizations.mkdir(parents=True, exist_ok=True)
-    temp_files_localization.mkdir(parents=True, exist_ok=True)
+    del peaks_dict
 
     unique_peaks_path = (
         temp_files_localization
@@ -195,6 +219,7 @@ def process_time_slice(
         f"_time_slice_{time_slice}.pkl"
     )
     save_dict(unique_peaks, str(unique_peaks_path))
+    unique_peak_count = sum(len(values) for values in unique_peaks.values())
 
     logger.info(
         "Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time
@@ -205,17 +230,24 @@ def process_time_slice(
         roi_rad=config.roi_radius,
         min_x=0,
         min_y=0,
-        num_cores=config.num_cores,
+        num_cores=worker_count,
         max_x=config.sensor_width - 1,
         max_y=config.sensor_height - 1,
         polarity_time_gate_us=config.polarity_time_gate_us,
     )
+    del events_t_p_dict, unique_peaks
+    release_unused_memory()
 
     logger.info(
         "Performing localization; elapsed time: {:.2f} seconds",
         time.time() - start_time,
     )
-    localization_tables = localize_rois_with_attempts(rois, config, calibration)
+    localization_tables = localize_rois_with_attempts(
+        rois,
+        config,
+        calibration,
+        joblib_temp_folder=joblib_temp_folder,
+    )
     attempted_localizations = localization_tables.attempted
     localizations = localization_tables.filtered
     localization_qc = localization_tables.qc_table
@@ -249,7 +281,6 @@ def process_time_slice(
     write_structured_array_csv(localization_qc, localization_qc_csv_path)
     np.save(rois_path, rois)
 
-    unique_peak_count = sum(len(values) for values in unique_peaks.values())
     fit_qc = summarize_fit_qc(
         attempted_localizations,
         roi_count=len(rois),
@@ -258,9 +289,9 @@ def process_time_slice(
     rejected_localization_count = fit_qc["rejected_localization_count"]
     if not isinstance(rejected_localization_count, int):
         rejected_localization_count = 0
-    return SliceResult(
+    slice_result = SliceResult(
         time_slice=time_slice,
-        event_count=len(event_slice),
+        event_count=event_count,
         unique_peak_count=unique_peak_count,
         roi_count=len(rois),
         localization_count=len(localizations),
@@ -279,252 +310,399 @@ def process_time_slice(
             rois_path,
         ],
     )
+    del (
+        localization_tables,
+        attempted_localizations,
+        localizations,
+        localization_qc,
+        rois,
+    )
+    release_unused_memory()
+    return slice_result
 
 
 def process_recording(
     filename: Path, config: PeakLocConfig, run_timestamp: str
 ) -> RecordingResult:
     recording_start = time.time()
-    events = load_events(filename, config)
-    if events is None:
-        raise ValueError(f"Unsupported input file: {filename}")
-
     out_folder_localizations = filename.with_suffix("")
     out_folder_localizations.mkdir(parents=True, exist_ok=True)
-    recording = RecordingResult(
-        input_file=filename,
-        output_folder=out_folder_localizations,
-        event_count=len(events),
-        time_min=int(events["t"].min()) if events.size else None,
-        time_max=int(events["t"].max()) if events.size else None,
-    )
-
-    if events.size == 0:
-        logger.info("No events found for {}", filename)
-        recording.elapsed_seconds = time.time() - recording_start
-        return recording
-
-    calibration = load_calibration(
-        config.calibration_path,
-        config.sensor_shape,
-        allow_uncalibrated=config.allow_uncalibrated,
-    )
-    recording.calibration_metadata = calibration_to_metadata(calibration)
-
-    time_slices = range(
-        config.slice_start + config.slice_duration,
-        int(events["t"].max()) + config.slice_duration + 1,
-        config.slice_duration,
-    )
-    if len(time_slices) == 0:
-        logger.info("No time slices to process for {}", filename)
-        recording.elapsed_seconds = time.time() - recording_start
-        return recording
-
     temp_files_localization = out_folder_localizations / "temp_files"
     clear_stale_slice_artifacts(temp_files_localization)
+    event_store = open_event_store(filename, config, temp_files_localization)
+    events = event_store.events
+    try:
+        time_min, time_max = event_time_bounds(events)
+        recording = RecordingResult(
+            input_file=filename,
+            output_folder=out_folder_localizations,
+            event_count=int(events.size),
+            time_min=time_min,
+            time_max=time_max,
+        )
 
-    for time_slice in time_slices:
-        event_slice = events[
-            (events["t"] >= time_slice - config.slice_duration)
-            & (events["t"] < time_slice)
+        if events.size == 0:
+            logger.info("No events found for {}", filename)
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+
+        calibration = load_calibration(
+            config.calibration_path,
+            config.sensor_shape,
+            allow_uncalibrated=config.allow_uncalibrated,
+        )
+        recording.calibration_metadata = calibration_to_metadata(calibration)
+
+        if time_max is None:
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+        time_slices = range(
+            config.slice_start + config.slice_duration,
+            time_max + config.slice_duration + 1,
+            config.slice_duration,
+        )
+        if len(time_slices) == 0:
+            logger.info("No time slices to process for {}", filename)
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+
+        event_qc = None
+        if config.qc_enabled:
+            event_qc = EventQCAccumulator.create(
+                config.sensor_shape,
+                expected_event_count=int(events.size),
+                sample_limit=(
+                    config.qc_max_events_for_interactive
+                    if config.qc_generate_interactive
+                    else 0
+                ),
+            )
+            event_qc.add(events)
+
+        for time_slice, event_slice in iter_event_slices(
+            events,
+            time_slices,
+            slice_duration=config.slice_duration,
+            timestamps_monotonic=event_store.timestamps_monotonic,
+        ):
+            try:
+                slice_result = process_time_slice(
+                    event_slice,
+                    time_slice,
+                    filename,
+                    config,
+                    calibration,
+                )
+            finally:
+                del event_slice
+                release_unused_memory()
+            if slice_result is not None:
+                recording.slice_results.append(slice_result)
+                recording.artifacts.extend(slice_result.artifacts)
+
+        if not temp_files_localization.is_dir():
+            logger.info("No temporary localization folder found for {}", filename)
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+
+        sorted_names = natsorted(
+            path.name for path in temp_files_localization.iterdir()
+        )
+        loc_names = [name for name in sorted_names if name.startswith("localizations")]
+        attempted_loc_names = [
+            name for name in sorted_names if name.startswith("attempted_localizations")
         ]
-        slice_result = process_time_slice(
-            event_slice,
-            time_slice,
-            filename,
-            config,
-            calibration,
+        roi_names = [name for name in sorted_names if name.startswith("rois")]
+        localization_qc_names = [
+            name
+            for name in sorted_names
+            if name.startswith("localization_qc") and name.endswith(".npy")
+        ]
+        if not loc_names or not roi_names:
+            logger.info("No localization outputs found for {}", filename)
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+
+        localizations_path = (
+            out_folder_localizations
+            / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+            f"_prominence_{config.prominence:g}.npy"
         )
-        if slice_result is not None:
-            recording.slice_results.append(slice_result)
-            recording.artifacts.extend(slice_result.artifacts)
-
-    temp_files_localization = out_folder_localizations / "temp_files"
-    if not temp_files_localization.is_dir():
-        logger.info("No temporary localization folder found for {}", filename)
-        recording.elapsed_seconds = time.time() - recording_start
-        return recording
-
-    sorted_names = natsorted(path.name for path in temp_files_localization.iterdir())
-    loc_names = [name for name in sorted_names if name.startswith("localizations")]
-    attempted_loc_names = [
-        name for name in sorted_names if name.startswith("attempted_localizations")
-    ]
-    roi_names = [name for name in sorted_names if name.startswith("rois")]
-    localization_qc_names = [
-        name
-        for name in sorted_names
-        if name.startswith("localization_qc") and name.endswith(".npy")
-    ]
-    if not loc_names or not roi_names:
-        logger.info("No localization outputs found for {}", filename)
-        recording.elapsed_seconds = time.time() - recording_start
-        return recording
-
-    localizations_full_list = concatenate_localization_slices(
-        temp_files_localization, loc_names
-    )
-    attempted_localizations_full_list = concatenate_localization_slices(
-        temp_files_localization, attempted_loc_names
-    )
-    localization_qc_full_list = concatenate_localization_slices(
-        temp_files_localization, localization_qc_names
-    )
-    rois_full_list = None
-
-    for roi_name in roi_names:
-        roi_path = temp_files_localization / roi_name
-        rois_slice = np.load(roi_path)
-
-        if rois_slice.size == 0:
-            logger.info("Skipping empty ROI slice {}", roi_path)
-            continue
-
-        rois_full_list = (
-            np.concatenate((rois_full_list, rois_slice))
-            if rois_full_list is not None
-            else rois_slice
+        attempted_localizations_path = (
+            out_folder_localizations
+            / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
+            f"_prominence_{config.prominence:g}.npy"
         )
-
-    if localizations_full_list is None or rois_full_list is None:
-        logger.info("No localization outputs found for {}", filename)
-        recording.elapsed_seconds = time.time() - recording_start
-        return recording
-
-    localizations_path = (
-        out_folder_localizations
-        / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
-        f"_prominence_{config.prominence:g}.npy"
-    )
-    attempted_localizations_path = (
-        out_folder_localizations
-        / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
-        f"_prominence_{config.prominence:g}.npy"
-    )
-    rois_path = (
-        out_folder_localizations / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
-        f"_prominence_{config.prominence:g}.npy"
-    )
-    localization_qc_path = (
-        out_folder_localizations
-        / f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
-        f"_prominence_{config.prominence:g}.npy"
-    )
-    localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
-    if attempted_localizations_full_list is not None:
-        np.save(attempted_localizations_path, attempted_localizations_full_list)
-        recording.artifacts.append(attempted_localizations_path)
-    if localization_qc_full_list is not None:
-        np.save(localization_qc_path, localization_qc_full_list)
-        write_structured_array_csv(localization_qc_full_list, localization_qc_csv_path)
-        recording.artifacts.extend([localization_qc_path, localization_qc_csv_path])
-    np.save(localizations_path, localizations_full_list)
-    np.save(rois_path, rois_full_list)
-    recording.artifacts.extend([localizations_path, rois_path])
-    recording.artifacts.extend(
-        save_portable_outputs(
-            recording=recording,
-            config=config,
-            accepted_localizations=localizations_full_list,
-            attempted_localizations=(
-                attempted_localizations_full_list
-                if attempted_localizations_full_list is not None
-                else np.empty(0, dtype=localizations_full_list.dtype)
-            ),
-            localization_qc=(
-                localization_qc_full_list
-                if localization_qc_full_list is not None
-                else np.empty(0, dtype=localization_qc_dtype())
-            ),
-            timestamp=run_timestamp,
+        rois_path = (
+            out_folder_localizations / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
+            f"_prominence_{config.prominence:g}.npy"
         )
-    )
-    recording.artifacts.extend(
-        save_processed_plots(
-            localizations_full_list,
-            out_folder_localizations,
+        localization_qc_path = (
+            out_folder_localizations
+            / f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+            f"_prominence_{config.prominence:g}.npy"
+        )
+        localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
+
+        localizations = concatenate_slice_arrays_to_disk(
+            temp_files_localization,
+            loc_names,
             localizations_path,
-            config,
-            run_timestamp,
-            attempted_localizations_full_list,
-            localization_qc_full_list,
+            offset_ids=True,
         )
-    )
-    if config.qc_enabled:
+        attempted_localizations = concatenate_slice_arrays_to_disk(
+            temp_files_localization,
+            attempted_loc_names,
+            attempted_localizations_path,
+            offset_ids=True,
+        )
+        localization_qc = concatenate_slice_arrays_to_disk(
+            temp_files_localization,
+            localization_qc_names,
+            localization_qc_path,
+            offset_ids=True,
+        )
+        rois = concatenate_slice_arrays_to_disk(
+            temp_files_localization,
+            roi_names,
+            rois_path,
+            offset_ids=False,
+        )
+
+        if localizations is None or rois is None:
+            logger.info("No localization outputs found for {}", filename)
+            recording.elapsed_seconds = time.time() - recording_start
+            return recording
+
+        if attempted_localizations is not None:
+            recording.artifacts.append(attempted_localizations_path)
+        if localization_qc is not None:
+            write_structured_array_csv(localization_qc, localization_qc_csv_path)
+            recording.artifacts.extend([localization_qc_path, localization_qc_csv_path])
+        recording.artifacts.extend([localizations_path, rois_path])
+
+        attempted_table = (
+            attempted_localizations
+            if attempted_localizations is not None
+            else np.empty(0, dtype=localizations.dtype)
+        )
         qc_table = (
-            localization_qc_full_list
-            if localization_qc_full_list is not None
+            localization_qc
+            if localization_qc is not None
             else np.empty(0, dtype=localization_qc_dtype())
         )
-        attempted_table = (
-            attempted_localizations_full_list
-            if attempted_localizations_full_list is not None
-            else np.empty(0, dtype=localizations_full_list.dtype)
-        )
         recording.artifacts.extend(
-            save_run_qc_dashboard(
+            save_portable_outputs(
                 recording=recording,
                 config=config,
-                localizations=localizations_full_list,
+                accepted_localizations=localizations,
                 attempted_localizations=attempted_table,
                 localization_qc=qc_table,
-                rois=rois_full_list,
-                events=events,
                 timestamp=run_timestamp,
             )
         )
-
-    if config.cleanup_temp_outputs:
-        remove_temp_artifacts(recording, temp_files_localization, sorted_names)
-
-    recording.elapsed_seconds = time.time() - recording_start
-    return recording
-
-
-def concatenate_localization_slices(
-    temp_folder: Path, localization_names: list[str]
-) -> np.ndarray | None:
-    localizations_full_list = None
-    next_id = 0
-
-    for localization_name in localization_names:
-        localization_path = temp_folder / localization_name
-        localizations_slice = np.load(localization_path)
-
-        if (
-            localizations_slice.dtype.names is None
-            or "id" not in localizations_slice.dtype.names
-        ):
-            raise ValueError(
-                f"Localization file has no structured 'id' field: {localization_path}"
+        recording.artifacts.extend(
+            save_processed_plots(
+                localizations,
+                out_folder_localizations,
+                localizations_path,
+                config,
+                run_timestamp,
+                attempted_localizations,
+                localization_qc,
+            )
+        )
+        if config.qc_enabled:
+            recording.artifacts.extend(
+                save_run_qc_dashboard(
+                    recording=recording,
+                    config=config,
+                    localizations=localizations,
+                    attempted_localizations=attempted_table,
+                    localization_qc=qc_table,
+                    rois=rois,
+                    events=None,
+                    timestamp=run_timestamp,
+                    event_qc=event_qc,
+                )
             )
 
-        localizations_slice = localizations_slice.copy()
-        if localizations_slice.size > 0:
-            localizations_slice["id"] += next_id
-            next_id = int(np.max(localizations_slice["id"])) + 1
-        else:
-            logger.info("Including empty localization slice {}", localization_path)
+        if config.cleanup_temp_outputs:
+            remove_temp_artifacts(recording, temp_files_localization, sorted_names)
 
-        localizations_full_list = (
-            np.concatenate((localizations_full_list, localizations_slice))
-            if localizations_full_list is not None
-            else localizations_slice
+        recording.elapsed_seconds = time.time() - recording_start
+        return recording
+    finally:
+        del events
+        close_event_store(event_store, remove_cache=config.cleanup_temp_outputs)
+        release_unused_memory()
+
+
+def open_event_store(
+    filename: Path,
+    config: PeakLocConfig,
+    temp_folder: Path,
+) -> EventStore:
+    """Open a recording without loading the complete event stream into RAM."""
+    if filename.suffix == ".raw":
+        cache_path = temp_folder / "raw_event_cache.dat"
+        return EventStore(
+            events=materialize_raw_events(
+                filename,
+                cache_path,
+                max_events=config.max_raw_events,
+            ),
+            cache_path=cache_path,
+            timestamps_monotonic=True,
         )
+    if filename.suffix == ".npy":
+        events = np.load(filename, mmap_mode="r", allow_pickle=False)
+        return EventStore(
+            events=events,
+            timestamps_monotonic=timestamps_are_monotonic(events),
+        )
+    raise ValueError(f"Unsupported input file: {filename}")
 
-    return localizations_full_list
+
+def close_event_store(event_store: EventStore, *, remove_cache: bool) -> None:
+    _close_memory_map(event_store.events)
+    if remove_cache and event_store.cache_path is not None:
+        event_store.cache_path.unlink(missing_ok=True)
 
 
-def load_events(filename: Path, config: PeakLocConfig) -> np.ndarray | None:
-    basename = filename.name
-    if basename.endswith(".raw"):
-        return raw_events_to_array(
-            str(filename), max_events=config.max_raw_events
-        ).astype([("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")])
-    if basename.endswith(".npy"):
-        return np.load(filename)
-    return None
+def event_time_bounds(events: np.ndarray) -> tuple[int | None, int | None]:
+    if events.size == 0:
+        return None, None
+    timestamps = events["t"]
+    return int(np.min(timestamps)), int(np.max(timestamps))
+
+
+def timestamps_are_monotonic(
+    events: np.ndarray,
+    *,
+    chunk_size: int = 1_000_000,
+) -> bool:
+    """Check ordering in bounded chunks before using fast searchsorted slices."""
+    if events.size < 2:
+        return True
+    timestamps = events["t"]
+    previous = int(timestamps[0])
+    for start in range(0, events.size, chunk_size):
+        chunk = timestamps[start : start + chunk_size]
+        if chunk.size == 0:
+            continue
+        if int(chunk[0]) < previous or np.any(chunk[1:] < chunk[:-1]):
+            return False
+        previous = int(chunk[-1])
+    return True
+
+
+def iter_event_slices(
+    events: np.ndarray,
+    time_slices: range,
+    *,
+    slice_duration: int,
+    timestamps_monotonic: bool,
+) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield one time slice at a time, avoiding repeated full-array boolean copies."""
+    timestamps = events["t"]
+    if not timestamps_monotonic:
+        logger.warning(
+            "Timestamps are not monotonic; using a bounded-copy slice fallback"
+        )
+    for time_slice in time_slices:
+        slice_start = time_slice - slice_duration
+        if timestamps_monotonic:
+            start_index = int(np.searchsorted(timestamps, slice_start, side="left"))
+            stop_index = int(np.searchsorted(timestamps, time_slice, side="left"))
+            yield time_slice, np.asarray(events[start_index:stop_index])
+        else:
+            mask = (timestamps >= slice_start) & (timestamps < time_slice)
+            yield time_slice, np.asarray(events[mask])
+
+
+def concatenate_slice_arrays_to_disk(
+    temp_folder: Path,
+    slice_names: list[str],
+    output_path: Path,
+    *,
+    offset_ids: bool,
+) -> np.ndarray | None:
+    """Append slice arrays into a final `.npy` memory map without RAM concatenation."""
+    if not slice_names:
+        return None
+
+    first_path = temp_folder / slice_names[0]
+    first_array = np.load(first_path, mmap_mode="r", allow_pickle=False)
+    dtype = first_array.dtype
+    _close_memory_map(first_array)
+
+    total_size = 0
+    for slice_name in slice_names:
+        slice_path = temp_folder / slice_name
+        slice_array = np.load(slice_path, mmap_mode="r", allow_pickle=False)
+        try:
+            if slice_array.dtype != dtype:
+                raise ValueError(
+                    f"Slice dtype does not match {first_path}: {slice_path}"
+                )
+            if offset_ids and (
+                slice_array.dtype.names is None or "id" not in slice_array.dtype.names
+            ):
+                raise ValueError(
+                    f"Localization file has no structured 'id' field: {slice_path}"
+                )
+            total_size += int(slice_array.size)
+        finally:
+            _close_memory_map(slice_array)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = output_path.with_name(f".{output_path.name}.partial")
+    partial_path.unlink(missing_ok=True)
+    output_array = np.lib.format.open_memmap(
+        partial_path,
+        mode="w+",
+        dtype=dtype,
+        shape=(total_size,),
+    )
+    next_id = 0
+    start = 0
+    try:
+        for slice_name in slice_names:
+            slice_path = temp_folder / slice_name
+            slice_array = np.load(slice_path, mmap_mode="r", allow_pickle=False)
+            try:
+                stop = start + int(slice_array.size)
+                output_array[start:stop] = slice_array
+                if offset_ids and slice_array.size:
+                    output_array["id"][start:stop] += next_id
+                    next_id = int(np.max(output_array["id"][start:stop])) + 1
+                start = stop
+            finally:
+                _close_memory_map(slice_array)
+        output_array.flush()
+    finally:
+        _close_memory_map(output_array)
+
+    partial_path.replace(output_path)
+    return np.load(output_path, mmap_mode="r", allow_pickle=False)
+
+
+def _close_memory_map(array: np.ndarray) -> None:
+    memory_map = getattr(array, "_mmap", None)
+    if memory_map is not None:
+        memory_map.close()
+
+
+def release_unused_memory() -> None:
+    """Collect Python/native allocations and return free glibc arenas between slices."""
+    gc.collect()
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:
+        return
 
 
 def write_effective_run_settings(
@@ -709,12 +887,14 @@ def remove_temp_artifacts(
         for artifact in recording.artifacts
         if artifact not in removed_artifacts
     ]
+    shutil.rmtree(temp_folder / JOBLIB_TEMP_DIRNAME, ignore_errors=True)
 
 
 def clear_stale_slice_artifacts(temp_folder: Path) -> None:
     """Remove prior per-slice arrays before aggregating a new recording run."""
     if not temp_folder.is_dir():
         return
+    shutil.rmtree(temp_folder / JOBLIB_TEMP_DIRNAME, ignore_errors=True)
     for path in temp_folder.iterdir():
         if path.is_file() and is_slice_temp_artifact(path.name):
             path.unlink()

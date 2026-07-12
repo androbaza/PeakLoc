@@ -43,6 +43,83 @@ class QCDashboardSummary:
     warnings: list[str]
 
 
+@dataclass
+class EventQCAccumulator:
+    """Keep event-density QC and optional interactive samples bounded in memory."""
+
+    sensor_shape: tuple[int, int]
+    sample_limit: int
+    expected_event_count: int
+    total: np.ndarray
+    positive: np.ndarray
+    negative: np.ndarray
+    _events_seen: int = 0
+    _sample_parts: list[np.ndarray] | None = None
+
+    @classmethod
+    def create(
+        cls,
+        sensor_shape: tuple[int, int],
+        *,
+        expected_event_count: int,
+        sample_limit: int,
+    ) -> EventQCAccumulator:
+        return cls(
+            sensor_shape=sensor_shape,
+            sample_limit=sample_limit,
+            expected_event_count=expected_event_count,
+            total=np.zeros(sensor_shape, dtype=np.float32),
+            positive=np.zeros(sensor_shape, dtype=np.float32),
+            negative=np.zeros(sensor_shape, dtype=np.float32),
+            _sample_parts=[] if sample_limit > 0 else None,
+        )
+
+    def add(self, events: np.ndarray, *, chunk_size: int = 1_000_000) -> None:
+        """Accumulate an event array without creating full-recording index arrays."""
+        if events.size == 0 or not _has_fields(events, {"x", "y", "p"}):
+            return
+
+        height, width = self.sensor_shape
+        sample_stride = max(
+            1,
+            int(np.ceil(self.expected_event_count / max(self.sample_limit, 1))),
+        )
+        for start in range(0, events.size, chunk_size):
+            chunk = events[start : start + chunk_size]
+            x = chunk["x"]
+            y = chunk["y"]
+            polarity = chunk["p"]
+            valid = (x >= 0) & (x < width) & (y >= 0) & (y < height)
+            np.add.at(self.total, (y[valid], x[valid]), 1)
+            np.add.at(
+                self.positive,
+                (y[valid & (polarity == 1)], x[valid & (polarity == 1)]),
+                1,
+            )
+            np.add.at(
+                self.negative,
+                (y[valid & (polarity == 0)], x[valid & (polarity == 0)]),
+                1,
+            )
+
+            if self._sample_parts is not None:
+                first_sample = (-self._events_seen) % sample_stride
+                sampled_chunk = chunk[first_sample::sample_stride]
+                if sampled_chunk.size:
+                    self._sample_parts.append(np.asarray(sampled_chunk).copy())
+            self._events_seen += int(chunk.size)
+
+    @property
+    def density_images(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return self.total, self.positive, self.negative
+
+    @property
+    def event_sample(self) -> np.ndarray | None:
+        if not self._sample_parts:
+            return None
+        return np.concatenate(self._sample_parts)
+
+
 def save_run_qc_dashboard(
     *,
     recording: Any,
@@ -53,6 +130,7 @@ def save_run_qc_dashboard(
     rois: np.ndarray | None,
     events: np.ndarray | None,
     timestamp: str,
+    event_qc: EventQCAccumulator | None = None,
 ) -> list[Path]:
     output_dir = Path(recording.output_folder) / config.qc_output_dirname
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +171,7 @@ def save_run_qc_dashboard(
         localization_qc=localization_qc,
         rois=rois,
         events=events,
+        event_qc=event_qc,
     )
     artifacts.extend(static_paths)
 
@@ -104,7 +183,7 @@ def save_run_qc_dashboard(
             localizations=localizations,
             attempted_localizations=attempted_localizations,
             localization_qc=localization_qc,
-            events=events,
+            events=event_qc.event_sample if event_qc is not None else events,
         )
         artifacts.extend(interactive_paths)
 
@@ -201,9 +280,14 @@ def save_static_qc_figures(
     localization_qc: np.ndarray,
     rois: np.ndarray | None,
     events: np.ndarray | None,
+    event_qc: EventQCAccumulator | None = None,
 ) -> list[Path]:
     paths: list[Path] = []
-    density_total, density_pos, density_neg = _event_density_images(events, config)
+    density_total, density_pos, density_neg = (
+        event_qc.density_images
+        if event_qc is not None
+        else _event_density_images(events, config)
+    )
     figure_specs = [
         (
             "01_event_density_total.png",

@@ -20,6 +20,10 @@ else:
 
 
 OPENEB_SYSTEM_SITE_PACKAGES = Path("/usr/lib/python3/dist-packages")
+EVENT_DTYPE = np.dtype(
+    [("x", np.uint16), ("y", np.uint16), ("p", np.int8), ("t", np.uint64)]
+)
+RAW_READ_DURATION_US = 50_000
 
 
 def add_openeb_system_site_packages() -> None:
@@ -53,12 +57,52 @@ def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarra
         record_raw = RawReader(filename, max_events=max_events)
         event_chunks = []
         while not record_raw.is_done():
-            events = record_raw.load_delta_t(50000)
+            events = record_raw.load_delta_t(RAW_READ_DURATION_US)
             if events.size:
                 event_chunks.append(events.copy())
         if not event_chunks:
             return np.empty(0, dtype=EventCD)
         return np.concatenate(event_chunks)
+
+
+def materialize_raw_events(
+    filename: str | Path,
+    output_path: str | Path,
+    max_events: int = 1_000_000,
+) -> np.ndarray:
+    """Decode a RAW recording into a disk-backed normalized event array.
+
+    RAW readers produce many chunks, but concatenating them keeps both the chunks and
+    the final array alive at once. Writing each normalized chunk directly to disk keeps
+    the peak allocation bounded by one reader chunk; the returned memory map is then
+    consumed one processing slice at a time.
+    """
+    source_path = str(filename)
+    cache_path = Path(output_path)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.unlink(missing_ok=True)
+    event_count = 0
+
+    with temporary_openeb_system_site_packages():
+        RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
+        record_raw = RawReader(source_path, max_events=max_events)
+        with cache_path.open("wb") as output_file:
+            while not record_raw.is_done():
+                events = record_raw.load_delta_t(RAW_READ_DURATION_US)
+                if events.size == 0:
+                    continue
+                normalized_events = np.asarray(events, dtype=EVENT_DTYPE)
+                normalized_events.tofile(output_file)
+                event_count += int(normalized_events.size)
+
+    if event_count == 0:
+        return np.empty(0, dtype=EVENT_DTYPE)
+    return np.memmap(
+        cache_path,
+        dtype=EVENT_DTYPE,
+        mode="r",
+        shape=(event_count,),
+    )
 
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -179,8 +223,11 @@ def process_conv_list_parallel(events_dict, coords_split, max_len, roi_rad=1):
         lengths[coord_pair] = len(coord_convolution_data[:, 0])
         coords[coord_pair] = coords_split[coord_pair]
     return (
-        [row[:num_relevant] for row, num_relevant in zip(times, lengths)],
-        [row[:num_relevant] for row, num_relevant in zip(cumsum, lengths)],
+        # Slices would retain `times`/`cumsum` as their ndarray base. Those arrays
+        # are padded to the busiest pixel in this chunk, so retaining views for every
+        # coordinate makes a long recording accumulate mostly unused padding.
+        [row[:num_relevant].copy() for row, num_relevant in zip(times, lengths)],
+        [row[:num_relevant].copy() for row, num_relevant in zip(cumsum, lengths)],
         coords,
     )
 

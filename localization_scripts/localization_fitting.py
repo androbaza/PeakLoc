@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -25,16 +26,17 @@ class LocalizationFilterResult:
 
 
 def concatenate_locs(localized_data: list[np.ndarray]) -> np.ndarray:
-    id = localized_data[0]["id"][-1] + 1
-    concatenated_data = localized_data[0]
-    for i in range(1, len(localized_data)):
-        if localized_data[i] is None:
-            continue
-        localized_data[i]["id"] += int(id)
-        id = localized_data[i]["id"][-1] + 1
-        concatenated_data = np.concatenate(
-            (concatenated_data, localized_data[i]), axis=0
-        )
+    total_size = sum(chunk.size for chunk in localized_data)
+    concatenated_data = np.empty(total_size, dtype=localized_data[0].dtype)
+    next_id = 0
+    start = 0
+    for chunk in localized_data:
+        stop = start + chunk.size
+        concatenated_data[start:stop] = chunk
+        if chunk.size:
+            concatenated_data["id"][start:stop] += next_id
+            next_id = int(concatenated_data["id"][stop - 1]) + 1
+        start = stop
     return concatenated_data
 
 
@@ -42,20 +44,32 @@ def localize_rois(
     rois: np.ndarray,
     config: PeakLocConfig,
     calibration: EventCalibration | None = None,
+    joblib_temp_folder: str | Path | None = None,
 ) -> np.ndarray:
-    return localize_rois_with_attempts(rois, config, calibration).filtered
+    return localize_rois_with_attempts(
+        rois,
+        config,
+        calibration,
+        joblib_temp_folder=joblib_temp_folder,
+    ).filtered
 
 
 def localize_rois_with_attempts(
     rois: np.ndarray,
     config: PeakLocConfig,
     calibration: EventCalibration | None = None,
+    joblib_temp_folder: str | Path | None = None,
 ) -> LocalizationTables:
     if config.fit_model != "poisson_joint":
         raise ValueError(f"Unsupported fit_model: {config.fit_model}")
     if calibration is None:
         raise ValueError("calibration is required for poisson_joint localization")
-    attempted = perform_joint_poisson_localization_parallel(rois, config, calibration)
+    attempted = perform_joint_poisson_localization_parallel(
+        rois,
+        config,
+        calibration,
+        joblib_temp_folder=joblib_temp_folder,
+    )
     filter_result = evaluate_poisson_localization_filters(attempted, config)
     return LocalizationTables(
         attempted=attempted,
@@ -68,14 +82,23 @@ def perform_joint_poisson_localization_parallel(
     rois: np.ndarray,
     config: PeakLocConfig,
     calibration: EventCalibration,
+    joblib_temp_folder: str | Path | None = None,
 ) -> np.ndarray:
     if rois.size == 0:
         roi_rad = _roi_radius_from_dtype(rois)
         if roi_rad is None:
             return np.array([])
         return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
-    rois_split = slice_data(rois, config.num_cores)
-    results = Parallel(n_jobs=config.num_cores)(
+    rois_split = slice_data(rois, config.parallel_workers)
+    results = Parallel(
+        n_jobs=config.parallel_workers,
+        backend="loky",
+        max_nbytes="8M",
+        mmap_mode="r",
+        temp_folder=None if joblib_temp_folder is None else str(joblib_temp_folder),
+        pre_dispatch="n_jobs",
+        reuse=False,
+    )(
         delayed(localize_joint_poisson)(chunk, config, calibration)
         for chunk in rois_split
     )
