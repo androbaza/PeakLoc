@@ -138,13 +138,17 @@ the per-slice skip counts in the run report.
 - `qc_generate_temporal_3d` separately controls the temporal Plotly artifact. It is
   enabled for full QC runs and samples at most `qc_max_events_for_interactive`
   localizations, while the statistics and static maps use all accepted localizations.
-- The sparse-structure spatial mask is calibrated from the first 60 seconds. For the
-  current rapid-switching recording, `spatial_mask_min_events: 400`,
-  `spatial_mask_min_component_pixels: 20`, and a 12-pixel margin retained a sparse
-  high-event target map while preserving an ROI/convolution support halo. The measured
-  137,837,220-event calibration yielded 25.17% target coverage and 32.36% support
-  coverage, avoiding about three quarters of convolution targets. Inspect the saved
-  report masks before relying on it for quantitative comparisons.
+- The sparse-structure spatial mask is calibrated from the first 60 seconds. The
+  rapid-switching recording's historical 400-event cutoff was 2.67 times its mean
+  sample density, so use `spatial_mask_min_density_quotient: 2.7` as the portable
+  starting point rather than copying a raw count. With a 20-pixel component minimum
+  and 12-pixel target margin, that calibration retained 25.17% target coverage and
+  32.36% support coverage, avoiding about three quarters of convolution targets.
+  `spatial_mask_min_component_pixels` removes small 8-connected seed components before
+  dilation; `spatial_mask_max_support_coverage` makes PeakLoc fall back to full-sensor
+  processing if the post-dilation support region covers too much of the sensor.
+  Use `pixi run spatial-mask-tuner /path/to/recording.raw` to inspect the density sum
+  and mask overlay before a production run.
 - Keep `cleanup_temp_outputs` false while diagnosing individual slices; restore true
   for routine batch runs. A new run now clears stale per-slice localization, ROI, and
   QC arrays before aggregation, so retained intermediates cannot contaminate it.

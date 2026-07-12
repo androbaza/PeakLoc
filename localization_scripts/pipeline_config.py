@@ -30,7 +30,7 @@ class PeakLocConfig:
     max_parallel_workers: int = 4
     spatial_mask_enabled: bool = False
     spatial_mask_sample_duration_us: int = 60_000_000
-    spatial_mask_min_events: int = 400
+    spatial_mask_min_density_quotient: float = 2.7
     spatial_mask_min_component_pixels: int = 20
     spatial_mask_margin_px: int = 12
     spatial_mask_max_support_coverage: float = 0.95
@@ -92,6 +92,12 @@ class PeakLocConfig:
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> Self:
+        if "spatial_mask_min_events" in payload:
+            raise ValueError(
+                "spatial_mask_min_events was replaced by "
+                "spatial_mask_min_density_quotient. Choose a quotient relative "
+                "to the sample mean event density instead of copying a raw count."
+            )
         allowed_fields = {field.name for field in fields(cls)}
         unknown_fields = sorted(set(payload) - allowed_fields)
         if unknown_fields:
@@ -127,7 +133,10 @@ class PeakLocConfig:
         _require_positive(
             "spatial_mask_sample_duration_us", self.spatial_mask_sample_duration_us
         )
-        _require_positive("spatial_mask_min_events", self.spatial_mask_min_events)
+        _require_positive(
+            "spatial_mask_min_density_quotient",
+            self.spatial_mask_min_density_quotient,
+        )
         _require_positive(
             "spatial_mask_min_component_pixels", self.spatial_mask_min_component_pixels
         )

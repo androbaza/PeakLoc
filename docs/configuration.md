@@ -166,7 +166,7 @@ the convolution and ROI neighbors needed for those targets.
 {
   "spatial_mask_enabled": true,
   "spatial_mask_sample_duration_us": 60000000,
-  "spatial_mask_min_events": 400,
+  "spatial_mask_min_density_quotient": 2.7,
   "spatial_mask_min_component_pixels": 20,
   "spatial_mask_margin_px": 12,
   "spatial_mask_max_support_coverage": 0.95
@@ -178,10 +178,48 @@ not active during calibration. It falls back to full-sensor processing when no s
 components are found or the support region covers too much of the sensor. Each enabled
 run saves target/support masks and metadata in `reports/` for auditability.
 
-`spatial_mask_min_events` is recording-specific: it counts events in the calibration
-window, so scale it if `spatial_mask_sample_duration_us` changes. Begin with a
-conservative margin and compare a masked run against an unmasked control before using
-it for quantitative conclusions.
+`spatial_mask_min_density_quotient` is the normalized seed threshold. PeakLoc first
+calculates the sample's mean event density:
+
+```text
+mean density = calibration events / sensor pixels
+seed threshold = mean density × spatial_mask_min_density_quotient
+```
+
+For example, `2.7` retains pixels with at least 2.7 times the mean density. This
+adapts when global event rate changes with bias, illumination, or sample duration.
+The derived raw threshold is saved in mask metadata, so it remains auditable.
+Replace the former `spatial_mask_min_events` setting rather than carrying its raw
+number forward; PeakLoc reports a clear migration error if that deprecated field is
+still present.
+
+`spatial_mask_min_component_pixels` removes isolated seed pixels before any dilation.
+It is the minimum number of 8-connected thresholded pixels that must form a component;
+it is not the final region size. Raise it to reject scattered hot pixels, or lower it
+only when genuine thin structures disappear.
+
+`spatial_mask_max_support_coverage` is a safety and usefulness limit. PeakLoc dilates
+the target mask again to obtain every convolution/ROI neighbour needed for processing.
+If that support mask reaches this fraction of the whole sensor, PeakLoc falls back to
+full-sensor processing rather than using a mask that saves little work. At `0.95`, a
+support region covering 95% or more of the sensor is rejected.
+The support halo itself is automatic: it uses the larger of `roi_radius` and
+`convolution_roi_radius`, so the mask cannot remove events required around a permitted
+target centre.
+
+Use the interactive tuner to inspect these settings on a real calibration interval:
+
+```bash
+pixi run spatial-mask-tuner /path/to/recording.raw
+```
+
+It loads only `spatial_mask_sample_duration_us`, shows the logarithmic density sum,
+and overlays seed, retained, target, and support masks. The **Render sum + mask**
+button prints a copyable JSON configuration snippet. Change the Sample s field and
+use **Reload sample** to inspect another duration.
+
+Begin with a conservative margin and compare a masked run against an unmasked control
+before using it for quantitative conclusions.
 
 Set `PEAKLOC_SPATIAL_MASK_ENABLED=false` to make an unmasked comparison run without
 editing the JSON file.

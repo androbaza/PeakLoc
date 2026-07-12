@@ -702,7 +702,7 @@ def build_recording_spatial_mask(
             sample_start_us=sample_start,
             sample_stop_us=sample_stop,
             calibration_event_count=calibration_event_count,
-            min_events=config.spatial_mask_min_events,
+            min_density_quotient=config.spatial_mask_min_density_quotient,
             min_component_pixels=config.spatial_mask_min_component_pixels,
             margin_px=config.spatial_mask_margin_px,
             support_margin_px=max(
@@ -729,7 +729,7 @@ def save_spatial_mask_artifacts(
         **spatial_mask.metadata(),
         "enabled_in_config": config.spatial_mask_enabled,
         "sample_duration_us": config.spatial_mask_sample_duration_us,
-        "min_events": config.spatial_mask_min_events,
+        "min_density_quotient": config.spatial_mask_min_density_quotient,
         "min_component_pixels": config.spatial_mask_min_component_pixels,
         "margin_px": config.spatial_mask_margin_px,
         "support_margin_px": max(
@@ -1192,6 +1192,9 @@ def _spatial_mask_report_lines(recording: RecordingResult) -> list[str]:
         f"- Spatial target coverage: `{_format_json_float(metadata.get('target_coverage'))}`",
         f"- Spatial support coverage: `{_format_json_float(metadata.get('support_coverage'))}`",
         f"- Spatial calibration events: `{metadata.get('calibration_event_count')}`",
+        f"- Spatial mean density: `{_format_json_float(metadata.get('mean_events_per_pixel'))}` events/pixel",
+        f"- Spatial density quotient: `{_format_json_float(metadata.get('min_density_quotient'))}`",
+        f"- Spatial seed threshold: `{_format_json_float(metadata.get('seed_threshold_events'))}` events/pixel",
     ]
 
 

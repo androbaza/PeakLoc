@@ -6,7 +6,7 @@
   "max_parallel_workers": 4,
   "spatial_mask_enabled": true,
   "spatial_mask_sample_duration_us": 60000000,
-  "spatial_mask_min_events": 400,
+  "spatial_mask_min_density_quotient": 2.7,
   "spatial_mask_min_component_pixels": 20,
   "spatial_mask_margin_px": 12,
   "spatial_mask_max_support_coverage": 0.95,
