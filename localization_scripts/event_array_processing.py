@@ -88,7 +88,15 @@ def materialize_raw_events(
         record_raw = RawReader(source_path, max_events=max_events)
         with cache_path.open("wb") as output_file:
             while not record_raw.is_done():
-                events = record_raw.load_delta_t(RAW_READ_DURATION_US)
+                try:
+                    events = record_raw.load_delta_t(RAW_READ_DURATION_US)
+                except ValueError as error:
+                    if "buffer size too small" not in str(error):
+                        raise
+                    raise ValueError(
+                        "RAW reader buffer is too small for this recording. Increase "
+                        "max_raw_events; it must exceed the peak decoder batch size."
+                    ) from error
                 if events.size == 0:
                     continue
                 normalized_events = np.asarray(events, dtype=EVENT_DTYPE)
@@ -125,6 +133,8 @@ def array_to_polarity_map(arr, coords):
     max_len = 0
     for id in prange(len(arr)):
         key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
+        if key not in dict_out:
+            continue
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
         if len(dict_out[key][1]) > max_len:
             max_len = len(dict_out[key][1])
@@ -142,6 +152,25 @@ def array_to_time_map(arr):
     dict_out = {}
     for id in prange(len(arr)):
         key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
+        if key not in dict_out:
+            dict_out[key] = List.empty_list((np.uint64(0), np.int8(0)))
+        dict_out[key].append((arr[id]["t"], np.int8(arr[id]["p"])))
+    return dict_out
+
+
+@njit(cache=True, nogil=True, fastmath=True)
+def array_to_time_map_for_coords(arr, coords):
+    """Convert only events whose coordinates belong to a sparse support mask."""
+    allowed_coords = {}
+    for id in prange(len(coords)):
+        y, x = coords[id]
+        allowed_coords[(np.int32(y), np.int32(x))] = np.int8(1)
+
+    dict_out = {}
+    for id in prange(len(arr)):
+        key = (np.int32(arr[id]["y"]), np.int32(arr[id]["x"]))
+        if key not in allowed_coords:
+            continue
         if key not in dict_out:
             dict_out[key] = List.empty_list((np.uint64(0), np.int8(0)))
         dict_out[key].append((arr[id]["t"], np.int8(arr[id]["p"])))

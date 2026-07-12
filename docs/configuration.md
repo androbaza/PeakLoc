@@ -117,6 +117,10 @@ Example:
 
 This is not a scientific threshold. It controls raw event reading behavior and memory pressure.
 
+It must also be large enough for the recording's peak decoder batch. If OpenEB reports
+that its buffer is too small, increase this value; do not treat it as a limit on the
+total number of events that PeakLoc can process.
+
 ## Parallelization
 
 ### `num_cores`
@@ -150,6 +154,37 @@ slice to every logical CPU at once.
 
 Increase this only after a complete recording runs with stable memory use. The
 environment override `PEAKLOC_MAX_PARALLEL_WORKERS` is useful for one-off tuning.
+
+## Spatial processing mask
+
+For sparse biological structure, PeakLoc can measure the first part of a recording,
+retain high-event connected regions, and dilate them before the main run. Only the
+resulting target pixels are convolved and peak-searched; a second support mask retains
+the convolution and ROI neighbors needed for those targets.
+
+```json
+{
+  "spatial_mask_enabled": true,
+  "spatial_mask_sample_duration_us": 60000000,
+  "spatial_mask_min_events": 400,
+  "spatial_mask_min_component_pixels": 20,
+  "spatial_mask_margin_px": 12,
+  "spatial_mask_max_support_coverage": 0.95
+}
+```
+
+The feature is off by default because it intentionally excludes locations that were
+not active during calibration. It falls back to full-sensor processing when no safe
+components are found or the support region covers too much of the sensor. Each enabled
+run saves target/support masks and metadata in `reports/` for auditability.
+
+`spatial_mask_min_events` is recording-specific: it counts events in the calibration
+window, so scale it if `spatial_mask_sample_duration_us` changes. Begin with a
+conservative margin and compare a masked run against an unmasked control before using
+it for quantitative conclusions.
+
+Set `PEAKLOC_SPATIAL_MASK_ENABLED=false` to make an unmasked comparison run without
+editing the JSON file.
 
 ## Peak detection
 

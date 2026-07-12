@@ -105,8 +105,10 @@ current values but do not justify loosening them to increase accepted counts.
   used for memory-intensive peak, ROI, and fit stages. Start with four workers even on
   larger machines, then raise the cap only after a full run is stable.
 - `max_raw_events` is the OpenEB RAW-reader rolling buffer size, not a processing cap.
-  Keep it near 1,000,000 for long recordings. A 100,000,000-event buffer reserves a
-  large amount of memory before fitting and can exhaust the machine.
+  It must exceed the peak decoder batch for the recording. This rapid-switching
+  recording requires 100,000,000; lower values make OpenEB abort before PeakLoc can
+  stream events to disk. The disk-backed event cache prevents that buffer from being
+  multiplied across slices or workers.
 - Set `plot_result` to `false` for parameter sweeps that do not need rendered outputs.
 - Set `qc_enabled` to `false` for fast iterations. Attempted, accepted, ROI, and QC
   arrays are still written.
@@ -116,6 +118,13 @@ current values but do not justify loosening them to increase accepted counts.
 - `qc_generate_temporal_3d` separately controls the temporal Plotly artifact. It is
   enabled for full QC runs and samples at most `qc_max_events_for_interactive`
   localizations, while the statistics and static maps use all accepted localizations.
+- The sparse-structure spatial mask is calibrated from the first 60 seconds. For the
+  current rapid-switching recording, `spatial_mask_min_events: 400`,
+  `spatial_mask_min_component_pixels: 20`, and a 12-pixel margin retained a sparse
+  high-event target map while preserving an ROI/convolution support halo. The measured
+  137,837,220-event calibration yielded 25.17% target coverage and 32.36% support
+  coverage, avoiding about three quarters of convolution targets. Inspect the saved
+  report masks before relying on it for quantitative comparisons.
 - Keep `cleanup_temp_outputs` false while diagnosing individual slices; restore true
   for routine batch runs. A new run now clears stale per-slice localization, ROI, and
   QC arrays before aggregation, so retained intermediates cannot contaminate it.

@@ -25,6 +25,7 @@ from localization_scripts.calibration import EventCalibration, load_calibration
 from localization_scripts.event_array_processing import (
     array_to_polarity_map,
     array_to_time_map,
+    array_to_time_map_for_coords,
     create_convolved_signals,
     materialize_raw_events,
     save_dict,
@@ -48,6 +49,12 @@ from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_dashboard
 from localization_scripts.roi_generation import generate_coord_lists, generate_rois
 from localization_scripts.smlm_visualization import save_smlm_visualization
+from localization_scripts.spatial_mask import (
+    SpatialMask,
+    accumulate_event_density_in_time_window,
+    build_spatial_mask,
+    disabled_spatial_mask,
+)
 
 
 SLICE_TEMP_ARTIFACT_PREFIXES = (
@@ -87,6 +94,7 @@ class RecordingResult:
     artifacts: list[Path] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     calibration_metadata: dict[str, object] = field(default_factory=dict)
+    spatial_mask_metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -133,6 +141,7 @@ def process_time_slice(
     filename: Path,
     config: PeakLocConfig,
     calibration: EventCalibration,
+    spatial_mask: SpatialMask | None = None,
 ) -> SliceResult | None:
     events = event_slice
     if events.size == 0:
@@ -151,20 +160,41 @@ def process_time_slice(
     joblib_temp_folder.mkdir(parents=True, exist_ok=True)
     worker_count = config.parallel_workers
 
-    min_x = events["x"].min()
-    min_y = events["y"].min()
-    max_x = events["x"].max()
-    max_y = events["y"].max()
-
-    coords = generate_coord_lists(min_y, max_y, min_x, max_x)
+    if spatial_mask is not None and spatial_mask.is_active:
+        target_coords = spatial_mask.target_coords
+        support_coords = spatial_mask.support_coords
+        if target_coords is None or support_coords is None:
+            raise RuntimeError("Active spatial mask has no coordinate arrays")
+        logger.info(
+            "Using spatial mask with {} target and {} support pixels",
+            len(target_coords),
+            len(support_coords),
+        )
+    else:
+        min_x = events["x"].min()
+        min_y = events["y"].min()
+        max_x = events["x"].max()
+        max_y = events["y"].max()
+        target_coords = generate_coord_lists(min_y, max_y, min_x, max_x)
+        support_coords = target_coords
 
     logger.info("Analyzing the data using {} bounded workers", worker_count)
     logger.info(
         "Converting events to dictionaries; elapsed time: {:.2f} seconds",
         time.time() - start_time,
     )
-    dict_events, max_len = array_to_polarity_map(events, coords)
-    events_t_p_dict = array_to_time_map(events)
+    dict_events, max_len = array_to_polarity_map(events, support_coords)
+    if max_len == 0:
+        logger.info("No events fall inside the spatial support mask for this slice")
+        del dict_events, max_len, target_coords, support_coords, events, event_slice
+        release_unused_memory()
+        return None
+
+    events_t_p_dict = (
+        array_to_time_map_for_coords(events, support_coords)
+        if spatial_mask is not None and spatial_mask.is_active
+        else array_to_time_map(events)
+    )
     del events, event_slice
     release_unused_memory()
 
@@ -175,12 +205,12 @@ def process_time_slice(
     max_len = int(max_len * 2 * (config.convolution_roi_radius * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events,
-        coords,
+        target_coords,
         max_len,
         worker_count,
         convolution_roi_radius=config.convolution_roi_radius,
     )
-    del dict_events, max_len, coords
+    del dict_events, max_len, target_coords, support_coords
     release_unused_memory()
 
     logger.info("Finding peaks; elapsed time: {:.2f} seconds", time.time() - start_time)
@@ -366,6 +396,33 @@ def process_recording(
             recording.elapsed_seconds = time.time() - recording_start
             return recording
 
+        spatial_mask = build_recording_spatial_mask(
+            events,
+            config,
+            time_min=time_min,
+            time_max=time_max,
+            timestamps_monotonic=event_store.timestamps_monotonic,
+        )
+        recording.artifacts.extend(
+            save_spatial_mask_artifacts(
+                recording,
+                spatial_mask,
+                config,
+                run_timestamp,
+            )
+        )
+        if spatial_mask.is_active:
+            logger.info(
+                "Spatial mask retains {:.1%} target and {:.1%} support coverage",
+                spatial_mask.target_coverage,
+                spatial_mask.support_coverage,
+            )
+        else:
+            logger.info(
+                "Spatial mask fallback: {}",
+                spatial_mask.fallback_reason,
+            )
+
         event_qc = None
         if config.qc_enabled:
             event_qc = EventQCAccumulator.create(
@@ -386,13 +443,23 @@ def process_recording(
             timestamps_monotonic=event_store.timestamps_monotonic,
         ):
             try:
-                slice_result = process_time_slice(
-                    event_slice,
-                    time_slice,
-                    filename,
-                    config,
-                    calibration,
-                )
+                if spatial_mask.is_active:
+                    slice_result = process_time_slice(
+                        event_slice,
+                        time_slice,
+                        filename,
+                        config,
+                        calibration,
+                        spatial_mask,
+                    )
+                else:
+                    slice_result = process_time_slice(
+                        event_slice,
+                        time_slice,
+                        filename,
+                        config,
+                        calibration,
+                    )
             finally:
                 del event_slice
                 release_unused_memory()
@@ -575,6 +642,98 @@ def event_time_bounds(events: np.ndarray) -> tuple[int | None, int | None]:
         return None, None
     timestamps = events["t"]
     return int(np.min(timestamps)), int(np.max(timestamps))
+
+
+def build_recording_spatial_mask(
+    events: np.ndarray,
+    config: PeakLocConfig,
+    *,
+    time_min: int | None,
+    time_max: int | None,
+    timestamps_monotonic: bool,
+) -> SpatialMask:
+    """Calibrate a sparse processing region without retaining a second event array."""
+    if not config.spatial_mask_enabled:
+        return disabled_spatial_mask(
+            "Spatial masking is disabled in the configuration."
+        )
+    if time_min is None or time_max is None:
+        return disabled_spatial_mask(
+            "Recording has no timestamp range for mask calibration."
+        )
+
+    sample_start = time_min
+    sample_stop = min(
+        sample_start + config.spatial_mask_sample_duration_us,
+        time_max + 1,
+    )
+    density, calibration_event_count = accumulate_event_density_in_time_window(
+        events,
+        config.sensor_shape,
+        start_us=sample_start,
+        stop_us=sample_stop,
+        timestamps_monotonic=timestamps_monotonic,
+    )
+    try:
+        return build_spatial_mask(
+            density,
+            sample_start_us=sample_start,
+            sample_stop_us=sample_stop,
+            calibration_event_count=calibration_event_count,
+            min_events=config.spatial_mask_min_events,
+            min_component_pixels=config.spatial_mask_min_component_pixels,
+            margin_px=config.spatial_mask_margin_px,
+            support_margin_px=max(
+                config.roi_radius,
+                config.convolution_roi_radius,
+            ),
+            max_support_coverage=config.spatial_mask_max_support_coverage,
+        )
+    finally:
+        del density
+        release_unused_memory()
+
+
+def save_spatial_mask_artifacts(
+    recording: RecordingResult,
+    spatial_mask: SpatialMask,
+    config: PeakLocConfig,
+    timestamp: str,
+) -> list[Path]:
+    """Save auditable spatial-mask diagnostics without retaining event-density data."""
+    report_folder = recording.output_folder / "reports"
+    report_folder.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        **spatial_mask.metadata(),
+        "enabled_in_config": config.spatial_mask_enabled,
+        "sample_duration_us": config.spatial_mask_sample_duration_us,
+        "min_events": config.spatial_mask_min_events,
+        "min_component_pixels": config.spatial_mask_min_component_pixels,
+        "margin_px": config.spatial_mask_margin_px,
+        "support_margin_px": max(
+            config.roi_radius,
+            config.convolution_roi_radius,
+        ),
+        "max_support_coverage": config.spatial_mask_max_support_coverage,
+    }
+    recording.spatial_mask_metadata = metadata
+    metadata_path = report_folder / f"spatial_mask_{timestamp}.json"
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    artifacts = [metadata_path]
+    if not spatial_mask.is_active:
+        return artifacts
+
+    target_mask_path = report_folder / f"spatial_mask_target_{timestamp}.npy"
+    support_mask_path = report_folder / f"spatial_mask_support_{timestamp}.npy"
+    if spatial_mask.target_mask is None or spatial_mask.support_mask is None:
+        raise RuntimeError("Active spatial mask has no mask arrays")
+    np.save(target_mask_path, spatial_mask.target_mask)
+    np.save(support_mask_path, spatial_mask.support_mask)
+    artifacts.extend([target_mask_path, support_mask_path])
+    return artifacts
 
 
 def timestamps_are_monotonic(
@@ -937,6 +1096,7 @@ def write_run_report(
         f"- Peak interpolation min events: `{config.peak_min_event_count}`",
         f"- Calibration ID: `{recording.calibration_metadata.get('calibration_id')}`",
         f"- Calibrated background: `{recording.calibration_metadata.get('calibrated')}`",
+        *_spatial_mask_report_lines(recording),
         "",
         *_scientific_validation_lines(recording, config),
         "",
@@ -988,6 +1148,23 @@ def _format_optional_float(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:.3g}"
+
+
+def _spatial_mask_report_lines(recording: RecordingResult) -> list[str]:
+    metadata = recording.spatial_mask_metadata
+    if not metadata:
+        return []
+    if not metadata.get("active"):
+        return [
+            "- Spatial processing mask: `inactive`",
+            f"- Spatial mask fallback: `{metadata.get('fallback_reason')}`",
+        ]
+    return [
+        "- Spatial processing mask: `active`",
+        f"- Spatial target coverage: `{_format_json_float(metadata.get('target_coverage'))}`",
+        f"- Spatial support coverage: `{_format_json_float(metadata.get('support_coverage'))}`",
+        f"- Spatial calibration events: `{metadata.get('calibration_event_count')}`",
+    ]
 
 
 def _scientific_validation_lines(

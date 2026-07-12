@@ -17,6 +17,7 @@ ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_SLICE_START": "slice_start",
     "PEAKLOC_SLICE_DURATION": "slice_duration",
     "PEAKLOC_MAX_PARALLEL_WORKERS": "max_parallel_workers",
+    "PEAKLOC_SPATIAL_MASK_ENABLED": "spatial_mask_enabled",
 }
 
 
@@ -27,6 +28,12 @@ class PeakLocConfig:
     slice_duration: int = DEFAULT_SLICE_DURATION
     num_cores: int = multiprocessing.cpu_count()
     max_parallel_workers: int = 4
+    spatial_mask_enabled: bool = False
+    spatial_mask_sample_duration_us: int = 60_000_000
+    spatial_mask_min_events: int = 400
+    spatial_mask_min_component_pixels: int = 20
+    spatial_mask_margin_px: int = 12
+    spatial_mask_max_support_coverage: float = 0.95
     prominence: float = 12.0
     dataset_fwhm: float = 6.0
     peak_time_threshold: float = 40e3
@@ -113,6 +120,14 @@ class PeakLocConfig:
         _require_positive("slice_duration", self.slice_duration)
         _require_positive("num_cores", self.num_cores)
         _require_positive("max_parallel_workers", self.max_parallel_workers)
+        _require_positive(
+            "spatial_mask_sample_duration_us", self.spatial_mask_sample_duration_us
+        )
+        _require_positive("spatial_mask_min_events", self.spatial_mask_min_events)
+        _require_positive(
+            "spatial_mask_min_component_pixels", self.spatial_mask_min_component_pixels
+        )
+        _require_non_negative("spatial_mask_margin_px", self.spatial_mask_margin_px)
         _require_positive("prominence", self.prominence)
         _require_positive("dataset_fwhm", self.dataset_fwhm)
         _require_positive("peak_time_threshold", self.peak_time_threshold)
@@ -152,6 +167,7 @@ class PeakLocConfig:
             )
         _require_bool("plot_result", self.plot_result)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
+        _require_bool("spatial_mask_enabled", self.spatial_mask_enabled)
         _require_bool("allow_uncalibrated", self.allow_uncalibrated)
         _require_bool("fit_sigma", self.fit_sigma)
         _require_bool("qc_enabled", self.qc_enabled)
@@ -164,6 +180,10 @@ class PeakLocConfig:
             raise ValueError("qc_output_dirname must not be empty")
         if not 0 <= self.spline_smooth <= 1:
             raise ValueError("spline_smooth must be between 0 and 1")
+        if not 0 < self.spatial_mask_max_support_coverage <= 1:
+            raise ValueError(
+                "spatial_mask_max_support_coverage must be in the interval (0, 1]"
+            )
         if self.fit_model != "poisson_joint":
             raise ValueError("fit_model must be 'poisson_joint'")
         if self.psf_model != "pixel_integrated_gaussian":
