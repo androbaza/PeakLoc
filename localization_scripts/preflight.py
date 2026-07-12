@@ -573,7 +573,10 @@ def _add_output_info(
                 severity="info",
                 code="resolved_output_folder",
                 field="input_folder",
-                message=f"{event_file.name} output folder: {event_file.with_suffix('').resolve()}",
+                message=(
+                    f"{event_file.name} output folder: "
+                    f"{event_file.with_suffix('').resolve()}/<run timestamp>"
+                ),
             )
         )
 

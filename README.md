@@ -83,7 +83,7 @@ Then run:
 pixi run peakloc
 ```
 
-The pipeline creates one output folder per input recording.
+The pipeline creates a timestamped output folder for every run of each input recording.
 
 Example:
 
@@ -91,12 +91,13 @@ Example:
 data/
 ├── AF647_coverslip.raw
 └── AF647_coverslip/
-    ├── localizations_*.npy
-    ├── rois_*.npy
-    ├── localization_qc_*.npy
-    ├── figures/
-    ├── reports/
-    └── qc/
+    └── 20260712_143015_123456/
+        ├── localizations_*.npy
+        ├── rois_*.npy
+        ├── localization_qc_*.npy
+        ├── figures/
+        ├── reports/
+        └── qc/
 ```
 
 ## Minimal smoke run

@@ -20,8 +20,7 @@ def remove_temp_files(input_dir: Path) -> list[Path]:
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
     removed = []
-    for recording_dir in input_dir.iterdir():
-        temp_dir = recording_dir / "temp_files"
+    for temp_dir in input_dir.rglob("temp_files"):
         if not temp_dir.is_dir():
             continue
         for path in temp_dir.iterdir():

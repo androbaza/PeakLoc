@@ -102,9 +102,10 @@ data/
 ├── sample_001.raw
 ├── sample_001.bias
 └── sample_001/
-    ├── localizations_*.npy
-    ├── rois_*.npy
-    ├── localization_qc_*.npy
+    └── <run_timestamp>/
+        ├── localizations_*.npy
+        ├── rois_*.npy
+        └── localization_qc_*.npy
     ├── figures/
     ├── reports/
     └── qc/

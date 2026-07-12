@@ -57,7 +57,7 @@ Example:
 }
 ```
 
-PeakLoc processes recordings in this folder and creates output folders next to them.
+PeakLoc processes recordings in this folder and creates timestamped run folders next to them.
 
 ### `slice_start`
 

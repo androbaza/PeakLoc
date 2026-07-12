@@ -1,6 +1,6 @@
 # Output interpretation
 
-PeakLoc writes outputs next to each input `.raw` recording.
+PeakLoc writes each run into a timestamped subfolder next to its input `.raw` recording.
 
 Example input:
 
@@ -11,27 +11,28 @@ data/AF647_coverslip.raw
 Example output folder:
 
 ```text
-data/AF647_coverslip/
+data/AF647_coverslip/20260712_143015_123456/
 ```
 
 Typical contents:
 
 ```text
 AF647_coverslip/
-├── localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
-├── rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
-├── localization_qc_*.npy
-├── figures/
-│   ├── *_smlm_*.png
-│   └── *_smlm_*_12bit.tiff
-├── reports/
-│   ├── effective_config_*.json
-│   └── report_*.md
-└── qc/
-    ├── uncertainty_lowest_36_combined.png
-    ├── uncertainty_highest_36_combined.png
-    ├── uncertainty_quantile_samples.png
-    └── other QC outputs
+└── 20260712_143015_123456/
+    ├── localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
+    ├── rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
+    ├── localization_qc_*.npy
+    ├── figures/
+    │   ├── *_smlm_*.png
+    │   └── *_smlm_*_12bit.tiff
+    ├── reports/
+    │   ├── effective_config_*.json
+    │   └── report_*.md
+    └── qc/
+        ├── uncertainty_lowest_36_combined.png
+        ├── uncertainty_highest_36_combined.png
+        ├── uncertainty_quantile_samples.png
+        └── other QC outputs
 ```
 
 ## Localization `.npy`

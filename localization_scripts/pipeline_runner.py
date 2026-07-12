@@ -111,7 +111,7 @@ class EventStore:
 
 
 def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder = Path(config.input_folder)
     if not folder.is_dir():
         raise FileNotFoundError(
@@ -145,6 +145,7 @@ def process_time_slice(
     filename: Path,
     config: PeakLocConfig,
     calibration: EventCalibration,
+    output_folder: Path,
     spatial_mask: SpatialMask | None = None,
 ) -> SliceResult | None:
     events = event_slice
@@ -156,10 +157,9 @@ def process_time_slice(
 
     start_time = time.time()
     event_count = int(event_slice.size)
-    out_folder_localizations = filename.with_suffix("")
-    temp_files_localization = out_folder_localizations / "temp_files"
+    temp_files_localization = output_folder / "temp_files"
     joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME
-    out_folder_localizations.mkdir(parents=True, exist_ok=True)
+    output_folder.mkdir(parents=True, exist_ok=True)
     temp_files_localization.mkdir(parents=True, exist_ok=True)
     joblib_temp_folder.mkdir(parents=True, exist_ok=True)
     worker_count = config.parallel_workers
@@ -377,7 +377,7 @@ def process_recording(
     filename: Path, config: PeakLocConfig, run_timestamp: str
 ) -> RecordingResult:
     recording_start = time.time()
-    out_folder_localizations = filename.with_suffix("")
+    out_folder_localizations = filename.with_suffix("") / run_timestamp
     out_folder_localizations.mkdir(parents=True, exist_ok=True)
     temp_files_localization = out_folder_localizations / "temp_files"
     clear_stale_slice_artifacts(temp_files_localization)
@@ -465,23 +465,15 @@ def process_recording(
             timestamps_monotonic=event_store.timestamps_monotonic,
         ):
             try:
-                if spatial_mask.is_active:
-                    slice_result = process_time_slice(
-                        event_slice,
-                        time_slice,
-                        filename,
-                        config,
-                        calibration,
-                        spatial_mask,
-                    )
-                else:
-                    slice_result = process_time_slice(
-                        event_slice,
-                        time_slice,
-                        filename,
-                        config,
-                        calibration,
-                    )
+                slice_result = process_time_slice(
+                    event_slice,
+                    time_slice,
+                    filename,
+                    config,
+                    calibration,
+                    out_folder_localizations,
+                    spatial_mask if spatial_mask.is_active else None,
+                )
             finally:
                 del event_slice
                 release_unused_memory()

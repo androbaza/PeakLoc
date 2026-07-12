@@ -90,7 +90,7 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     events["t"] = [10, 110]
     input_path = tmp_path / "recording.npy"
     np.save(input_path, events)
-    output_folder = input_path.with_suffix("")
+    output_folder = input_path.with_suffix("") / "20260607_120000"
     temp_folder = output_folder / "temp_files"
     temp_folder.mkdir(parents=True)
     loc_dtype = [("id", np.uint64), ("x", np.float64), ("y", np.float64)]
@@ -114,6 +114,8 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
         _filename,
         _config,
         _calibration,
+        _output_folder,
+        _spatial_mask,
     ):
         localizations = slice_arrays[time_slice]
         np.save(

@@ -4,7 +4,7 @@ from scripts.clean_temp_files import remove_temp_files
 def test_remove_temp_files_requires_explicit_input_dir_and_removes_peakloc_temp_files(
     tmp_path,
 ):
-    temp_dir = tmp_path / "recording" / "temp_files"
+    temp_dir = tmp_path / "recording" / "20260607_120000" / "temp_files"
     temp_dir.mkdir(parents=True)
     keep = temp_dir / "notes.txt"
     remove_a = temp_dir / "localizations_time_slice_1.npy"
