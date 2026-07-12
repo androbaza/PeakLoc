@@ -17,6 +17,8 @@ RENDER_OVERSAMPLING = 5
 GAUSSIAN_SIGMA_RENDER_PIXELS = 1.0
 NORMALIZATION_PERCENTILE = 99.8
 TIFF_BIT_DEPTH = 12
+PNG_DISPLAY_GAMMA = 2.0
+PNG_DPI = 300
 
 
 @dataclass(frozen=True)
@@ -148,20 +150,20 @@ def save_png_preview(
     image_8bit: np.ndarray, output_path: Path, render_pixel_size_nm: float
 ) -> None:
     height, width = image_8bit.shape
-    figure_width = 8
-    figure_height = max(1, figure_width * height / width)
-    fig, ax = plt.subplots(figsize=(figure_width, figure_height), dpi=300)
-    ax.imshow(image_8bit, cmap="gray", vmin=0, vmax=255, interpolation="nearest")
+    fig = plt.figure(figsize=(width / PNG_DPI, height / PNG_DPI), dpi=PNG_DPI)
+    ax = fig.add_axes((0, 0, 1, 1))
+    display_image = np.power(image_8bit / 255.0, 1 / PNG_DISPLAY_GAMMA)
+    ax.imshow(display_image, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
     ax.axis("off")
     scalebar = ScaleBar(
         render_pixel_size_nm,
         units="nm",
-        length_fraction=0.2,
+        length_fraction=0.1,
         location="lower right",
         frameon=False,
         color="white",
         box_alpha=0.0,
     )
     ax.add_artist(scalebar)
-    fig.savefig(output_path, dpi=300, bbox_inches="tight", pad_inches=0)
+    fig.savefig(output_path, dpi=PNG_DPI, pad_inches=0)
     plt.close(fig)
