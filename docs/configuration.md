@@ -103,6 +103,19 @@ Examples:
 
 For first tests, use a short duration.
 
+### `slice_count`
+
+Optional limit on the number of slices processed from `slice_start`. Leave it `null` for
+the full remaining recording; use a small value for repeatable benchmark and smoke runs.
+
+```json
+{
+  "slice_count": 2
+}
+```
+
+The environment override is `PEAKLOC_SLICE_COUNT`.
+
 ### `max_raw_events`
 
 Maximum number of events loaded per OpenEB chunk/read setting.
@@ -141,9 +154,9 @@ Use conservative values for first runs.
 
 ### `max_parallel_workers`
 
-Upper bound for concurrently running memory-intensive workers. PeakLoc uses the lower
-of `num_cores` and this value. The default is `4`, which avoids sending a large event
-slice to every logical CPU at once.
+Legacy upper bound for a memory-intensive parallel stage. PeakLoc also applies
+`max_workers_per_slice` and the resolved global CPU budget. The default is `4`, which
+avoids sending a large event slice to every logical CPU at once.
 
 ```json
 {
@@ -154,6 +167,61 @@ slice to every logical CPU at once.
 
 Increase this only after a complete recording runs with stable memory use. The
 environment override `PEAKLOC_MAX_PARALLEL_WORKERS` is useful for one-off tuning.
+
+### `max_concurrent_slices`
+
+Maximum number of independent slice processes admitted at once. The compatibility
+default is `1`. Submission is bounded and stops when RAM or disk would cross the
+configured reserve.
+
+```json
+{
+  "max_concurrent_slices": 2
+}
+```
+
+### `cpu_worker_budget`
+
+Global CPU budget for slice work. `null` resolves from `num_cores` and the process CPU
+affinity. With multiple lanes, PeakLoc leases the parallel stage to one slice at a time
+and reserves one CPU for each other slice doing serial work. This prevents two Loky or
+Numba bursts from oversubscribing the machine.
+
+```json
+{
+  "cpu_worker_budget": 16
+}
+```
+
+### `max_workers_per_slice`
+
+Upper bound for a leased Numba, peak interpolation, ROI, or localization stage. The
+legacy `max_parallel_workers` remains an additional cap. On a 16-core workstation, two
+slice lanes with a 16-CPU budget and a 15-worker stage lease let one serial slice overlap
+with one fully parallel stage.
+
+```json
+{
+  "max_parallel_workers": 30,
+  "max_workers_per_slice": 15
+}
+```
+
+### `memory_reserve_gib` and `disk_reserve_gib`
+
+Free-resource floors used by preflight and the bounded slice scheduler. A slice is not
+started if its conservative working-set estimate would cross either floor.
+
+```json
+{
+  "memory_reserve_gib": 16.0,
+  "disk_reserve_gib": 10.0
+}
+```
+
+The run report records the resolved lane count, CPU budget, worker lease, and reserves.
+Use `PEAKLOC_MAX_CONCURRENT_SLICES` and `PEAKLOC_CPU_WORKER_BUDGET` for temporary CPU
+overrides.
 
 ## Spatial processing mask
 

@@ -188,6 +188,32 @@ A practical starting point is:
 
 Use short `slice_duration` values first. Do not start with a full 600-second recording when validating a new dataset.
 
+## Resource-aware parallel runs
+
+PeakLoc can overlap the serial portions of adjacent slices without allowing two
+memory-intensive worker bursts to oversubscribe the machine. For the 16-core reference
+workstation, the measured starting point is:
+
+```json
+{
+  "max_concurrent_slices": 2,
+  "cpu_worker_budget": 16,
+  "max_workers_per_slice": 15,
+  "memory_reserve_gib": 16.0,
+  "disk_reserve_gib": 10.0
+}
+```
+
+One slice receives a 15-worker lease during Numba, peak, ROI, and fit stages while the
+other slice can use the remaining CPU for serial work. The bounded scheduler checks RAM
+and disk headroom before admitting work. Run reports include per-stage timing, peak RSS,
+temporary disk usage, and the resolved resource settings. See
+[`docs/configuration.md`](docs/configuration.md) for every setting.
+
+The GPU is not currently used. The dominant stages use irregular event indexing and
+small SciPy operations, while localization is too small a fraction of wall time to
+justify GPU transfer and a separate fitting implementation.
+
 ## Current important limitations
 
 PeakLoc is under active development. Important limitations are:
