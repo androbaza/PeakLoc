@@ -47,6 +47,7 @@ from localization_scripts.plot_style import PREVIEW_DPI
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_dashboard
+from localization_scripts.recording_discovery import find_recording_files
 from localization_scripts.roi_generation import (
     generate_coord_lists,
     generate_rois_with_selection_stats,
@@ -120,12 +121,8 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
         )
 
     results = []
-    for filename in natsorted(folder.iterdir()):
-        if filename.is_dir() or filename.suffix == ".bias":
-            continue
-        if filename.suffix not in {".raw", ".npy"}:
-            continue
-
+    input_files = find_recording_files(folder, recursive=config.recursive_input)
+    for filename in natsorted(input_files):
         logger.info("Processing {}", filename)
         recording = process_recording(filename, config, run_timestamp)
         report_folder = recording.output_folder / "reports"

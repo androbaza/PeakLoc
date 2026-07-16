@@ -11,6 +11,7 @@ import numpy as np
 
 from localization_scripts.calibration import load_calibration
 from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.recording_discovery import find_recording_files
 
 FWHM_FROM_SIGMA = 2.354820045
 EVENT_FIELDS = frozenset({"x", "y", "p", "t"})
@@ -64,7 +65,7 @@ def run_preflight(
             config, config_path, input_folder, event_files, issues, strict_mode
         )
 
-    event_files = _recording_files(input_folder)
+    event_files = _recording_files(input_folder, recursive=config.recursive_input)
     if not event_files:
         issues.append(
             PreflightIssue(
@@ -72,7 +73,10 @@ def run_preflight(
                 code="missing_recordings",
                 field="input_folder",
                 message=f"No .raw or .npy recordings were found in {input_folder}",
-                suggestion="Place recordings in the input folder; .bias files and subdirectories are ignored.",
+                suggestion=(
+                    "Place recordings in the input folder or enable recursive_input "
+                    "to search its subdirectories."
+                ),
             )
         )
 
@@ -161,14 +165,10 @@ def effective_config_hash(config: PeakLocConfig) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _recording_files(input_folder: Path) -> tuple[Path, ...]:
-    return tuple(
-        sorted(
-            path
-            for path in input_folder.iterdir()
-            if path.is_file() and path.suffix in {".raw", ".npy"}
-        )
-    )
+def _recording_files(
+    input_folder: Path, *, recursive: bool = False
+) -> tuple[Path, ...]:
+    return tuple(sorted(find_recording_files(input_folder, recursive=recursive)))
 
 
 def _check_event_files(

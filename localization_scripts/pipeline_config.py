@@ -24,6 +24,7 @@ ENVIRONMENT_OVERRIDES = {
 @dataclass(frozen=True, kw_only=True)
 class PeakLocConfig:
     input_folder: str = DEFAULT_INPUT_FOLDER
+    recursive_input: bool = False
     slice_start: int = 0
     slice_duration: int = DEFAULT_SLICE_DURATION
     num_cores: int = multiprocessing.cpu_count()
@@ -183,6 +184,7 @@ class PeakLocConfig:
                 self.max_localization_uncertainty_nm,
             )
         _require_bool("plot_result", self.plot_result)
+        _require_bool("recursive_input", self.recursive_input)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         _require_bool("spatial_mask_enabled", self.spatial_mask_enabled)
         _require_bool(
