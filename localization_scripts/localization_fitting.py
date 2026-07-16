@@ -90,14 +90,15 @@ def perform_joint_poisson_localization_parallel(
             return np.array([])
         return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
     rois_split = slice_data(rois, config.parallel_workers)
+    backend = "loky"
     results = Parallel(
         n_jobs=config.parallel_workers,
-        backend="loky",
+        backend=backend,
         max_nbytes="8M",
         mmap_mode="r",
         temp_folder=None if joblib_temp_folder is None else str(joblib_temp_folder),
         pre_dispatch="n_jobs",
-        reuse=False,
+        **({"inner_max_num_threads": 1} if backend == "loky" else {}),
     )(
         delayed(localize_joint_poisson)(chunk, config, calibration)
         for chunk in rois_split

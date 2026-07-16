@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import shutil
 from math import ceil
 from pathlib import Path
 from typing import Literal
@@ -15,6 +16,8 @@ from localization_scripts.recording_discovery import find_recording_files
 
 FWHM_FROM_SIGMA = 2.354820045
 EVENT_FIELDS = frozenset({"x", "y", "p", "t"})
+GIB = 1024**3
+PREFLIGHT_DISK_WORKING_MULTIPLIER = 8
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,7 @@ def run_preflight(
 
     _check_event_files(config, event_files, sample_events_per_file, issues)
     _check_config_consistency(config, strict_mode, issues)
+    _check_resource_budget(config, input_folder, event_files, issues)
     _check_calibration(config, strict_mode, issues)
     _add_output_info(event_files, issues)
     return _report(config, config_path, input_folder, event_files, issues, strict_mode)
@@ -562,6 +566,59 @@ def _check_calibration(
                     ),
                 )
             )
+
+
+def _check_resource_budget(
+    config: PeakLocConfig,
+    input_folder: Path,
+    event_files: tuple[Path, ...],
+    issues: list[PreflightIssue],
+) -> None:
+    issues.append(
+        PreflightIssue(
+            severity="info",
+            code="resolved_execution_resources",
+            field="cpu_worker_budget",
+            message=(
+                f"Resolved {config.effective_concurrent_slices} slice lane(s), "
+                f"{config.parallel_workers} workers per leased parallel stage, and "
+                f"a {config.resolved_cpu_worker_budget}-CPU global budget; "
+                f"memory reserve={config.memory_reserve_gib:g} GiB."
+            ),
+        )
+    )
+    if not event_files:
+        return
+
+    largest_input_bytes = max(path.stat().st_size for path in event_files)
+    estimated_working_bytes = largest_input_bytes * PREFLIGHT_DISK_WORKING_MULTIPLIER
+    reserve_bytes = int(config.disk_reserve_gib * GIB)
+    required_bytes = estimated_working_bytes + reserve_bytes
+    free_bytes = shutil.disk_usage(input_folder).free
+    severity: Literal["error", "info"] = (
+        "error" if free_bytes < required_bytes else "info"
+    )
+    issues.append(
+        PreflightIssue(
+            severity=severity,
+            code=(
+                "insufficient_disk_headroom" if severity == "error" else "disk_headroom"
+            ),
+            field="disk_reserve_gib",
+            message=(
+                f"Estimated peak working disk={estimated_working_bytes / GIB:.1f} GiB "
+                f"plus reserve={config.disk_reserve_gib:g} GiB; "
+                f"required={required_bytes / GIB:.1f} GiB, "
+                f"free={free_bytes / GIB:.1f} GiB."
+            ),
+            suggestion=(
+                "Free disk space, reduce retained temporary outputs, or process the "
+                "recording on a larger volume."
+                if severity == "error"
+                else None
+            ),
+        )
+    )
 
 
 def _add_output_info(

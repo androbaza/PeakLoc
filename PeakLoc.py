@@ -37,7 +37,10 @@ configure_worker_environment()
 
 from localization_scripts.config_sweep import run_config_sweep  # noqa: E402
 from localization_scripts.pipeline_config import load_peakloc_config  # noqa: E402
-from localization_scripts.pipeline_runner import run_batch  # noqa: E402
+from localization_scripts.pipeline_runner import (  # noqa: E402
+    run_batch,
+    run_serialized_slice_worker,
+)
 from localization_scripts.preflight import (  # noqa: E402
     run_preflight,
     write_preflight_report,
@@ -52,6 +55,12 @@ sudo echo 1 > /proc/sys/vm/overcommit_memory
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the PeakLoc localization pipeline"
+    )
+    parser.add_argument(
+        "--slice-worker",
+        type=Path,
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--config",
@@ -86,6 +95,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     configure_worker_environment()
     args = parse_args()
+    if args.slice_worker is not None:
+        run_serialized_slice_worker(args.slice_worker)
+        return
     config = load_peakloc_config(args.config)
     if args.preflight or args.strict_preflight or args.preflight_only:
         report = run_preflight(

@@ -16,7 +16,10 @@ ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_INPUT_FOLDER": "input_folder",
     "PEAKLOC_SLICE_START": "slice_start",
     "PEAKLOC_SLICE_DURATION": "slice_duration",
+    "PEAKLOC_SLICE_COUNT": "slice_count",
     "PEAKLOC_MAX_PARALLEL_WORKERS": "max_parallel_workers",
+    "PEAKLOC_MAX_CONCURRENT_SLICES": "max_concurrent_slices",
+    "PEAKLOC_CPU_WORKER_BUDGET": "cpu_worker_budget",
     "PEAKLOC_SPATIAL_MASK_ENABLED": "spatial_mask_enabled",
 }
 
@@ -27,8 +30,14 @@ class PeakLocConfig:
     recursive_input: bool = False
     slice_start: int = 0
     slice_duration: int = DEFAULT_SLICE_DURATION
+    slice_count: int | None = None
     num_cores: int = multiprocessing.cpu_count()
     max_parallel_workers: int = 4
+    max_concurrent_slices: int = 1
+    cpu_worker_budget: int | None = None
+    max_workers_per_slice: int | None = None
+    memory_reserve_gib: float = 16.0
+    disk_reserve_gib: float = 10.0
     spatial_mask_enabled: bool = False
     spatial_mask_sample_duration_us: int = 60_000_000
     spatial_mask_min_density_quotient: float = 2.7
@@ -129,8 +138,17 @@ class PeakLocConfig:
     def validate(self) -> None:
         _require_non_negative("slice_start", self.slice_start)
         _require_positive("slice_duration", self.slice_duration)
+        if self.slice_count is not None:
+            _require_positive("slice_count", self.slice_count)
         _require_positive("num_cores", self.num_cores)
         _require_positive("max_parallel_workers", self.max_parallel_workers)
+        _require_positive("max_concurrent_slices", self.max_concurrent_slices)
+        if self.cpu_worker_budget is not None:
+            _require_positive("cpu_worker_budget", self.cpu_worker_budget)
+        if self.max_workers_per_slice is not None:
+            _require_positive("max_workers_per_slice", self.max_workers_per_slice)
+        _require_non_negative("memory_reserve_gib", self.memory_reserve_gib)
+        _require_non_negative("disk_reserve_gib", self.disk_reserve_gib)
         _require_positive(
             "spatial_mask_sample_duration_us", self.spatial_mask_sample_duration_us
         )
@@ -244,9 +262,36 @@ class PeakLocConfig:
         return self.optical_pixel_size
 
     @property
+    def available_cpu_count(self) -> int:
+        try:
+            return len(os.sched_getaffinity(0))
+        except AttributeError:
+            return os.cpu_count() or 1
+
+    @property
+    def resolved_cpu_worker_budget(self) -> int:
+        requested = (
+            self.num_cores if self.cpu_worker_budget is None else self.cpu_worker_budget
+        )
+        return max(1, min(requested, self.num_cores, self.available_cpu_count))
+
+    @property
+    def effective_concurrent_slices(self) -> int:
+        return max(1, min(self.max_concurrent_slices, self.resolved_cpu_worker_budget))
+
+    @property
     def parallel_workers(self) -> int:
-        """Return the bounded worker count used for memory-intensive stages."""
-        return min(self.num_cores, self.max_parallel_workers)
+        """Return the per-slice worker quota within the global CPU budget."""
+        per_slice_cap = (
+            self.max_parallel_workers
+            if self.max_workers_per_slice is None
+            else min(self.max_parallel_workers, self.max_workers_per_slice)
+        )
+        parallel_stage_budget = max(
+            1,
+            self.resolved_cpu_worker_budget - self.effective_concurrent_slices + 1,
+        )
+        return max(1, min(self.num_cores, per_slice_cap, parallel_stage_budget))
 
     @property
     def sensor_shape(self) -> tuple[int, int]:

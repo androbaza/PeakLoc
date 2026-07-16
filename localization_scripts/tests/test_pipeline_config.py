@@ -116,6 +116,21 @@ def test_peakloc_config_validates_event_model_settings():
         PeakLocConfig.from_mapping({"background_mode": "not-a-mode"})
 
 
+def test_peakloc_config_partitions_global_cpu_budget(monkeypatch):
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(12)))
+    config = PeakLocConfig(
+        num_cores=30,
+        max_parallel_workers=30,
+        max_concurrent_slices=2,
+        cpu_worker_budget=16,
+        max_workers_per_slice=8,
+    )
+
+    assert config.resolved_cpu_worker_budget == 12
+    assert config.effective_concurrent_slices == 2
+    assert config.parallel_workers == 8
+
+
 def test_write_effective_config_is_human_readable_json(tmp_path):
     output_path = tmp_path / "reports" / "settings.json"
     config = PeakLocConfig(input_folder="data", num_cores=1)

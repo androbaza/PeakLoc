@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import warnings
 
+import os
+
 import numpy as np
 from csaps import CubicSmoothingSpline
 from interpolation import interp
@@ -34,6 +36,7 @@ def find_peaks_parallel(
     cutoff_event_count: int,
     spline_smooth: float,
     joblib_temp_folder: str | Path | None = None,
+    backend: str = "loky",
 ):
     """
     Finds the peaks of the cumulative sum of the data and returns the ON times of the peaks, the coordinates of the peaks, and the prominences of the peaks.
@@ -66,15 +69,22 @@ def find_peaks_parallel(
     list of arrays
         Array of prominences of the peaks.
     """
-    RES = Parallel(
+    parallel = Parallel(
         n_jobs=num_cores,
-        backend="loky",
+        backend=backend,
         max_nbytes="8M",
         mmap_mode="r",
         temp_folder=None if joblib_temp_folder is None else str(joblib_temp_folder),
         pre_dispatch="n_jobs",
-        reuse=False,
-    )(
+        **({"inner_max_num_threads": 1} if backend == "loky" else {}),
+    )
+    logger.info(
+        "Peak interpolation backend={} effective_jobs={} pid={}",
+        type(parallel._backend).__name__,
+        parallel._backend.effective_n_jobs(num_cores),
+        os.getpid(),
+    )
+    RES = parallel(
         delayed(interpolate_parallel)(
             times[i],
             cumsum[i],

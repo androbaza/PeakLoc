@@ -6,6 +6,7 @@ from localization_scripts import pipeline_runner
 from localization_scripts.calibration import NullCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import (
+    build_slice_tasks,
     RecordingResult,
     calibration_to_metadata,
     save_processed_plots,
@@ -176,6 +177,20 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     localization_qc = np.load(qc_output_path)
     assert list(localization_qc["id"]) == [0, 1, 2, 3]
     assert qc_output_path.with_suffix(".csv").is_file()
+
+
+def test_build_slice_tasks_uses_non_overlapping_monotonic_bounds():
+    events = np.zeros(4, dtype=[("t", np.uint64)])
+    events["t"] = [0, 99, 100, 199]
+
+    tasks = build_slice_tasks(events, range(100, 301, 100), slice_duration=100)
+
+    assert [(task.start_index, task.stop_index) for task in tasks] == [
+        (0, 2),
+        (2, 4),
+        (4, 4),
+    ]
+    assert tasks[0].event_bytes == 2 * events.dtype.itemsize
 
 
 def test_summarize_fit_qc_handles_poisson_fields():

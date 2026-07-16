@@ -3,17 +3,21 @@ from __future__ import annotations
 import csv
 import ctypes
 import gc
-from collections.abc import Iterator
+import fcntl
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 import json
+import pickle
+import signal
 import os
 import resource
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TextIO
 
 import matplotlib
 import numpy as np
@@ -29,6 +33,7 @@ from localization_scripts.event_array_processing import (
     array_to_time_map,
     array_to_time_map_for_coords,
     create_convolved_signals,
+    EVENT_DTYPE,
     materialize_raw_events,
     save_dict,
 )
@@ -71,6 +76,15 @@ SLICE_TEMP_ARTIFACT_PREFIXES = (
     "unique_peaks",
 )
 JOBLIB_TEMP_DIRNAME = "joblib"
+SLICE_MANIFEST_DIRNAME = "slices"
+SLICE_REQUEST_DIRNAME = "slice_requests"
+GIB = 1024**3
+SLICE_MEMORY_EVENT_MULTIPLIER = 8
+SLICE_DISK_EVENT_MULTIPLIER = 8
+PARALLEL_STAGE_LOCK_FILENAME = "parallel_stage.lock"
+
+_SLICE_WORKER_CONTEXT: SliceExecutionConfig | None = None
+_SLICE_WORKER_CALIBRATION: EventCalibration | None = None
 
 
 @dataclass
@@ -121,6 +135,33 @@ class RecordingResult:
     spatial_mask_metadata: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SliceTask:
+    time_slice: int
+    start_index: int
+    stop_index: int
+    event_bytes: int
+
+
+@dataclass(frozen=True)
+class SliceWorkerRequest:
+    context: SliceExecutionConfig
+    task: SliceTask
+    result_path: Path
+
+
+@dataclass(frozen=True)
+class SliceExecutionConfig:
+    filename: Path
+    event_path: Path
+    event_format: Literal["npy", "raw_cache"]
+    event_count: int
+    output_folder: Path
+    config: PeakLocConfig
+    spatial_mask: SpatialMask | None
+    parallel_stage_lock_path: Path | None = None
+
+
 @dataclass
 class EventStore:
     """A recording-backed array and the optional temporary RAW cache behind it."""
@@ -128,6 +169,299 @@ class EventStore:
     events: np.ndarray
     cache_path: Path | None = None
     timestamps_monotonic: bool = True
+
+
+class SliceResourceError(RuntimeError):
+    pass
+
+
+def build_slice_tasks(
+    events: np.ndarray, time_slices: range, *, slice_duration: int
+) -> list[SliceTask]:
+    timestamps = events["t"]
+    itemsize = int(events.dtype.itemsize)
+    tasks = []
+    for time_slice in time_slices:
+        slice_start = time_slice - slice_duration
+        start_index = int(np.searchsorted(timestamps, slice_start, side="left"))
+        stop_index = int(np.searchsorted(timestamps, time_slice, side="left"))
+        tasks.append(
+            SliceTask(
+                time_slice=time_slice,
+                start_index=start_index,
+                stop_index=stop_index,
+                event_bytes=max(stop_index - start_index, 0) * itemsize,
+            )
+        )
+    return tasks
+
+
+def execute_slice_tasks(
+    tasks: list[SliceTask], context: SliceExecutionConfig
+) -> list[SliceResult]:
+    non_empty_tasks = [task for task in tasks if task.stop_index > task.start_index]
+    if not non_empty_tasks:
+        return []
+
+    max_workers = min(context.config.effective_concurrent_slices, len(non_empty_tasks))
+    results = []
+    next_task_index = 0
+    active: dict[int, tuple[subprocess.Popen[bytes], SliceTask, Path, Path]] = {}
+    try:
+        while next_task_index < len(non_empty_tasks) or active:
+            while next_task_index < len(non_empty_tasks) and len(active) < max_workers:
+                task = non_empty_tasks[next_task_index]
+                active_tasks = [entry[1] for entry in active.values()]
+                if not _resources_allow_submission(
+                    task, active_tasks, context.config, context.output_folder
+                ):
+                    if not active:
+                        raise SliceResourceError(
+                            _resource_failure_message(task, context)
+                        )
+                    break
+                process, request_path, result_path = _start_slice_process(task, context)
+                active[process.pid] = (process, task, request_path, result_path)
+                next_task_index += 1
+
+            completed_pids = [
+                pid for pid, entry in active.items() if entry[0].poll() is not None
+            ]
+            if not completed_pids:
+                time.sleep(0.1)
+                continue
+
+            for pid in completed_pids:
+                process, task, request_path, result_path = active.pop(pid)
+                if process.returncode != 0:
+                    raise RuntimeError(
+                        f"Slice worker for {task.time_slice} exited with "
+                        f"status {process.returncode}; request preserved at "
+                        f"{request_path}"
+                    )
+                result = _read_slice_worker_result(result_path)
+                request_path.unlink(missing_ok=True)
+                result_path.unlink(missing_ok=True)
+                if result is not None:
+                    _validate_slice_result(result)
+                    results.append(result)
+    except BaseException:
+        for process, _, _, _ in active.values():
+            _terminate_process_group(process)
+        raise
+
+    return sorted(results, key=lambda result: result.time_slice)
+
+
+def _start_slice_process(
+    task: SliceTask, context: SliceExecutionConfig
+) -> tuple[subprocess.Popen[bytes], Path, Path]:
+    request_folder = context.output_folder / "temp_files" / SLICE_REQUEST_DIRNAME
+    request_folder.mkdir(parents=True, exist_ok=True)
+    request_path = request_folder / f"request_{task.time_slice}.pkl"
+    result_path = request_folder / f"result_{task.time_slice}.pkl"
+    partial_path = _partial_artifact_path(request_path)
+    request = SliceWorkerRequest(context=context, task=task, result_path=result_path)
+    with partial_path.open("wb") as output_file:
+        pickle.dump(request, output_file, protocol=pickle.HIGHEST_PROTOCOL)
+    partial_path.replace(request_path)
+
+    logger.info(
+        "Submitting slice ending at {} ({} events, {} workers)",
+        task.time_slice,
+        task.stop_index - task.start_index,
+        context.config.parallel_workers,
+    )
+    entrypoint = Path(__file__).resolve().parents[1] / "PeakLoc.py"
+    environment = os.environ.copy()
+    process = subprocess.Popen(
+        [sys.executable, str(entrypoint), "--slice-worker", str(request_path)],
+        cwd=entrypoint.parent,
+        env=environment,
+        start_new_session=True,
+    )
+    return process, request_path, result_path
+
+
+def run_serialized_slice_worker(request_path: Path) -> None:
+    with request_path.open("rb") as input_file:
+        request: SliceWorkerRequest = pickle.load(input_file)
+    _initialize_slice_worker(request.context)
+    result = _run_slice_task(request.task)
+    partial_path = _partial_artifact_path(request.result_path)
+    with partial_path.open("wb") as output_file:
+        pickle.dump(result, output_file, protocol=pickle.HIGHEST_PROTOCOL)
+    partial_path.replace(request.result_path)
+
+
+def _read_slice_worker_result(result_path: Path) -> SliceResult | None:
+    if not result_path.is_file():
+        raise RuntimeError(f"Slice worker did not write its result: {result_path}")
+    with result_path.open("rb") as input_file:
+        result: SliceResult | None = pickle.load(input_file)
+    return result
+
+
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        process.wait(timeout=5)
+
+
+def _initialize_slice_worker(context: SliceExecutionConfig) -> None:
+    global _SLICE_WORKER_CONTEXT, _SLICE_WORKER_CALIBRATION
+    _SLICE_WORKER_CONTEXT = context
+    _configure_numerical_threads(context.config.parallel_workers)
+    _SLICE_WORKER_CALIBRATION = load_calibration(
+        context.config.calibration_path,
+        context.config.sensor_shape,
+        allow_uncalibrated=context.config.allow_uncalibrated,
+    )
+
+
+def _run_slice_task(task: SliceTask) -> SliceResult | None:
+    context = _SLICE_WORKER_CONTEXT
+    calibration = _SLICE_WORKER_CALIBRATION
+    if context is None or calibration is None:
+        raise RuntimeError("Slice worker was not initialized")
+    events = _open_worker_event_store(context)
+    try:
+        event_slice = np.asarray(events[task.start_index : task.stop_index])
+        result = process_time_slice(
+            event_slice,
+            task.time_slice,
+            context.filename,
+            context.config,
+            calibration,
+            context.output_folder,
+            context.spatial_mask,
+            context.parallel_stage_lock_path,
+        )
+        if result is not None:
+            _write_slice_manifest(result, context.output_folder)
+        return result
+    finally:
+        _shutdown_loky_workers()
+        _close_memory_map(events)
+        release_unused_memory()
+
+
+def _shutdown_loky_workers() -> None:
+    from joblib.externals.loky import get_reusable_executor
+
+    get_reusable_executor().shutdown(wait=True, kill_workers=True)
+
+
+def _open_worker_event_store(context: SliceExecutionConfig) -> np.ndarray:
+    if context.event_format == "npy":
+        return np.load(context.event_path, mmap_mode="r", allow_pickle=False)
+    if context.event_format == "raw_cache":
+        return np.memmap(
+            context.event_path,
+            dtype=EVENT_DTYPE,
+            mode="r",
+            shape=(context.event_count,),
+        )
+    raise ValueError(f"Unsupported worker event format: {context.event_format}")
+
+
+def _configure_numerical_threads(worker_count: int) -> None:
+    for variable in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ[variable] = "1"
+    from numba import set_num_threads
+
+    set_num_threads(worker_count)
+
+
+def _resources_allow_submission(
+    task: SliceTask,
+    active_tasks: Iterable[SliceTask],
+    config: PeakLocConfig,
+    output_folder: Path,
+) -> bool:
+    active_event_bytes = sum(active.event_bytes for active in active_tasks)
+    projected_memory = (
+        active_event_bytes + task.event_bytes
+    ) * SLICE_MEMORY_EVENT_MULTIPLIER
+    memory_ok = (
+        _available_memory_bytes()
+        >= int(config.memory_reserve_gib * GIB) + projected_memory
+    )
+    projected_disk = (
+        active_event_bytes + task.event_bytes
+    ) * SLICE_DISK_EVENT_MULTIPLIER
+    disk_ok = (
+        shutil.disk_usage(output_folder).free
+        >= int(config.disk_reserve_gib * GIB) + projected_disk
+    )
+    return memory_ok and disk_ok
+
+
+def _available_memory_bytes() -> int:
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    return int(page_size * available_pages)
+
+
+def _resource_failure_message(task: SliceTask, context: SliceExecutionConfig) -> str:
+    available_gib = _available_memory_bytes() / GIB
+    free_disk_gib = shutil.disk_usage(context.output_folder).free / GIB
+    return (
+        f"Cannot admit slice ending at {task.time_slice}: "
+        f"available RAM={available_gib:.1f} GiB with "
+        f"reserve={context.config.memory_reserve_gib:.1f} GiB; "
+        f"free disk={free_disk_gib:.1f} GiB with "
+        f"reserve={context.config.disk_reserve_gib:.1f} GiB."
+    )
+
+
+def _write_slice_manifest(result: SliceResult, output_folder: Path) -> None:
+    manifest_folder = (
+        output_folder / "temp_files" / SLICE_MANIFEST_DIRNAME / str(result.time_slice)
+    )
+    manifest_folder.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_folder / "manifest.json"
+    partial_path = manifest_folder / ".manifest.json.partial"
+    payload = {
+        "time_slice": result.time_slice,
+        "event_count": result.event_count,
+        "artifacts": [str(path) for path in result.artifacts],
+    }
+    partial_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    partial_path.replace(manifest_path)
+    result.artifacts.append(manifest_path)
+
+
+def _validate_slice_result(result: SliceResult) -> None:
+    missing = [path for path in result.artifacts if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "Slice completed without all declared artifacts: "
+            + ", ".join(str(path) for path in missing)
+        )
 
 
 def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
@@ -155,6 +489,48 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
     return results
 
 
+def _partial_artifact_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.partial")
+
+
+def _atomic_save_array(path: Path, array: np.ndarray) -> None:
+    partial_path = _partial_artifact_path(path)
+    partial_path.unlink(missing_ok=True)
+    with partial_path.open("wb") as output_file:
+        np.save(output_file, array, allow_pickle=False)
+    partial_path.replace(path)
+
+
+def _atomic_save_dict(path: Path, payload: dict) -> None:
+    partial_path = _partial_artifact_path(path)
+    partial_path.unlink(missing_ok=True)
+    save_dict(payload, str(partial_path))
+    partial_path.replace(path)
+
+
+def _atomic_write_structured_array_csv(array: np.ndarray, path: Path) -> None:
+    partial_path = _partial_artifact_path(path)
+    partial_path.unlink(missing_ok=True)
+    write_structured_array_csv(array, partial_path)
+    partial_path.replace(path)
+
+
+def _acquire_parallel_stage(path: Path | None) -> TextIO | None:
+    if path is None:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = path.open("a+", encoding="utf-8")
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    return lock_file
+
+
+def _release_parallel_stage(lock_file: TextIO | None) -> None:
+    if lock_file is None:
+        return
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    lock_file.close()
+
+
 def process_time_slice(
     event_slice: np.ndarray,
     time_slice: int,
@@ -163,6 +539,7 @@ def process_time_slice(
     calibration: EventCalibration,
     output_folder: Path,
     spatial_mask: SpatialMask | None = None,
+    parallel_stage_lock_path: Path | None = None,
 ) -> SliceResult | None:
     events = event_slice
     if events.size == 0:
@@ -176,7 +553,7 @@ def process_time_slice(
     event_count = int(event_slice.size)
     event_bytes = int(event_slice.nbytes)
     temp_files_localization = output_folder / "temp_files"
-    joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME
+    joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME / str(time_slice)
     output_folder.mkdir(parents=True, exist_ok=True)
     temp_files_localization.mkdir(parents=True, exist_ok=True)
     joblib_temp_folder.mkdir(parents=True, exist_ok=True)
@@ -227,6 +604,7 @@ def process_time_slice(
         time.perf_counter() - start_time,
     )
     stage_start = time.perf_counter()
+    stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
     max_len = int(max_len * 2 * (config.convolution_roi_radius * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events,
@@ -235,6 +613,7 @@ def process_time_slice(
         worker_count,
         convolution_roi_radius=config.convolution_roi_radius,
     )
+    _release_parallel_stage(stage_lock)
     del dict_events, max_len, target_coords, support_coords
     _release_and_measure(stage_metrics)
     stage_metrics.convolution_seconds = time.perf_counter() - stage_start
@@ -243,6 +622,7 @@ def process_time_slice(
         "Finding peaks; elapsed time: {:.2f} seconds", time.perf_counter() - start_time
     )
     stage_start = time.perf_counter()
+    stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
     peak_list = find_peaks_parallel(
         times,
         cumsum,
@@ -253,7 +633,9 @@ def process_time_slice(
         cutoff_event_count=config.peak_min_event_count,
         spline_smooth=config.spline_smooth,
         joblib_temp_folder=joblib_temp_folder,
+        backend="loky",
     )
+    _release_parallel_stage(stage_lock)
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
     del times, cumsum, coordinates, peak_list
     _release_and_measure(stage_metrics)
@@ -280,7 +662,7 @@ def process_time_slice(
         / f"unique_peaks_fwhm_{config.dataset_fwhm:g}_prominence_{config.prominence:g}"
         f"_time_slice_{time_slice}.pkl"
     )
-    save_dict(unique_peaks, str(unique_peaks_path))
+    _atomic_save_dict(unique_peaks_path, unique_peaks)
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
     stage_metrics.peak_filter_seconds = time.perf_counter() - stage_start
 
@@ -289,6 +671,7 @@ def process_time_slice(
         time.perf_counter() - start_time,
     )
     stage_start = time.perf_counter()
+    stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
     roi_generation = generate_rois_with_selection_stats(
         unique_peaks,
         events_t_p_dict,
@@ -309,6 +692,7 @@ def process_time_slice(
         ),
         diffuse_flash_max_local_fraction=config.diffuse_flash_max_local_fraction,
     )
+    _release_parallel_stage(stage_lock)
     rois = roi_generation.rois
     diffuse_flash_rejected_count = roi_generation.diffuse_flash_rejected_count
     del roi_generation
@@ -326,12 +710,14 @@ def process_time_slice(
         time.perf_counter() - start_time,
     )
     stage_start = time.perf_counter()
+    stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
     localization_tables = localize_rois_with_attempts(
         rois,
         config,
         calibration,
         joblib_temp_folder=joblib_temp_folder,
     )
+    _release_parallel_stage(stage_lock)
     attempted_localizations = localization_tables.attempted
     localizations = localization_tables.filtered
     localization_qc = localization_tables.qc_table
@@ -361,11 +747,11 @@ def process_time_slice(
         f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
     )
     localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
-    np.save(attempted_localizations_path, attempted_localizations)
-    np.save(localizations_path, localizations)
-    np.save(localization_qc_path, localization_qc)
-    write_structured_array_csv(localization_qc, localization_qc_csv_path)
-    np.save(rois_path, rois)
+    _atomic_save_array(attempted_localizations_path, attempted_localizations)
+    _atomic_save_array(localizations_path, localizations)
+    _atomic_save_array(localization_qc_path, localization_qc)
+    _atomic_write_structured_array_csv(localization_qc, localization_qc_csv_path)
+    _atomic_save_array(rois_path, rois)
     stage_metrics.artifact_write_seconds = time.perf_counter() - stage_start
 
     fit_qc = summarize_fit_qc(
@@ -450,9 +836,15 @@ def process_recording(
         if time_max is None:
             recording.elapsed_seconds = time.time() - recording_start
             return recording
+        time_slice_stop = time_max + config.slice_duration + 1
+        if config.slice_count is not None:
+            time_slice_stop = min(
+                time_slice_stop,
+                config.slice_start + config.slice_duration * (config.slice_count + 1),
+            )
         time_slices = range(
             config.slice_start + config.slice_duration,
-            time_max + config.slice_duration + 1,
+            time_slice_stop,
             config.slice_duration,
         )
         if len(time_slices) == 0:
@@ -500,28 +892,66 @@ def process_recording(
             )
             event_qc.add(events)
 
-        for time_slice, event_slice in iter_event_slices(
-            events,
-            time_slices,
-            slice_duration=config.slice_duration,
-            timestamps_monotonic=event_store.timestamps_monotonic,
-        ):
-            try:
-                slice_result = process_time_slice(
-                    event_slice,
-                    time_slice,
-                    filename,
-                    config,
-                    calibration,
-                    out_folder_localizations,
-                    spatial_mask if spatial_mask.is_active else None,
+        active_spatial_mask = spatial_mask if spatial_mask.is_active else None
+        _configure_numerical_threads(config.parallel_workers)
+        if config.effective_concurrent_slices > 1 and event_store.timestamps_monotonic:
+            event_path = (
+                filename if filename.suffix == ".npy" else event_store.cache_path
+            )
+            if event_path is None:
+                raise RuntimeError("Parallel RAW processing requires an event cache")
+            tasks = build_slice_tasks(
+                events, time_slices, slice_duration=config.slice_duration
+            )
+            execution_context = SliceExecutionConfig(
+                filename=filename,
+                event_path=event_path,
+                event_format="npy" if filename.suffix == ".npy" else "raw_cache",
+                event_count=int(events.size),
+                output_folder=out_folder_localizations,
+                config=config,
+                spatial_mask=active_spatial_mask,
+                parallel_stage_lock_path=(
+                    temp_files_localization / PARALLEL_STAGE_LOCK_FILENAME
+                ),
+            )
+            recording.slice_results.extend(
+                execute_slice_tasks(tasks, execution_context)
+            )
+            for result in recording.slice_results:
+                recording.artifacts.extend(result.artifacts)
+        else:
+            if (
+                config.effective_concurrent_slices > 1
+                and not event_store.timestamps_monotonic
+            ):
+                logger.warning(
+                    "Parallel slices require monotonic timestamps; using serial fallback"
                 )
-            finally:
-                del event_slice
-                release_unused_memory()
-            if slice_result is not None:
-                recording.slice_results.append(slice_result)
-                recording.artifacts.extend(slice_result.artifacts)
+            for time_slice, event_slice in iter_event_slices(
+                events,
+                time_slices,
+                slice_duration=config.slice_duration,
+                timestamps_monotonic=event_store.timestamps_monotonic,
+            ):
+                try:
+                    slice_result = process_time_slice(
+                        event_slice,
+                        time_slice,
+                        filename,
+                        config,
+                        calibration,
+                        out_folder_localizations,
+                        active_spatial_mask,
+                    )
+                finally:
+                    del event_slice
+                    release_unused_memory()
+                if slice_result is not None:
+                    _write_slice_manifest(slice_result, out_folder_localizations)
+                    _validate_slice_result(slice_result)
+                    recording.slice_results.append(slice_result)
+                    recording.artifacts.extend(slice_result.artifacts)
 
         recording.slice_results.sort(key=lambda result: result.time_slice)
         recording.artifacts.extend(write_slice_metrics(recording, run_timestamp))
@@ -1155,12 +1585,22 @@ def remove_temp_artifacts(
             temp_artifact = temp_folder / loc_file
             temp_artifact.unlink(missing_ok=True)
             removed_artifacts.add(temp_artifact)
+    ephemeral_roots = [
+        temp_folder / JOBLIB_TEMP_DIRNAME,
+        temp_folder / SLICE_MANIFEST_DIRNAME,
+        temp_folder / SLICE_REQUEST_DIRNAME,
+    ]
     recording.artifacts = [
         artifact
         for artifact in recording.artifacts
         if artifact not in removed_artifacts
+        and not any(
+            root == artifact or root in artifact.parents for root in ephemeral_roots
+        )
     ]
-    shutil.rmtree(temp_folder / JOBLIB_TEMP_DIRNAME, ignore_errors=True)
+    for root in ephemeral_roots:
+        shutil.rmtree(root, ignore_errors=True)
+    (temp_folder / PARALLEL_STAGE_LOCK_FILENAME).unlink(missing_ok=True)
 
 
 def clear_stale_slice_artifacts(temp_folder: Path) -> None:
@@ -1168,6 +1608,9 @@ def clear_stale_slice_artifacts(temp_folder: Path) -> None:
     if not temp_folder.is_dir():
         return
     shutil.rmtree(temp_folder / JOBLIB_TEMP_DIRNAME, ignore_errors=True)
+    shutil.rmtree(temp_folder / SLICE_MANIFEST_DIRNAME, ignore_errors=True)
+    shutil.rmtree(temp_folder / SLICE_REQUEST_DIRNAME, ignore_errors=True)
+    (temp_folder / PARALLEL_STAGE_LOCK_FILENAME).unlink(missing_ok=True)
     for path in temp_folder.iterdir():
         if path.is_file() and is_slice_temp_artifact(path.name):
             path.unlink()
@@ -1197,6 +1640,12 @@ def write_run_report(
         result.localization_count for result in recording.slice_results
     )
 
+    scheduling_mode = (
+        "serial"
+        if config.effective_concurrent_slices == 1
+        else "bounded lanes with leased parallel stages"
+    )
+
     lines = [
         "# PeakLoc Run Report",
         "",
@@ -1213,6 +1662,12 @@ def write_run_report(
         f"- Total localizations: `{total_localizations}`",
         f"- Elapsed time: `{recording.elapsed_seconds:.2f} s`",
         f"- Peak interpolation min events: `{config.peak_min_event_count}`",
+        f"- Slice scheduling: `{scheduling_mode}`",
+        f"- Concurrent slice lanes: `{config.effective_concurrent_slices}`",
+        f"- Resolved CPU worker budget: `{config.resolved_cpu_worker_budget}`",
+        f"- Workers per leased parallel stage: `{config.parallel_workers}`",
+        f"- Memory reserve: `{config.memory_reserve_gib:g} GiB`",
+        f"- Disk reserve: `{config.disk_reserve_gib:g} GiB`",
         f"- Calibration ID: `{recording.calibration_metadata.get('calibration_id')}`",
         f"- Calibrated background: `{recording.calibration_metadata.get('calibrated')}`",
         *_spatial_mask_report_lines(recording),
