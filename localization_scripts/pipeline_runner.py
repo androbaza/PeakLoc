@@ -4,8 +4,10 @@ import csv
 import ctypes
 import gc
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import json
+import os
+import resource
 import shutil
 import sys
 import time
@@ -72,6 +74,18 @@ JOBLIB_TEMP_DIRNAME = "joblib"
 
 
 @dataclass
+class SliceStageMetrics:
+    event_index_seconds: float = 0.0
+    convolution_seconds: float = 0.0
+    peak_interpolation_seconds: float = 0.0
+    peak_filter_seconds: float = 0.0
+    roi_generation_seconds: float = 0.0
+    localization_seconds: float = 0.0
+    artifact_write_seconds: float = 0.0
+    memory_release_seconds: float = 0.0
+
+
+@dataclass
 class SliceResult:
     time_slice: int
     event_count: int
@@ -85,6 +99,11 @@ class SliceResult:
     hot_pixel_fraction: float | None = None
     rejected_localization_count: int = 0
     diffuse_flash_rejected_count: int = 0
+    event_bytes: int = 0
+    peak_rss_bytes: int = 0
+    temp_disk_bytes: int = 0
+    process_id: int = 0
+    stage_metrics: SliceStageMetrics = field(default_factory=SliceStageMetrics)
     artifacts: list[Path] = field(default_factory=list)
 
 
@@ -152,8 +171,10 @@ def process_time_slice(
         )
         return None
 
-    start_time = time.time()
+    start_time = time.perf_counter()
+    stage_metrics = SliceStageMetrics()
     event_count = int(event_slice.size)
+    event_bytes = int(event_slice.nbytes)
     temp_files_localization = output_folder / "temp_files"
     joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -182,13 +203,14 @@ def process_time_slice(
     logger.info("Analyzing the data using {} bounded workers", worker_count)
     logger.info(
         "Converting events to dictionaries; elapsed time: {:.2f} seconds",
-        time.time() - start_time,
+        time.perf_counter() - start_time,
     )
+    stage_start = time.perf_counter()
     dict_events, max_len = array_to_polarity_map(events, support_coords)
     if max_len == 0:
         logger.info("No events fall inside the spatial support mask for this slice")
         del dict_events, max_len, target_coords, support_coords, events, event_slice
-        release_unused_memory()
+        _release_and_measure(stage_metrics)
         return None
 
     events_t_p_dict = (
@@ -197,12 +219,14 @@ def process_time_slice(
         else array_to_time_map(events)
     )
     del events, event_slice
-    release_unused_memory()
+    _release_and_measure(stage_metrics)
+    stage_metrics.event_index_seconds = time.perf_counter() - stage_start
 
     logger.info(
         "Creating convolved signals; elapsed time: {:.2f} seconds",
-        time.time() - start_time,
+        time.perf_counter() - start_time,
     )
+    stage_start = time.perf_counter()
     max_len = int(max_len * 2 * (config.convolution_roi_radius * 2 + 1) ** 2)
     times, cumsum, coordinates = create_convolved_signals(
         dict_events,
@@ -212,9 +236,13 @@ def process_time_slice(
         convolution_roi_radius=config.convolution_roi_radius,
     )
     del dict_events, max_len, target_coords, support_coords
-    release_unused_memory()
+    _release_and_measure(stage_metrics)
+    stage_metrics.convolution_seconds = time.perf_counter() - stage_start
 
-    logger.info("Finding peaks; elapsed time: {:.2f} seconds", time.time() - start_time)
+    logger.info(
+        "Finding peaks; elapsed time: {:.2f} seconds", time.perf_counter() - start_time
+    )
+    stage_start = time.perf_counter()
     peak_list = find_peaks_parallel(
         times,
         cumsum,
@@ -228,15 +256,18 @@ def process_time_slice(
     )
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
     del times, cumsum, coordinates, peak_list
-    release_unused_memory()
+    _release_and_measure(stage_metrics)
     peaks_dict = group_timestamps_by_coordinate(
         coordinates_peaks, peaks, prominences, on_times
     )
     del peaks, prominences, on_times, coordinates_peaks
+    stage_metrics.peak_interpolation_seconds = time.perf_counter() - stage_start
 
     logger.info(
-        "Filtering peaks; elapsed time: {:.2f} seconds", time.time() - start_time
+        "Filtering peaks; elapsed time: {:.2f} seconds",
+        time.perf_counter() - start_time,
     )
+    stage_start = time.perf_counter()
     unique_peaks = find_local_max_peak(
         peaks_dict,
         threshold=config.peak_time_threshold,
@@ -251,10 +282,13 @@ def process_time_slice(
     )
     save_dict(unique_peaks, str(unique_peaks_path))
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
+    stage_metrics.peak_filter_seconds = time.perf_counter() - stage_start
 
     logger.info(
-        "Generating ROIs; elapsed time: {:.2f} seconds", time.time() - start_time
+        "Generating ROIs; elapsed time: {:.2f} seconds",
+        time.perf_counter() - start_time,
     )
+    stage_start = time.perf_counter()
     roi_generation = generate_rois_with_selection_stats(
         unique_peaks,
         events_t_p_dict,
@@ -284,12 +318,14 @@ def process_time_slice(
             diffuse_flash_rejected_count,
         )
     del events_t_p_dict, unique_peaks
-    release_unused_memory()
+    _release_and_measure(stage_metrics)
+    stage_metrics.roi_generation_seconds = time.perf_counter() - stage_start
 
     logger.info(
         "Performing localization; elapsed time: {:.2f} seconds",
-        time.time() - start_time,
+        time.perf_counter() - start_time,
     )
+    stage_start = time.perf_counter()
     localization_tables = localize_rois_with_attempts(
         rois,
         config,
@@ -299,10 +335,12 @@ def process_time_slice(
     attempted_localizations = localization_tables.attempted
     localizations = localization_tables.filtered
     localization_qc = localization_tables.qc_table
+    stage_metrics.localization_seconds = time.perf_counter() - stage_start
 
     logger.info(
-        "Finished; total elapsed time: {:.2f} seconds", time.time() - start_time
+        "Finished; total elapsed time: {:.2f} seconds", time.perf_counter() - start_time
     )
+    stage_start = time.perf_counter()
     attempted_localizations_path = (
         temp_files_localization
         / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
@@ -328,6 +366,7 @@ def process_time_slice(
     np.save(localization_qc_path, localization_qc)
     write_structured_array_csv(localization_qc, localization_qc_csv_path)
     np.save(rois_path, rois)
+    stage_metrics.artifact_write_seconds = time.perf_counter() - stage_start
 
     fit_qc = summarize_fit_qc(
         attempted_localizations,
@@ -343,13 +382,18 @@ def process_time_slice(
         unique_peak_count=unique_peak_count,
         roi_count=len(rois),
         localization_count=len(localizations),
-        elapsed_seconds=time.time() - start_time,
+        elapsed_seconds=time.perf_counter() - start_time,
         fit_success_fraction=fit_qc["fit_success_fraction"],
         median_uncertainty_px=fit_qc["median_uncertainty_px"],
         median_nll_per_event=fit_qc["median_nll_per_event"],
         hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
         rejected_localization_count=rejected_localization_count,
         diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+        event_bytes=event_bytes,
+        peak_rss_bytes=_peak_rss_bytes(),
+        temp_disk_bytes=_directory_size_bytes(temp_files_localization),
+        process_id=os.getpid(),
+        stage_metrics=stage_metrics,
         artifacts=[
             unique_peaks_path,
             attempted_localizations_path,
@@ -366,7 +410,8 @@ def process_time_slice(
         localization_qc,
         rois,
     )
-    release_unused_memory()
+    _release_and_measure(stage_metrics)
+    slice_result.elapsed_seconds = time.perf_counter() - start_time
     return slice_result
 
 
@@ -477,6 +522,9 @@ def process_recording(
             if slice_result is not None:
                 recording.slice_results.append(slice_result)
                 recording.artifacts.extend(slice_result.artifacts)
+
+        recording.slice_results.sort(key=lambda result: result.time_slice)
+        recording.artifacts.extend(write_slice_metrics(recording, run_timestamp))
 
         if not temp_files_localization.is_dir():
             logger.info("No temporary localization folder found for {}", filename)
@@ -875,6 +923,61 @@ def release_unused_memory() -> None:
         return
 
 
+def _release_and_measure(metrics: SliceStageMetrics) -> None:
+    started = time.perf_counter()
+    release_unused_memory()
+    metrics.memory_release_seconds += time.perf_counter() - started
+
+
+def _peak_rss_bytes() -> int:
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    scale = 1024 if sys.platform.startswith("linux") else 1
+    return int(usage.ru_maxrss * scale)
+
+
+def _directory_size_bytes(path: Path) -> int:
+    if not path.is_dir():
+        return 0
+    total = 0
+    for entry in path.rglob("*"):
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except FileNotFoundError:
+            continue
+    return total
+
+
+def write_slice_metrics(recording: RecordingResult, timestamp: str) -> list[Path]:
+    report_folder = recording.output_folder / "reports"
+    report_folder.mkdir(parents=True, exist_ok=True)
+    json_path = report_folder / f"slice_metrics_{timestamp}.json"
+    csv_path = report_folder / f"slice_metrics_{timestamp}.csv"
+    rows = []
+    for result in recording.slice_results:
+        row = {
+            "time_slice": result.time_slice,
+            "event_count": result.event_count,
+            "event_bytes": result.event_bytes,
+            "unique_peak_count": result.unique_peak_count,
+            "roi_count": result.roi_count,
+            "localization_count": result.localization_count,
+            "elapsed_seconds": result.elapsed_seconds,
+            "peak_rss_bytes": result.peak_rss_bytes,
+            "temp_disk_bytes": result.temp_disk_bytes,
+            "process_id": result.process_id,
+            **asdict(result.stage_metrics),
+        }
+        rows.append(row)
+    json_path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    fieldnames = list(rows[0]) if rows else ["time_slice"]
+    with csv_path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return [json_path, csv_path]
+
+
 def write_effective_run_settings(
     config: PeakLocConfig,
     calibration_metadata: dict[str, object],
@@ -1148,6 +1251,33 @@ def write_run_report(
             )
     else:
         lines.append("No time slices produced localizations.")
+
+    lines.extend(["", "## Slice Stage Metrics", ""])
+    if recording.slice_results:
+        lines.extend(
+            [
+                "| Time slice | Index | Convolution | Peaks | Filter | ROIs | Fit | "
+                "Write | Release | Peak RSS GiB | Temp GiB |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+                "---: | ---: |",
+            ]
+        )
+        for result in recording.slice_results:
+            metrics = result.stage_metrics
+            lines.append(
+                f"| {result.time_slice} | {metrics.event_index_seconds:.2f} | "
+                f"{metrics.convolution_seconds:.2f} | "
+                f"{metrics.peak_interpolation_seconds:.2f} | "
+                f"{metrics.peak_filter_seconds:.2f} | "
+                f"{metrics.roi_generation_seconds:.2f} | "
+                f"{metrics.localization_seconds:.2f} | "
+                f"{metrics.artifact_write_seconds:.2f} | "
+                f"{metrics.memory_release_seconds:.2f} | "
+                f"{result.peak_rss_bytes / 2**30:.2f} | "
+                f"{result.temp_disk_bytes / 2**30:.2f} |"
+            )
+    else:
+        lines.append("No slice metrics were recorded.")
 
     lines.extend(["", "## Artifacts", ""])
     if recording.artifacts:
