@@ -369,18 +369,6 @@ def gen_rois_from_peaks_dict(
     roi_chunks = []
     diffuse_flash_rejected_count = 0
     total_coordinates = len(list(coords_dict.keys()))
-    numba_dict_indices = Dict.empty(
-        key_type=types.UniTuple(types.int32, 2),
-        value_type=types.int64,
-    )
-    for k, v in dict_indices.items():
-        numba_dict_indices[(np.int32(k[0]), np.int32(k[1]))] = v
-    numba_times = List()
-    numba_polarities = List()
-    for times, polarities in zip(times_arr, polarities_arr):
-        numba_times.append(np.asarray(times, dtype=np.uint64))
-        numba_polarities.append(np.asarray(polarities, dtype=np.int8))
-    # events_t_p_dict = List(events_t_p_dict)
     for center_coord, data in coords_dict.items():
         if (id_data % 2e3 == 0 or id_data == total_coordinates - 1) and i == 1:
             logger.debug(
@@ -407,9 +395,9 @@ def gen_rois_from_peaks_dict(
 
         for id in range(len(data)):
             roi_data = slice_t_p_dict(
-                numba_dict_indices,
-                numba_times,
-                numba_polarities,
+                dict_indices,
+                times_arr,
+                polarities_arr,
                 id_data,
                 time_back=data[id][2][0],
                 time_advance=data[id][2][1],
@@ -463,6 +451,18 @@ def generate_rois_parallel(
     diffuse_flash_min_active_pixel_fraction=0.9,
     diffuse_flash_max_local_fraction=0.1,
 ):
+    numba_dict_indices = Dict.empty(
+        key_type=types.UniTuple(types.int32, 2),
+        value_type=types.int64,
+    )
+    for key, value in dict_indices.items():
+        numba_dict_indices[(np.int32(key[0]), np.int32(key[1]))] = value
+    numba_times = List()
+    numba_polarities = List()
+    for times, polarities in zip(times_arr, polarities_arr):
+        numba_times.append(np.asarray(times, dtype=np.uint64))
+        numba_polarities.append(np.asarray(polarities, dtype=np.int8))
+
     RES = Parallel(
         n_jobs=num_cores,
         backend="threading",
@@ -471,9 +471,9 @@ def generate_rois_parallel(
     )(
         delayed(gen_rois_from_peaks_dict)(
             coords_dict=sliced_dict[i],
-            dict_indices=dict_indices,
-            times_arr=times_arr,
-            polarities_arr=polarities_arr,
+            dict_indices=numba_dict_indices,
+            times_arr=numba_times,
+            polarities_arr=numba_polarities,
             i=i,
             roi_rad=roi_rad,
             image_start=(min_y, min_x),
