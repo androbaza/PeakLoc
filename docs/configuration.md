@@ -294,25 +294,34 @@ editing the JSON file.
 
 ## Diffuse focus-light flashes
 
-PeakLoc can skip a candidate before it is retained as an ROI when an unusually large
-positive-event burst is nearly uniform across the ROI. This prevents broad focus-light
-changes from being passed to the fitter as apparently precise point localizations.
+PeakLoc detects broad illumination transitions in the full event stream before spatial
+masking, convolution, peak finding, or ROI generation. When nearby broad transitions
+form an ON/OFF pair, PeakLoc excludes the complete interval between them. It does not
+try to salvage molecular blinks while the diffuse light is active.
 
 ```json
 {
   "diffuse_flash_rejection_enabled": true,
-  "diffuse_flash_min_positive_events": 1000,
-  "diffuse_flash_min_active_pixel_fraction": 0.9,
-  "diffuse_flash_max_local_fraction": 0.1
+  "diffuse_flash_bin_duration_us": 5000,
+  "diffuse_flash_min_events_per_polarity": 100000,
+  "diffuse_flash_min_active_pixel_fraction": 0.1,
+  "diffuse_flash_max_gap_us": 5000000,
+  "diffuse_flash_padding_us": 50000
 }
 ```
 
-All three conditions must hold: the ROI must have at least the configured number of
-positive events, at least the configured fraction of pixels must be active, and no
-3×3 patch may contain more than the configured fraction of those events. Compact,
-bright blinks therefore remain eligible even above the event threshold. The run report
-records how many candidates were skipped before ROI output. Set
-`diffuse_flash_rejection_enabled` to `false` for an audit comparison.
+Within each time bin, either polarity can identify a transition. That polarity must
+meet both the event-count and full-sensor active-pixel thresholds. Detected bins no
+more than `diffuse_flash_max_gap_us` apart are treated as one illumination interval,
+then `diffuse_flash_padding_us` is added at both ends. The run writes the exact
+intervals and excluded event count to `reports/diffuse_flash_intervals_*.json` and
+summarizes them in the run report. Set `diffuse_flash_rejection_enabled` to `false`
+for an audit comparison.
+
+The former `diffuse_flash_max_local_fraction` and
+`diffuse_flash_min_positive_events` settings were ROI-local and are no longer
+accepted. They could classify the same global flash differently as ROI size or spatial
+masking changed.
 
 ## Peak detection
 

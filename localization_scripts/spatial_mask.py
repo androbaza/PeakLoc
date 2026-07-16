@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import binary_dilation, label
 
+from localization_scripts.diffuse_flash import TimeInterval, iter_retained_event_spans
+
 
 @dataclass(frozen=True)
 class SpatialMask:
@@ -108,20 +110,25 @@ def accumulate_event_density_in_time_window(
     start_us: int,
     stop_us: int,
     timestamps_monotonic: bool,
+    excluded_intervals: tuple[TimeInterval, ...] = (),
     chunk_size: int = 1_000_000,
 ) -> tuple[np.ndarray, int]:
     """Count a time range without materializing a full boolean-selected recording."""
     density = np.zeros(sensor_shape, dtype=np.uint32)
-    timestamps = events["t"]
     if timestamps_monotonic:
-        start_index = int(np.searchsorted(timestamps, start_us, side="left"))
-        stop_index = int(np.searchsorted(timestamps, stop_us, side="left"))
-        event_count = _accumulate_density(
-            density,
-            events[start_index:stop_index],
-            sensor_shape,
-            chunk_size,
-        )
+        event_count = 0
+        for retained_events in iter_retained_event_spans(
+            events,
+            excluded_intervals,
+            start_us=start_us,
+            stop_us=stop_us,
+        ):
+            event_count += _accumulate_density(
+                density,
+                retained_events,
+                sensor_shape,
+                chunk_size,
+            )
         return density, event_count
 
     event_count = 0

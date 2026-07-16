@@ -243,8 +243,11 @@ def build_qc_summary(
     median_nm = None if median_px is None else median_px * config.optical_pixel_size_nm
     p90_nm = None if p90_px is None else p90_px * config.optical_pixel_size_nm
 
+    processed_event_count = int(recording.event_count) - int(
+        getattr(recording, "diffuse_flash_excluded_event_count", 0)
+    )
     detection_funnel = {
-        "events_loaded": int(recording.event_count),
+        "events_loaded": processed_event_count,
         "peak_candidates": unique_peaks,
         "local_maxima": unique_peaks,
         "rois_generated": roi_count,
@@ -255,7 +258,7 @@ def build_qc_summary(
     return QCDashboardSummary(
         input_file=str(recording.input_file),
         output_dir=str(Path(recording.output_folder) / config.qc_output_dirname),
-        event_count=int(recording.event_count),
+        event_count=processed_event_count,
         attempted_fit_count=attempted_count,
         accepted_localization_count=accepted_count,
         accepted_from_qc_count=accepted_from_qc,

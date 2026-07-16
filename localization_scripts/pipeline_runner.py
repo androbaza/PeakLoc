@@ -37,6 +37,13 @@ from localization_scripts.event_array_processing import (
     materialize_raw_events,
     save_dict,
 )
+from localization_scripts.diffuse_flash import (
+    DiffuseFlashDetection,
+    TimeInterval,
+    detect_diffuse_flash_intervals,
+    exclude_time_intervals,
+    iter_retained_event_spans,
+)
 from localization_scripts.fit_review import save_uncertainty_montages
 from localization_scripts.localization_fitting import (
     localization_uncertainty_px,
@@ -57,7 +64,7 @@ from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_da
 from localization_scripts.recording_discovery import find_recording_files
 from localization_scripts.roi_generation import (
     generate_coord_lists,
-    generate_rois_with_selection_stats,
+    generate_rois,
 )
 from localization_scripts.smlm_visualization import save_smlm_visualization
 from localization_scripts.spatial_mask import (
@@ -112,7 +119,7 @@ class SliceResult:
     median_nll_per_event: float | None = None
     hot_pixel_fraction: float | None = None
     rejected_localization_count: int = 0
-    diffuse_flash_rejected_count: int = 0
+    diffuse_flash_excluded_event_count: int = 0
     event_bytes: int = 0
     peak_rss_bytes: int = 0
     temp_disk_bytes: int = 0
@@ -133,6 +140,9 @@ class RecordingResult:
     elapsed_seconds: float = 0.0
     calibration_metadata: dict[str, object] = field(default_factory=dict)
     spatial_mask_metadata: dict[str, object] = field(default_factory=dict)
+    diffuse_flash_intervals: tuple[TimeInterval, ...] = ()
+    diffuse_flash_excluded_event_count: int = 0
+    diffuse_flash_transition_bin_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -159,6 +169,7 @@ class SliceExecutionConfig:
     output_folder: Path
     config: PeakLocConfig
     spatial_mask: SpatialMask | None
+    diffuse_flash_intervals: tuple[TimeInterval, ...] = ()
     parallel_stage_lock_path: Path | None = None
 
 
@@ -342,8 +353,9 @@ def _run_slice_task(task: SliceTask) -> SliceResult | None:
             context.config,
             calibration,
             context.output_folder,
-            context.spatial_mask,
-            context.parallel_stage_lock_path,
+            spatial_mask=context.spatial_mask,
+            diffuse_flash_intervals=context.diffuse_flash_intervals,
+            parallel_stage_lock_path=context.parallel_stage_lock_path,
         )
         if result is not None:
             _write_slice_manifest(result, context.output_folder)
@@ -539,9 +551,12 @@ def process_time_slice(
     calibration: EventCalibration,
     output_folder: Path,
     spatial_mask: SpatialMask | None = None,
+    diffuse_flash_intervals: tuple[TimeInterval, ...] = (),
     parallel_stage_lock_path: Path | None = None,
 ) -> SliceResult | None:
-    events = event_slice
+    events, diffuse_flash_excluded_event_count = exclude_time_intervals(
+        event_slice, diffuse_flash_intervals
+    )
     if events.size == 0:
         logger.info(
             "No events found in time slice ending at {} for {}", time_slice, filename
@@ -550,8 +565,13 @@ def process_time_slice(
 
     start_time = time.perf_counter()
     stage_metrics = SliceStageMetrics()
-    event_count = int(event_slice.size)
-    event_bytes = int(event_slice.nbytes)
+    event_count = int(events.size)
+    event_bytes = int(events.nbytes)
+    if diffuse_flash_excluded_event_count:
+        logger.info(
+            "Excluded {} events in diffuse flash intervals before processing",
+            diffuse_flash_excluded_event_count,
+        )
     temp_files_localization = output_folder / "temp_files"
     joblib_temp_folder = temp_files_localization / JOBLIB_TEMP_DIRNAME / str(time_slice)
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -672,7 +692,7 @@ def process_time_slice(
     )
     stage_start = time.perf_counter()
     stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
-    roi_generation = generate_rois_with_selection_stats(
+    rois = generate_rois(
         unique_peaks,
         events_t_p_dict,
         roi_rad=config.roi_radius,
@@ -682,25 +702,8 @@ def process_time_slice(
         max_x=config.sensor_width - 1,
         max_y=config.sensor_height - 1,
         polarity_time_gate_us=config.polarity_time_gate_us,
-        diffuse_flash_min_positive_events=(
-            config.diffuse_flash_min_positive_events
-            if config.diffuse_flash_rejection_enabled
-            else 0
-        ),
-        diffuse_flash_min_active_pixel_fraction=(
-            config.diffuse_flash_min_active_pixel_fraction
-        ),
-        diffuse_flash_max_local_fraction=config.diffuse_flash_max_local_fraction,
     )
     _release_parallel_stage(stage_lock)
-    rois = roi_generation.rois
-    diffuse_flash_rejected_count = roi_generation.diffuse_flash_rejected_count
-    del roi_generation
-    if diffuse_flash_rejected_count:
-        logger.info(
-            "Skipped {} diffuse flash candidates before ROI output",
-            diffuse_flash_rejected_count,
-        )
     del events_t_p_dict, unique_peaks
     _release_and_measure(stage_metrics)
     stage_metrics.roi_generation_seconds = time.perf_counter() - stage_start
@@ -774,7 +777,7 @@ def process_time_slice(
         median_nll_per_event=fit_qc["median_nll_per_event"],
         hot_pixel_fraction=fit_qc["hot_pixel_fraction"],
         rejected_localization_count=rejected_localization_count,
-        diffuse_flash_rejected_count=diffuse_flash_rejected_count,
+        diffuse_flash_excluded_event_count=diffuse_flash_excluded_event_count,
         event_bytes=event_bytes,
         peak_rss_bytes=_peak_rss_bytes(),
         temp_disk_bytes=_directory_size_bytes(temp_files_localization),
@@ -836,6 +839,28 @@ def process_recording(
         if time_max is None:
             recording.elapsed_seconds = time.time() - recording_start
             return recording
+
+        flash_detection = detect_recording_diffuse_flashes(
+            events,
+            config,
+            timestamps_monotonic=event_store.timestamps_monotonic,
+        )
+        recording.diffuse_flash_intervals = flash_detection.intervals
+        recording.diffuse_flash_excluded_event_count = (
+            flash_detection.excluded_event_count
+        )
+        recording.diffuse_flash_transition_bin_count = (
+            flash_detection.transition_bin_count
+        )
+        recording.artifacts.append(
+            save_diffuse_flash_intervals(recording, config, run_timestamp)
+        )
+        if flash_detection.intervals:
+            logger.info(
+                "Excluding {} diffuse flash intervals containing {} events",
+                len(flash_detection.intervals),
+                flash_detection.excluded_event_count,
+            )
         time_slice_stop = time_max + config.slice_duration + 1
         if config.slice_count is not None:
             time_slice_stop = min(
@@ -858,6 +883,7 @@ def process_recording(
             time_min=time_min,
             time_max=time_max,
             timestamps_monotonic=event_store.timestamps_monotonic,
+            excluded_intervals=flash_detection.intervals,
         )
         recording.artifacts.extend(
             save_spatial_mask_artifacts(
@@ -883,14 +909,19 @@ def process_recording(
         if config.qc_enabled:
             event_qc = EventQCAccumulator.create(
                 config.sensor_shape,
-                expected_event_count=int(events.size),
+                expected_event_count=(
+                    int(events.size) - flash_detection.excluded_event_count
+                ),
                 sample_limit=(
                     config.qc_max_events_for_interactive
                     if config.qc_generate_interactive
                     else 0
                 ),
             )
-            event_qc.add(events)
+            for retained_events in iter_retained_event_spans(
+                events, flash_detection.intervals
+            ):
+                event_qc.add(retained_events)
 
         active_spatial_mask = spatial_mask if spatial_mask.is_active else None
         _configure_numerical_threads(config.parallel_workers)
@@ -911,6 +942,7 @@ def process_recording(
                 output_folder=out_folder_localizations,
                 config=config,
                 spatial_mask=active_spatial_mask,
+                diffuse_flash_intervals=flash_detection.intervals,
                 parallel_stage_lock_path=(
                     temp_files_localization / PARALLEL_STAGE_LOCK_FILENAME
                 ),
@@ -935,15 +967,27 @@ def process_recording(
                 timestamps_monotonic=event_store.timestamps_monotonic,
             ):
                 try:
-                    slice_result = process_time_slice(
-                        event_slice,
-                        time_slice,
-                        filename,
-                        config,
-                        calibration,
-                        out_folder_localizations,
-                        active_spatial_mask,
-                    )
+                    if flash_detection.intervals:
+                        slice_result = process_time_slice(
+                            event_slice,
+                            time_slice,
+                            filename,
+                            config,
+                            calibration,
+                            out_folder_localizations,
+                            active_spatial_mask,
+                            flash_detection.intervals,
+                        )
+                    else:
+                        slice_result = process_time_slice(
+                            event_slice,
+                            time_slice,
+                            filename,
+                            config,
+                            calibration,
+                            out_folder_localizations,
+                            active_spatial_mask,
+                        )
                 finally:
                     del event_slice
                     release_unused_memory()
@@ -1133,6 +1177,59 @@ def event_time_bounds(events: np.ndarray) -> tuple[int | None, int | None]:
     return int(np.min(timestamps)), int(np.max(timestamps))
 
 
+def detect_recording_diffuse_flashes(
+    events: np.ndarray,
+    config: PeakLocConfig,
+    *,
+    timestamps_monotonic: bool,
+) -> DiffuseFlashDetection:
+    if not config.diffuse_flash_rejection_enabled:
+        return DiffuseFlashDetection((), 0, 0)
+    if not timestamps_monotonic:
+        logger.warning(
+            "Diffuse flash interval filtering requires monotonic timestamps; "
+            "leaving this recording unchanged"
+        )
+        return DiffuseFlashDetection((), 0, 0)
+    return detect_diffuse_flash_intervals(
+        events,
+        config.sensor_shape,
+        bin_duration_us=config.diffuse_flash_bin_duration_us,
+        min_events_per_polarity=config.diffuse_flash_min_events_per_polarity,
+        min_active_pixel_fraction=config.diffuse_flash_min_active_pixel_fraction,
+        max_gap_us=config.diffuse_flash_max_gap_us,
+        padding_us=config.diffuse_flash_padding_us,
+    )
+
+
+def save_diffuse_flash_intervals(
+    recording: RecordingResult, config: PeakLocConfig, timestamp: str
+) -> Path:
+    report_folder = recording.output_folder / "reports"
+    report_folder.mkdir(parents=True, exist_ok=True)
+    path = report_folder / f"diffuse_flash_intervals_{timestamp}.json"
+    payload = {
+        "enabled_in_config": config.diffuse_flash_rejection_enabled,
+        "transition_bin_count": recording.diffuse_flash_transition_bin_count,
+        "excluded_event_count": recording.diffuse_flash_excluded_event_count,
+        "excluded_duration_us": sum(
+            interval.duration_us for interval in recording.diffuse_flash_intervals
+        ),
+        "intervals": [
+            {
+                "start_us": interval.start_us,
+                "stop_us": interval.stop_us,
+                "duration_us": interval.duration_us,
+            }
+            for interval in recording.diffuse_flash_intervals
+        ],
+    }
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return path
+
+
 def build_recording_spatial_mask(
     events: np.ndarray,
     config: PeakLocConfig,
@@ -1140,6 +1237,7 @@ def build_recording_spatial_mask(
     time_min: int | None,
     time_max: int | None,
     timestamps_monotonic: bool,
+    excluded_intervals: tuple[TimeInterval, ...] = (),
 ) -> SpatialMask:
     """Calibrate a sparse processing region without retaining a second event array."""
     if not config.spatial_mask_enabled:
@@ -1162,6 +1260,7 @@ def build_recording_spatial_mask(
         start_us=sample_start,
         stop_us=sample_stop,
         timestamps_monotonic=timestamps_monotonic,
+        excluded_intervals=excluded_intervals,
     )
     try:
         return build_spatial_mask(
@@ -1632,9 +1731,6 @@ def write_run_report(
     total_unique_peaks = sum(
         result.unique_peak_count for result in recording.slice_results
     )
-    total_diffuse_flash_rejections = sum(
-        result.diffuse_flash_rejected_count for result in recording.slice_results
-    )
     total_rois = sum(result.roi_count for result in recording.slice_results)
     total_localizations = sum(
         result.localization_count for result in recording.slice_results
@@ -1653,11 +1749,15 @@ def write_run_report(
         f"- Input file: `{recording.input_file}`",
         f"- Output folder: `{recording.output_folder}`",
         f"- Input events: `{recording.event_count}`",
+        "- Diffuse flash intervals excluded before processing: "
+        f"`{len(recording.diffuse_flash_intervals)}`",
+        "- Events excluded with diffuse flash intervals: "
+        f"`{recording.diffuse_flash_excluded_event_count}`",
+        "- Events retained for processing: "
+        f"`{recording.event_count - recording.diffuse_flash_excluded_event_count}`",
         f"- Event time range: `{recording.time_min}` to `{recording.time_max}`",
         f"- Processed slices: `{len(recording.slice_results)}`",
         f"- Total unique peaks: `{total_unique_peaks}`",
-        "- Diffuse flash candidates skipped before ROI output: "
-        f"`{total_diffuse_flash_rejections}`",
         f"- Total ROIs: `{total_rois}`",
         f"- Total localizations: `{total_localizations}`",
         f"- Elapsed time: `{recording.elapsed_seconds:.2f} s`",
@@ -1687,7 +1787,7 @@ def write_run_report(
     if recording.slice_results:
         lines.extend(
             [
-                "| Time slice | Events | Unique peaks | Diffuse skipped | ROIs | "
+                "| Time slice | Events | Flash events excluded | Unique peaks | ROIs | "
                 "Localizations | Success | Unc. px | NLL/event | Hot px | Rejected | Seconds |",
                 "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             ]
@@ -1695,7 +1795,8 @@ def write_run_report(
         for result in recording.slice_results:
             lines.append(
                 f"| {result.time_slice} | {result.event_count} | "
-                f"{result.unique_peak_count} | {result.diffuse_flash_rejected_count} | "
+                f"{result.diffuse_flash_excluded_event_count} | "
+                f"{result.unique_peak_count} | "
                 f"{result.roi_count} | "
                 f"{result.localization_count} | "
                 f"{_format_optional_float(result.fit_success_fraction)} | "

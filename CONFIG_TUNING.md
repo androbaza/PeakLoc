@@ -92,23 +92,23 @@ current values but do not justify loosening them to increase accepted counts.
 
 ### Diffuse focus-light flashes
 
-The rapid-switching recording contains broad illumination changes that pass a PSF fit
-despite having no local spatial peak. For example, accepted IDs `81487` and `221482`
-contained 3,162 and 3,995 positive events respectively, every one of their 17×17 ROI
-pixels was active, and their brightest 3×3 patch held only 4.0% and 4.6% of the
-positive events. Compact candidates in the same run typically placed 20–40% in that
-patch.
+The `2026_07_15_Microtubule_Recordings/Normal_vs_Rapid` RAW files contain broad
+illumination transitions roughly every 30 seconds. In 5 ms bins, ordinary activity
+covered about 0.2–1.6% of the sensor, while flash transitions covered 10–100%. The
+positive and negative transitions were up to about 3.1 seconds apart, and the false
+localization clusters occurred between them.
 
-Keep the diffuse-flash gate enabled with its conservative defaults:
+Use the full-stream interval filter for these recordings:
 
-- `diffuse_flash_min_positive_events: 1000`
-- `diffuse_flash_min_active_pixel_fraction: 0.9`
-- `diffuse_flash_max_local_fraction: 0.1`
+- `diffuse_flash_bin_duration_us: 5000`
+- `diffuse_flash_min_events_per_polarity: 100000`
+- `diffuse_flash_min_active_pixel_fraction: 0.1`
+- `diffuse_flash_max_gap_us: 5000000`
+- `diffuse_flash_padding_us: 50000`
 
-It is evaluated before an ROI is retained or fitted. It cannot affect a candidate
-below 1,000 positive events, and it retains bright candidates that still have a
-spatially concentrated 3×3 core. Disable it only for an audit comparison and inspect
-the per-slice skip counts in the run report.
+The full interval between paired transitions is removed before spatial-mask
+calibration and localization. Disable the filter only for an audit comparison and
+inspect `reports/diffuse_flash_intervals_*.json` for the exact removed ranges.
 
 ## Calibration and Fixed Implementation Settings
 

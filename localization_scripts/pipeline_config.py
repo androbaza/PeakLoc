@@ -53,9 +53,11 @@ class PeakLocConfig:
     convolution_roi_radius: int = 1
     peak_min_event_count: int = 2
     diffuse_flash_rejection_enabled: bool = True
-    diffuse_flash_min_positive_events: int = 1_000
-    diffuse_flash_min_active_pixel_fraction: float = 0.9
-    diffuse_flash_max_local_fraction: float = 0.1
+    diffuse_flash_bin_duration_us: int = 5_000
+    diffuse_flash_min_events_per_polarity: int = 100_000
+    diffuse_flash_min_active_pixel_fraction: float = 0.1
+    diffuse_flash_max_gap_us: int = 5_000_000
+    diffuse_flash_padding_us: int = 50_000
     interpolation_coefficient: int = 5
     spline_smooth: float = 0.7
     plot_subplotsize: int = 6
@@ -107,6 +109,16 @@ class PeakLocConfig:
                 "spatial_mask_min_events was replaced by "
                 "spatial_mask_min_density_quotient. Choose a quotient relative "
                 "to the sample mean event density instead of copying a raw count."
+            )
+        removed_diffuse_settings = {
+            "diffuse_flash_min_positive_events",
+            "diffuse_flash_max_local_fraction",
+        }.intersection(payload)
+        if removed_diffuse_settings:
+            raise ValueError(
+                "ROI-local diffuse flash settings were replaced by full-sensor "
+                "time-interval filtering. Remove: "
+                + ", ".join(sorted(removed_diffuse_settings))
             )
         allowed_fields = {field.name for field in fields(cls)}
         unknown_fields = sorted(set(payload) - allowed_fields)
@@ -169,9 +181,14 @@ class PeakLocConfig:
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
         _require_positive("peak_min_event_count", self.peak_min_event_count)
         _require_positive(
-            "diffuse_flash_min_positive_events",
-            self.diffuse_flash_min_positive_events,
+            "diffuse_flash_bin_duration_us", self.diffuse_flash_bin_duration_us
         )
+        _require_positive(
+            "diffuse_flash_min_events_per_polarity",
+            self.diffuse_flash_min_events_per_polarity,
+        )
+        _require_non_negative("diffuse_flash_max_gap_us", self.diffuse_flash_max_gap_us)
+        _require_non_negative("diffuse_flash_padding_us", self.diffuse_flash_padding_us)
         _require_positive("interpolation_coefficient", self.interpolation_coefficient)
         _require_positive("plot_subplotsize", self.plot_subplotsize)
         _require_positive("optical_pixel_size", self.optical_pixel_size)
@@ -227,10 +244,6 @@ class PeakLocConfig:
         if not 0 < self.diffuse_flash_min_active_pixel_fraction <= 1:
             raise ValueError(
                 "diffuse_flash_min_active_pixel_fraction must be in the interval (0, 1]"
-            )
-        if not 0 < self.diffuse_flash_max_local_fraction <= 1:
-            raise ValueError(
-                "diffuse_flash_max_local_fraction must be in the interval (0, 1]"
             )
         if self.fit_model != "poisson_joint":
             raise ValueError("fit_model must be 'poisson_joint'")
