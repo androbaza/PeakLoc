@@ -179,6 +179,28 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
     assert qc_output_path.with_suffix(".csv").is_file()
 
 
+def test_temporal_qc_aggregation_offsets_global_but_not_slice_candidate_ids(
+    tmp_path,
+):
+    dtype = [("id", np.uint64), ("candidate_id", np.uint64)]
+    first = np.asarray([(0, 0), (1, 1)], dtype=dtype)
+    second = np.asarray([(0, 0)], dtype=dtype)
+    np.save(tmp_path / "first.npy", first)
+    np.save(tmp_path / "second.npy", second)
+    output_path = tmp_path / "combined.npy"
+
+    combined = pipeline_runner.concatenate_slice_arrays_to_disk(
+        tmp_path,
+        ["first.npy", "second.npy"],
+        output_path,
+        offset_ids=True,
+    )
+
+    assert combined is not None
+    assert combined["id"].tolist() == [0, 1, 2]
+    assert combined["candidate_id"].tolist() == [0, 1, 0]
+
+
 def test_build_slice_tasks_uses_non_overlapping_monotonic_bounds():
     events = np.zeros(4, dtype=[("t", np.uint64)])
     events["t"] = [0, 99, 100, 199]

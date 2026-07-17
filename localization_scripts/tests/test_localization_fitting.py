@@ -9,6 +9,7 @@ from localization_scripts.localization_fitting import (
 )
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.psf_model import pixel_integrated_gaussian
+from localization_scripts.temporal_roi_generation import temporal_roi_record_dtype
 
 
 def test_localize_rois_runs_joint_poisson_path_and_emits_qc_fields():
@@ -38,6 +39,60 @@ def test_localize_rois_runs_joint_poisson_path_and_emits_qc_fields():
     tables = localize_rois_with_attempts(rois, config, NullCalibration((9, 9)))
     assert tables.qc_table.size == 1
     assert tables.qc_table["accepted"][0]
+
+
+def test_temporal_segmentation_provenance_survives_localization() -> None:
+    psf = pixel_integrated_gaussian((9, 9), 4.2, 3.8, 1.7)
+    roi_pos = np.rint(2.0 + 300.0 * psf).astype(np.uint32)
+    roi_neg = np.rint(1.0 + 220.0 * psf).astype(np.uint32)
+    rois = np.zeros(1, dtype=temporal_roi_record_dtype(4))
+    rois["roi"][0] = roi_pos
+    rois["roi_n"][0] = roi_neg
+    rois["total_events_roi"] = int(np.sum(roi_pos))
+    rois["total_neg_events_roi"] = int(np.sum(roi_neg))
+    rois["t_1st"] = 70_250
+    rois["t_peak"] = 100_000
+    rois["t_last"] = 121_500
+    rois["peak"] = (20, 20)
+    rois["rel_peak"] = (20, 20)
+    rois["roi_y0"] = 16
+    rois["roi_x0"] = 16
+    rois["dt_pos_s"] = 0.018
+    rois["dt_neg_s"] = 0.010
+    rois["temporal_segmented"] = True
+    rois["segmentation_id"] = 7
+    rois["parent_seed_peak_us"] = 100_000
+    rois["t_on_window_start"] = 70_000
+    rois["t_on_window_stop"] = 88_000
+    rois["t_off_window_start"] = 112_000
+    rois["t_off_window_stop"] = 122_000
+    rois["t_on_first"] = 70_250
+    rois["t_on_last"] = 87_250
+    rois["t_off_first"] = 112_500
+    rois["t_off_last"] = 121_500
+    rois["quiet_dwell_us"] = 25_250
+    rois["cycle_span_us"] = 51_250
+    rois["pair_score"] = 0.75
+    rois["pair_centroid_distance_px"] = 0.25
+    rois["on_core_density_ratio"] = 3.0
+    rois["off_core_density_ratio"] = 2.5
+    rois["on_core_events"] = 18
+    rois["off_core_events"] = 10
+    rois["on_active_pixels"] = 8
+    rois["off_active_pixels"] = 6
+    rois["temporal_center_x"] = 20.1
+    rois["temporal_center_y"] = 19.9
+    config = PeakLocConfig(num_cores=1, sigma_psf_px=1.7, max_fit_cond=1e18)
+
+    localizations = localize_rois(rois, config, NullCalibration((40, 40)))
+
+    assert localizations.size == 1
+    assert bool(localizations["temporal_segmented"][0])
+    assert int(localizations["segmentation_id"][0]) == 7
+    assert int(localizations["t_on_first"][0]) == 70_250
+    assert int(localizations["t_off_last"][0]) == 121_500
+    assert int(localizations["quiet_dwell_us"][0]) == 25_250
+    assert float(localizations["pair_score"][0]) == 0.75
 
 
 def test_localize_rois_filters_poisson_results_before_downstream_outputs():

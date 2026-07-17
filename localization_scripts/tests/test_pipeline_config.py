@@ -79,6 +79,37 @@ def test_peakloc_config_validates_scientific_parameters():
         PeakLocConfig.from_mapping({"spline_smooth": 1.5})
 
 
+def test_peakloc_config_validates_temporal_segmentation_geometry_and_context():
+    with pytest.raises(
+        ValueError, match="temporal_discovery_core_radius_px must be smaller"
+    ):
+        PeakLocConfig.from_mapping(
+            {
+                "roi_radius": 4,
+                "temporal_discovery_core_radius_px": 4.0,
+                "temporal_segmentation_enabled": True,
+            }
+        )
+
+    assert PeakLocConfig.from_mapping({"roi_radius": 4})
+
+    with pytest.raises(ValueError, match="slice_duration must exceed"):
+        PeakLocConfig.from_mapping(
+            {
+                "slice_duration": 500_000,
+                "temporal_segmentation_enabled": True,
+            }
+        )
+
+    config = PeakLocConfig.from_mapping(
+        {
+            "slice_duration": 500_001,
+            "temporal_segmentation_enabled": True,
+        }
+    )
+    assert config.temporal_segmentation_enabled
+
+
 def test_peakloc_config_validates_boolean_parameters():
     with pytest.raises(ValueError, match="plot_result must be true or false"):
         PeakLocConfig.from_mapping({"plot_result": "yes"})

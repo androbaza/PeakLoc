@@ -17,6 +17,16 @@ from localization_scripts.smlm_visualization import RENDER_OVERSAMPLING
 
 
 TEMPORAL_FIELDS = frozenset({"x", "y", "t_1st", "t_peak", "t_last"})
+SEGMENTED_TEMPORAL_FIELDS = frozenset(
+    {
+        "temporal_segmented",
+        "t_on_first",
+        "t_on_last",
+        "t_off_first",
+        "t_off_last",
+        "quiet_dwell_us",
+    }
+)
 MAX_SPATIAL_BINS = 24
 MIN_LOCALIZATIONS_PER_SPATIAL_BIN = 5
 INTERACTIVE_TIME_BIN_COUNTS = (30, 60, 120)
@@ -56,24 +66,24 @@ class TemporalDynamicsBins:
 TEMPORAL_METRICS = (
     TemporalMetric(
         field="turn_on_s",
-        label="ROI-window turn-on proxy",
-        axis_label="ROI-window turn-on proxy relative to reference (s)",
+        label="Turn-on boundary",
+        axis_label="Turn-on boundary relative to reference (s)",
         matplotlib_cmap="viridis",
         plotly_colorscale="Viridis",
         unit="s",
     ),
     TemporalMetric(
         field="on_duration_ms",
-        label="ROI-window on-duration proxy",
-        axis_label="ROI-window on-duration proxy (ms)",
+        label="ON-state interval",
+        axis_label="ON-state interval (ms)",
         matplotlib_cmap="magma",
         plotly_colorscale="Magma",
         unit="ms",
     ),
     TemporalMetric(
         field="turn_off_s",
-        label="ROI-window turn-off proxy",
-        axis_label="ROI-window turn-off proxy relative to reference (s)",
+        label="Turn-off boundary",
+        axis_label="Turn-off boundary relative to reference (s)",
         matplotlib_cmap="cividis",
         plotly_colorscale="Cividis",
         unit="s",
@@ -135,17 +145,38 @@ def _temporal_data(localizations: np.ndarray) -> dict[str, np.ndarray] | None:
         localizations.dtype.names or ()
     ):
         return None
+    names = frozenset(localizations.dtype.names or ())
     x = np.asarray(localizations["x"], dtype=np.float64)
     y = np.asarray(localizations["y"], dtype=np.float64)
-    first = np.asarray(localizations["t_1st"], dtype=np.float64)
     peak = np.asarray(localizations["t_peak"], dtype=np.float64)
-    last = np.asarray(localizations["t_last"], dtype=np.float64)
+    has_segmented_timings = SEGMENTED_TEMPORAL_FIELDS.issubset(names) and np.any(
+        localizations["temporal_segmented"]
+    )
+    if has_segmented_timings:
+        segmented = np.asarray(localizations["temporal_segmented"], dtype=np.bool_)
+        first = np.asarray(localizations["t_on_first"], dtype=np.float64)
+        on_end = np.asarray(localizations["t_on_last"], dtype=np.float64)
+        off_start = np.asarray(localizations["t_off_first"], dtype=np.float64)
+        last = np.asarray(localizations["t_off_last"], dtype=np.float64)
+        on_duration = np.asarray(localizations["quiet_dwell_us"], dtype=np.float64)
+        timing_source = "segmented_transition_trains"
+        structural_valid = (
+            segmented & (first <= on_end) & (off_start <= last) & (on_duration >= 0)
+        )
+    else:
+        first = np.asarray(localizations["t_1st"], dtype=np.float64)
+        last = np.asarray(localizations["t_last"], dtype=np.float64)
+        on_duration = last - first
+        timing_source = "legacy_roi_extrema"
+        structural_valid = np.ones(localizations.size, dtype=np.bool_)
     valid = (
-        np.isfinite(x)
+        structural_valid
+        & np.isfinite(x)
         & np.isfinite(y)
         & np.isfinite(first)
         & np.isfinite(peak)
         & np.isfinite(last)
+        & np.isfinite(on_duration)
         & (first >= 0)
         & (first <= peak)
         & (peak <= last)
@@ -156,6 +187,7 @@ def _temporal_data(localizations: np.ndarray) -> dict[str, np.ndarray] | None:
     first = first[valid]
     peak = peak[valid]
     last = last[valid]
+    on_duration = on_duration[valid]
     reference = float(np.min(first))
     return {
         "x": x[valid],
@@ -164,9 +196,10 @@ def _temporal_data(localizations: np.ndarray) -> dict[str, np.ndarray] | None:
         "peak_s": (peak - reference) * 1e-6,
         "turn_off_s": (last - reference) * 1e-6,
         "rise_to_peak_ms": (peak - first) * 1e-3,
-        "on_duration_ms": (last - first) * 1e-3,
+        "on_duration_ms": on_duration * 1e-3,
         "peak_to_last_ms": (last - peak) * 1e-3,
         "reference_time_us": np.asarray([reference]),
+        "timing_source": np.asarray([timing_source]),
     }
 
 
@@ -176,9 +209,16 @@ def _summary(
     pixel_statistics: TemporalPixelStatistics,
     config: PeakLocConfig,
 ) -> dict[str, Any]:
+    timing_source = str(data["timing_source"][0])
+    segmented = timing_source == "segmented_transition_trains"
     return {
         "valid_temporal_localizations": int(data["x"].size),
-        "time_reference": "first valid ROI event in this run",
+        "timing_source": timing_source,
+        "time_reference": (
+            "first valid ON-train event in this run"
+            if segmented
+            else "first valid ROI event in this run"
+        ),
         "reference_time_us": float(data["reference_time_us"][0]),
         "turn_on_relative_s": _distribution_summary(data["turn_on_s"]),
         "peak_relative_s": _distribution_summary(data["peak_s"]),
@@ -206,9 +246,14 @@ def _summary(
             "axis_ranges_use_all_valid_localizations": True,
         },
         "interpretation": (
-            "t_1st and t_last are the first and last event timestamps inside the "
-            "fitted ROI window. They are turn-on, on-duration, and turn-off "
-            "proxies, not direct molecular transition timestamps."
+            "Turn-on and turn-off are the first ON-train and last OFF-train raw events. "
+            "The ON-state interval is the non-negative gap from the last ON-train event "
+            "to the first OFF-train event. These event-camera transition estimates are "
+            "not direct molecular-state timestamps."
+            if segmented
+            else "t_1st and t_last are the first and last event timestamps inside the "
+            "fitted ROI window. They are legacy proxies, not direct molecular transition "
+            "timestamps."
         ),
     }
 
@@ -419,11 +464,16 @@ def _write_spatial_bins_csv(spatial_bins: np.ndarray, path: Path) -> None:
 def _save_timing_distributions(
     data: dict[str, np.ndarray], config: PeakLocConfig, path: Path
 ) -> None:
+    segmented = str(data["timing_source"][0]) == "segmented_transition_trains"
+    boundary_prefix = "Segmented" if segmented else "ROI-window"
+    duration_label = (
+        "Inter-train ON-state interval" if segmented else "ROI-window event span"
+    )
     figure, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
     for field, label, color in (
-        ("turn_on_s", "ROI-window turn-on", "#0072B2"),
+        ("turn_on_s", f"{boundary_prefix} turn-on", "#0072B2"),
         ("peak_s", "Peak", "#009E73"),
-        ("turn_off_s", "ROI-window turn-off", "#D55E00"),
+        ("turn_off_s", f"{boundary_prefix} turn-off", "#D55E00"),
     ):
         axes[0].hist(
             data[field],
@@ -434,13 +484,14 @@ def _save_timing_distributions(
             color=color,
         )
     axes[0].set(
-        xlabel="Time relative to first valid ROI event (s)", ylabel="Localizations"
+        xlabel="Time relative to first valid turn-on boundary (s)",
+        ylabel="Localizations",
     )
     axes[0].legend()
     for field, label, color in (
-        ("rise_to_peak_ms", "ROI-window turn-on to peak", "#0072B2"),
-        ("on_duration_ms", "ROI-window on-duration", "#009E73"),
-        ("peak_to_last_ms", "Peak to ROI-window turn-off", "#D55E00"),
+        ("rise_to_peak_ms", f"{boundary_prefix} turn-on to peak", "#0072B2"),
+        ("on_duration_ms", duration_label, "#009E73"),
+        ("peak_to_last_ms", f"Peak to {boundary_prefix.lower()} turn-off", "#D55E00"),
     ):
         axes[1].hist(
             data[field],
@@ -450,7 +501,7 @@ def _save_timing_distributions(
             label=label,
             color=color,
         )
-    axes[1].set(xlabel="ROI event timing proxy (ms)", ylabel="Localizations")
+    axes[1].set(xlabel="Event-camera timing estimate (ms)", ylabel="Localizations")
     axes[1].legend()
     figure.savefig(path, dpi=config.qc_static_dpi, bbox_inches="tight")
     plt.close(figure)
@@ -1362,16 +1413,25 @@ def _summary_markdown(summary: dict[str, Any]) -> str:
     decay = summary["peak_to_last_event_ms"]
     spatial = summary["spatial_binning"]
     pixels = summary["sensor_pixel_medians"]
+    segmented = summary["timing_source"] == "segmented_transition_trains"
+    duration_name = (
+        "ON-train to OFF-train state interval"
+        if segmented
+        else "first-to-last ROI event duration"
+    )
+    first_name = "ON-train start" if segmented else "first event"
+    last_name = "OFF-train end" if segmented else "last event"
     return "\n".join(
         [
             "# Temporal Blink Statistics",
             "",
             f"- Valid temporal localizations: `{summary['valid_temporal_localizations']}`",
+            f"- Timing source: `{summary['timing_source']}`",
             f"- Time reference: `{summary['time_reference']}`",
-            f"- Median first-to-last ROI event duration: `{duration['median']:.3g} ms`",
+            f"- Median {duration_name}: `{duration['median']:.3g} ms`",
             f"- 90th percentile duration: `{duration['p90']:.3g} ms`",
-            f"- Median first-event-to-peak delay: `{rise['median']:.3g} ms`",
-            f"- Median peak-to-last-event delay: `{decay['median']:.3g} ms`",
+            f"- Median {first_name}-to-peak delay: `{rise['median']:.3g} ms`",
+            f"- Median peak-to-{last_name} delay: `{decay['median']:.3g} ms`",
             f"- Occupied native sensor pixels: `{pixels['occupied_pixel_count']}`",
             f"- Spatial bins with at least {spatial['minimum_localizations_per_bin']} "
             f"localizations: `{spatial['qualified_bin_count']}`",

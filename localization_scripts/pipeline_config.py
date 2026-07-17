@@ -51,6 +51,28 @@ class PeakLocConfig:
     peak_neighbors: int = 9
     roi_radius: int = 8
     convolution_roi_radius: int = 1
+    temporal_segmentation_enabled: bool = False
+    temporal_context_pre_us: int = 250_000
+    temporal_context_post_us: int = 250_000
+    temporal_discovery_core_radius_px: float = 4.25
+    temporal_core_radius_px: float = 3.5
+    temporal_bin_us: int = 1_000
+    temporal_max_interevent_gap_us: int = 8_000
+    temporal_min_on_events: int = 12
+    temporal_min_off_events: int = 8
+    temporal_min_on_active_pixels: int = 6
+    temporal_min_off_active_pixels: int = 5
+    temporal_min_polarity_purity: float = 0.80
+    temporal_max_train_duration_us: int = 150_000
+    temporal_min_core_density_ratio: float = 1.5
+    temporal_min_interval_deviance: float = 2.0
+    temporal_max_endpoint_overlap_us: int = 20_000
+    temporal_max_cycle_span_us: int = 300_000
+    temporal_max_centroid_distance_px: float = 1.75
+    temporal_max_on_end_after_seed_us: int = 30_000
+    temporal_max_off_start_before_seed_us: int = 30_000
+    temporal_ambiguity_margin_us: int = 5_000
+    temporal_background_pseudocount: float = 0.5
     peak_min_event_count: int = 2
     diffuse_flash_rejection_enabled: bool = True
     diffuse_flash_bin_duration_us: int = 5_000
@@ -179,6 +201,82 @@ class PeakLocConfig:
         _require_positive("peak_neighbors", self.peak_neighbors)
         _require_positive("roi_radius", self.roi_radius)
         _require_positive("convolution_roi_radius", self.convolution_roi_radius)
+        _require_positive("temporal_context_pre_us", self.temporal_context_pre_us)
+        _require_positive("temporal_context_post_us", self.temporal_context_post_us)
+        _require_positive(
+            "temporal_discovery_core_radius_px",
+            self.temporal_discovery_core_radius_px,
+        )
+        _require_positive("temporal_core_radius_px", self.temporal_core_radius_px)
+        if self.temporal_core_radius_px > self.temporal_discovery_core_radius_px:
+            raise ValueError(
+                "temporal_core_radius_px must not exceed "
+                "temporal_discovery_core_radius_px"
+            )
+        if (
+            self.temporal_segmentation_enabled
+            and self.temporal_discovery_core_radius_px >= self.roi_radius
+        ):
+            raise ValueError(
+                "temporal_discovery_core_radius_px must be smaller than roi_radius "
+                "so that the background annulus is non-empty"
+            )
+        _require_positive("temporal_bin_us", self.temporal_bin_us)
+        _require_positive(
+            "temporal_max_interevent_gap_us",
+            self.temporal_max_interevent_gap_us,
+        )
+        _require_positive("temporal_min_on_events", self.temporal_min_on_events)
+        _require_positive("temporal_min_off_events", self.temporal_min_off_events)
+        _require_positive(
+            "temporal_min_on_active_pixels", self.temporal_min_on_active_pixels
+        )
+        _require_positive(
+            "temporal_min_off_active_pixels", self.temporal_min_off_active_pixels
+        )
+        _require_positive(
+            "temporal_max_train_duration_us", self.temporal_max_train_duration_us
+        )
+        _require_positive(
+            "temporal_min_core_density_ratio",
+            self.temporal_min_core_density_ratio,
+        )
+        _require_positive(
+            "temporal_min_interval_deviance", self.temporal_min_interval_deviance
+        )
+        _require_non_negative(
+            "temporal_max_endpoint_overlap_us",
+            self.temporal_max_endpoint_overlap_us,
+        )
+        _require_positive("temporal_max_cycle_span_us", self.temporal_max_cycle_span_us)
+        _require_positive(
+            "temporal_max_centroid_distance_px",
+            self.temporal_max_centroid_distance_px,
+        )
+        _require_non_negative(
+            "temporal_max_on_end_after_seed_us",
+            self.temporal_max_on_end_after_seed_us,
+        )
+        _require_non_negative(
+            "temporal_max_off_start_before_seed_us",
+            self.temporal_max_off_start_before_seed_us,
+        )
+        _require_non_negative(
+            "temporal_ambiguity_margin_us", self.temporal_ambiguity_margin_us
+        )
+        _require_positive(
+            "temporal_background_pseudocount",
+            self.temporal_background_pseudocount,
+        )
+        if not 0 < self.temporal_min_polarity_purity <= 1:
+            raise ValueError("temporal_min_polarity_purity must be in (0, 1]")
+        if self.temporal_segmentation_enabled and self.slice_duration <= (
+            self.temporal_context_pre_us + self.temporal_context_post_us
+        ):
+            raise ValueError(
+                "slice_duration must exceed temporal_context_pre_us + "
+                "temporal_context_post_us when temporal segmentation is enabled"
+            )
         _require_positive("peak_min_event_count", self.peak_min_event_count)
         _require_positive(
             "diffuse_flash_bin_duration_us", self.diffuse_flash_bin_duration_us
@@ -222,6 +320,9 @@ class PeakLocConfig:
         _require_bool("recursive_input", self.recursive_input)
         _require_bool("cleanup_temp_outputs", self.cleanup_temp_outputs)
         _require_bool("spatial_mask_enabled", self.spatial_mask_enabled)
+        _require_bool(
+            "temporal_segmentation_enabled", self.temporal_segmentation_enabled
+        )
         _require_bool(
             "diffuse_flash_rejection_enabled", self.diffuse_flash_rejection_enabled
         )

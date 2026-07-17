@@ -73,12 +73,17 @@ from localization_scripts.spatial_mask import (
     build_spatial_mask,
     disabled_spatial_mask,
 )
+from localization_scripts.temporal_roi_generation import (
+    generate_temporally_segmented_rois,
+)
+from localization_scripts.temporal_segmentation import temporal_settings_from_config
 
 
 SLICE_TEMP_ARTIFACT_PREFIXES = (
     "attempted_localizations",
     "localizations",
     "localization_qc",
+    "temporal_segmentation_qc",
     "rois",
     "unique_peaks",
 )
@@ -692,17 +697,34 @@ def process_time_slice(
     )
     stage_start = time.perf_counter()
     stage_lock = _acquire_parallel_stage(parallel_stage_lock_path)
-    rois = generate_rois(
-        unique_peaks,
-        events_t_p_dict,
-        roi_rad=config.roi_radius,
-        min_x=0,
-        min_y=0,
-        num_cores=worker_count,
-        max_x=config.sensor_width - 1,
-        max_y=config.sensor_height - 1,
-        polarity_time_gate_us=config.polarity_time_gate_us,
-    )
+    temporal_segmentation_qc = None
+    if config.temporal_segmentation_enabled:
+        temporal_result = generate_temporally_segmented_rois(
+            unique_peaks,
+            events_t_p_dict,
+            roi_radius=config.roi_radius,
+            min_x=0,
+            min_y=0,
+            max_x=config.sensor_width - 1,
+            max_y=config.sensor_height - 1,
+            slice_start_us=time_slice - config.slice_duration,
+            slice_stop_us=time_slice,
+            settings=temporal_settings_from_config(config),
+        )
+        rois = temporal_result.rois
+        temporal_segmentation_qc = temporal_result.qc
+    else:
+        rois = generate_rois(
+            unique_peaks,
+            events_t_p_dict,
+            roi_rad=config.roi_radius,
+            min_x=0,
+            min_y=0,
+            num_cores=worker_count,
+            max_x=config.sensor_width - 1,
+            max_y=config.sensor_height - 1,
+            polarity_time_gate_us=config.polarity_time_gate_us,
+        )
     _release_parallel_stage(stage_lock)
     del events_t_p_dict, unique_peaks
     _release_and_measure(stage_metrics)
@@ -750,11 +772,25 @@ def process_time_slice(
         f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
     )
     localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
+    temporal_segmentation_qc_path = (
+        temp_files_localization
+        / f"temporal_segmentation_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+        f"_prominence_{config.prominence:g}_time_slice_{time_slice}.npy"
+    )
+    temporal_segmentation_qc_csv_path = temporal_segmentation_qc_path.with_suffix(
+        ".csv"
+    )
     _atomic_save_array(attempted_localizations_path, attempted_localizations)
     _atomic_save_array(localizations_path, localizations)
     _atomic_save_array(localization_qc_path, localization_qc)
     _atomic_write_structured_array_csv(localization_qc, localization_qc_csv_path)
     _atomic_save_array(rois_path, rois)
+    if temporal_segmentation_qc is not None:
+        _atomic_save_array(temporal_segmentation_qc_path, temporal_segmentation_qc)
+        _atomic_write_structured_array_csv(
+            temporal_segmentation_qc,
+            temporal_segmentation_qc_csv_path,
+        )
     stage_metrics.artifact_write_seconds = time.perf_counter() - stage_start
 
     fit_qc = summarize_fit_qc(
@@ -792,6 +828,14 @@ def process_time_slice(
             rois_path,
         ],
     )
+    if temporal_segmentation_qc is not None:
+        slice_result.artifacts.extend(
+            [
+                temporal_segmentation_qc_path,
+                temporal_segmentation_qc_csv_path,
+            ]
+        )
+    del temporal_segmentation_qc
     del (
         localization_tables,
         attempted_localizations,
@@ -1018,6 +1062,11 @@ def process_recording(
             for name in sorted_names
             if name.startswith("localization_qc") and name.endswith(".npy")
         ]
+        temporal_segmentation_qc_names = [
+            name
+            for name in sorted_names
+            if name.startswith("temporal_segmentation_qc") and name.endswith(".npy")
+        ]
         if not loc_names or not roi_names:
             logger.info("No localization outputs found for {}", filename)
             recording.elapsed_seconds = time.time() - recording_start
@@ -1043,6 +1092,14 @@ def process_recording(
             f"_prominence_{config.prominence:g}.npy"
         )
         localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
+        temporal_segmentation_qc_path = (
+            out_folder_localizations
+            / f"temporal_segmentation_qc_prominence_fwhm_{config.dataset_fwhm:g}"
+            f"_prominence_{config.prominence:g}.npy"
+        )
+        temporal_segmentation_qc_csv_path = temporal_segmentation_qc_path.with_suffix(
+            ".csv"
+        )
 
         localizations = concatenate_slice_arrays_to_disk(
             temp_files_localization,
@@ -1062,6 +1119,12 @@ def process_recording(
             localization_qc_path,
             offset_ids=True,
         )
+        temporal_segmentation_qc = concatenate_slice_arrays_to_disk(
+            temp_files_localization,
+            temporal_segmentation_qc_names,
+            temporal_segmentation_qc_path,
+            offset_ids=True,
+        )
         rois = concatenate_slice_arrays_to_disk(
             temp_files_localization,
             roi_names,
@@ -1079,6 +1142,14 @@ def process_recording(
         if localization_qc is not None:
             write_structured_array_csv(localization_qc, localization_qc_csv_path)
             recording.artifacts.extend([localization_qc_path, localization_qc_csv_path])
+        if temporal_segmentation_qc is not None:
+            write_structured_array_csv(
+                temporal_segmentation_qc,
+                temporal_segmentation_qc_csv_path,
+            )
+            recording.artifacts.extend(
+                [temporal_segmentation_qc_path, temporal_segmentation_qc_csv_path]
+            )
         recording.artifacts.extend([localizations_path, rois_path])
 
         attempted_table = (
