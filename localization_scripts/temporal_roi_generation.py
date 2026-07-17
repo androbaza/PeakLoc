@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 import time
+from typing import Any
 
 import numpy as np
 from numba import njit, types
@@ -105,7 +106,7 @@ def temporal_segmentation_qc_dtype() -> list[tuple]:
 
 
 def generate_temporally_segmented_rois(
-    unique_peaks: Mapping[tuple[int, int], object],
+    unique_peaks: Mapping[tuple[int, int], Iterable[Sequence[Any]]],
     events_t_p_dict: dict,
     *,
     roi_radius: int,

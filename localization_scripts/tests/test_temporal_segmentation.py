@@ -8,6 +8,7 @@ from localization_scripts.temporal_roi_generation import (
 )
 from localization_scripts.temporal_segmentation import (
     TemporalSegmentationSettings,
+    _signed_root_poisson_deviance,
     segment_candidate_events,
 )
 
@@ -90,6 +91,10 @@ def test_segment_candidate_selects_compact_on_and_off_trains() -> None:
     assert result.interval.off_train.support_start_us == 112_000
     assert result.interval.off_train.support_stop_us == 122_000
     assert result.interval.quiet_dwell_us == 25_250
+    assert result.selected_on_event_indices.size == result.interval.on_train.event_count
+    assert (
+        result.selected_off_event_indices.size == result.interval.off_train.event_count
+    )
 
 
 def test_segment_candidate_allows_small_cross_pixel_transition_overlap() -> None:
@@ -124,6 +129,56 @@ def test_segment_candidate_allows_small_cross_pixel_transition_overlap() -> None
     assert result.interval is not None
     assert result.interval.endpoint_overlap_us == 3_000
     assert result.interval.quiet_dwell_us == 0
+
+
+def test_segment_candidate_uses_stricter_on_than_off_event_gaps() -> None:
+    records = [
+        *_train(
+            center_x=20,
+            center_y=20,
+            polarity=1,
+            start_us=60_000,
+            count=12,
+            pixel_count=8,
+        ),
+        *_train(
+            center_x=20,
+            center_y=20,
+            polarity=1,
+            start_us=76_000,
+            count=12,
+            pixel_count=8,
+        ),
+        *_train(
+            center_x=20,
+            center_y=20,
+            polarity=0,
+            start_us=112_000,
+            count=8,
+            pixel_count=6,
+            step_us=7_000,
+        ),
+    ]
+
+    result = segment_candidate_events(
+        _event_array(records),
+        seed_peak_us=100_000,
+        seed_x=20,
+        seed_y=20,
+        roi_radius_px=6,
+    )
+
+    assert result.accepted
+    assert result.interval is not None
+    assert result.interval.on_train.first_event_us == 76_000
+    assert result.interval.on_train.last_event_us == 87_000
+    assert result.interval.off_train.first_event_us == 112_000
+    assert result.interval.off_train.last_event_us == 161_000
+
+
+def test_signed_root_poisson_deviance_preserves_direction() -> None:
+    assert _signed_root_poisson_deviance(2, 5.0) < 0
+    assert _signed_root_poisson_deviance(8, 5.0) > 0
 
 
 def test_segment_candidate_rejects_missing_off_train() -> None:

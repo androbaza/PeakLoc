@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -483,6 +484,6 @@ def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:
     ]
 
 
-def _roi_value(record: np.void, field_name: str, default: object) -> object:
+def _roi_value(record: np.void, field_name: str, default: Any) -> Any:
     names = record.dtype.names or ()
     return record[field_name] if field_name in names else default

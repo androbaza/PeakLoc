@@ -57,7 +57,8 @@ class PeakLocConfig:
     temporal_discovery_core_radius_px: float = 4.25
     temporal_core_radius_px: float = 3.5
     temporal_bin_us: int = 1_000
-    temporal_max_interevent_gap_us: int = 8_000
+    temporal_max_on_interevent_gap_us: int = 3_000
+    temporal_max_off_interevent_gap_us: int = 8_000
     temporal_min_on_events: int = 12
     temporal_min_off_events: int = 8
     temporal_min_on_active_pixels: int = 6
@@ -223,8 +224,12 @@ class PeakLocConfig:
             )
         _require_positive("temporal_bin_us", self.temporal_bin_us)
         _require_positive(
-            "temporal_max_interevent_gap_us",
-            self.temporal_max_interevent_gap_us,
+            "temporal_max_on_interevent_gap_us",
+            self.temporal_max_on_interevent_gap_us,
+        )
+        _require_positive(
+            "temporal_max_off_interevent_gap_us",
+            self.temporal_max_off_interevent_gap_us,
         )
         _require_positive("temporal_min_on_events", self.temporal_min_on_events)
         _require_positive("temporal_min_off_events", self.temporal_min_off_events)

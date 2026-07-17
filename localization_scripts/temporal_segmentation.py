@@ -17,7 +17,8 @@ class TemporalSegmentationSettings:
     discovery_core_radius_px: float = 4.25
     core_radius_px: float = 3.5
     bin_us: int = 1_000
-    max_interevent_gap_us: int = 8_000
+    max_on_interevent_gap_us: int = 3_000
+    max_off_interevent_gap_us: int = 8_000
     min_on_events: int = 12
     min_off_events: int = 8
     min_on_active_pixels: int = 6
@@ -39,7 +40,8 @@ class TemporalSegmentationSettings:
             "context_pre_us": self.context_pre_us,
             "context_post_us": self.context_post_us,
             "bin_us": self.bin_us,
-            "max_interevent_gap_us": self.max_interevent_gap_us,
+            "max_on_interevent_gap_us": self.max_on_interevent_gap_us,
+            "max_off_interevent_gap_us": self.max_off_interevent_gap_us,
             "min_on_events": self.min_on_events,
             "min_off_events": self.min_off_events,
             "min_on_active_pixels": self.min_on_active_pixels,
@@ -87,7 +89,12 @@ def temporal_settings_from_config(config: object) -> TemporalSegmentationSetting
         ),
         core_radius_px=float(getattr(config, "temporal_core_radius_px")),
         bin_us=int(getattr(config, "temporal_bin_us")),
-        max_interevent_gap_us=int(getattr(config, "temporal_max_interevent_gap_us")),
+        max_on_interevent_gap_us=int(
+            getattr(config, "temporal_max_on_interevent_gap_us")
+        ),
+        max_off_interevent_gap_us=int(
+            getattr(config, "temporal_max_off_interevent_gap_us")
+        ),
         min_on_events=int(getattr(config, "temporal_min_on_events")),
         min_off_events=int(getattr(config, "temporal_min_off_events")),
         min_on_active_pixels=int(getattr(config, "temporal_min_on_active_pixels")),
@@ -171,6 +178,16 @@ class SegmentationResult:
     provisional_off_trains: tuple[TransitionTrain, ...] = ()
     refined_on_trains: tuple[TransitionTrain, ...] = ()
     refined_off_trains: tuple[TransitionTrain, ...] = ()
+    selected_on_event_indices: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.intp),
+        repr=False,
+        compare=False,
+    )
+    selected_off_event_indices: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.intp),
+        repr=False,
+        compare=False,
+    )
 
     @property
     def accepted(self) -> bool:
@@ -210,7 +227,8 @@ def segment_candidate_events(
     context_start_us = max(seed_peak_us - settings.context_pre_us, 0)
     context_stop_us = seed_peak_us + settings.context_post_us
     context_mask = (events["t"] >= context_start_us) & (events["t"] < context_stop_us)
-    context_events = events[context_mask]
+    context_indices = np.flatnonzero(context_mask)
+    context_events = events[context_indices]
     if context_events.size == 0:
         return SegmentationResult(None, "empty_context")
 
@@ -318,6 +336,12 @@ def segment_candidate_events(
         provisional_off_trains=provisional_off,
         refined_on_trains=refined_on,
         refined_off_trains=refined_off,
+        selected_on_event_indices=context_indices[
+            refined_pair.on_train.event_indices
+        ].copy(),
+        selected_off_event_indices=context_indices[
+            refined_pair.off_train.event_indices
+        ].copy(),
     )
 
 
@@ -344,7 +368,12 @@ def detect_transition_trains(
     order = np.argsort(events["t"][core_indices], kind="stable")
     core_indices = core_indices[order]
     timestamps = events["t"][core_indices].astype(np.int64)
-    split_points = np.flatnonzero(np.diff(timestamps) > settings.max_interevent_gap_us)
+    max_gap_us = (
+        settings.max_on_interevent_gap_us
+        if polarity == POSITIVE_POLARITY
+        else settings.max_off_interevent_gap_us
+    )
+    split_points = np.flatnonzero(np.diff(timestamps) > max_gap_us)
     boundaries = np.concatenate(
         (
             np.asarray([0], dtype=np.intp),
@@ -584,7 +613,8 @@ def _signed_root_poisson_deviance(observed: int, expected: float) -> float:
     if observed <= 0:
         return -math.sqrt(2.0 * expected)
     term = observed * math.log(observed / expected) - (observed - expected)
-    return math.sqrt(2.0 * max(term, 0.0))
+    root_deviance = math.sqrt(2.0 * max(term, 0.0))
+    return math.copysign(root_deviance, observed - expected)
 
 
 def _lattice_pixel_count(
