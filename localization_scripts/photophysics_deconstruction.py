@@ -1,0 +1,1490 @@
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass
+import json
+import math
+from pathlib import Path
+from typing import Any
+import warnings
+
+from csaps import CubicSmoothingSpline
+import matplotlib
+import numpy as np
+from scipy.signal import find_peaks
+from scipy.sparse import SparseEfficiencyWarning
+
+matplotlib.use("Agg")
+from matplotlib import pyplot as plt
+
+from localization_scripts.event_array_processing import (
+    EVENT_DTYPE,
+    array_to_polarity_map,
+    create_signal,
+)
+from localization_scripts.peak_finding import (
+    find_on_off,
+    jit_interpolate,
+    prepare_interpolation_axis,
+)
+from localization_scripts.plot_style import PLOT_COLORS, PUBLICATION_DPI
+from scripts.raw_to_video import open_raw_reader
+
+
+DEFAULT_SAMPLE_SIZE = 5
+DEFAULT_RANDOM_SEED = 647
+RAW_READ_WINDOW_US = 500_000
+EVENT_COUNT_QUANTILES = (0.60, 0.90)
+MAX_3D_EVENTS_PER_SAMPLE = 6_000
+
+LITERATURE = (
+    {
+        "citation": "Lin et al., PLOS ONE 10, e0128135 (2015)",
+        "url": "https://doi.org/10.1371/journal.pone.0128135",
+        "relevance": (
+            "AF647 ON-state lifetimes depend on excitation intensity and fall to a few "
+            "milliseconds at the high intensities tested."
+        ),
+    },
+    {
+        "citation": "Diekmann et al., Nature Methods 17, 909-912 (2020)",
+        "url": "https://doi.org/10.1038/s41592-020-0918-5",
+        "relevance": (
+            "AF647 blinking, photon yield, and localization performance change with excitation "
+            "intensity and acquisition conditions."
+        ),
+    },
+    {
+        "citation": "Gallego et al., IEEE TPAMI 44, 154-180 (2022)",
+        "url": "https://doi.org/10.1109/TPAMI.2020.3008413",
+        "relevance": (
+            "Event cameras report asynchronous threshold crossings in log intensity, not direct "
+            "measurements of fluorescence-state occupancy."
+        ),
+    },
+)
+
+
+@dataclass(frozen=True)
+class BlinkSample:
+    sample_id: int
+    localization_index: int
+    roi_index: int
+    t_peak_us: int
+    peak_y: int
+    peak_x: int
+    fit_y: float
+    fit_x: float
+    sub_y: float
+    sub_x: float
+    positive_event_count: int
+    negative_event_count: int
+    t_first_stored_us: int
+    t_last_stored_us: int
+    dt_positive_s: float
+    dt_negative_s: float
+    uncertainty_nm: float
+    nll_per_event: float
+    roi_positive: np.ndarray
+    roi_negative: np.ndarray
+
+    @property
+    def total_event_count(self) -> int:
+        return self.positive_event_count + self.negative_event_count
+
+
+@dataclass(frozen=True)
+class DetectionCandidate:
+    y: int
+    x: int
+    t_peak_us: float
+    prominence_events: float
+
+
+@dataclass(frozen=True)
+class DetectionTrace:
+    raw_time_us: np.ndarray
+    raw_cumulative_polarity: np.ndarray
+    interpolated_time_us: np.ndarray
+    interpolated_cumulative_polarity: np.ndarray
+    second_derivative: np.ndarray
+    candidate: DetectionCandidate
+    window_start_us: float
+    window_stop_us: float
+    nearby_candidates: tuple[DetectionCandidate, ...]
+
+
+@dataclass(frozen=True)
+class AnalyzedBlink:
+    sample: BlinkSample
+    detection: DetectionTrace
+    roi_events: np.ndarray
+    count_window_start_us: float
+    count_window_stop_us: float
+    positive_gate_stop_us: float
+    negative_gate_start_us: float
+    reconstructed_positive_count: int
+    reconstructed_negative_count: int
+    reconstructed_t_first_us: int
+    reconstructed_t_last_us: int
+
+    @property
+    def rise_to_peak_ms(self) -> float:
+        return (self.sample.t_peak_us - self.reconstructed_t_first_us) * 1e-3
+
+    @property
+    def peak_to_last_ms(self) -> float:
+        return (self.reconstructed_t_last_us - self.sample.t_peak_us) * 1e-3
+
+    @property
+    def roi_duration_ms(self) -> float:
+        return (self.reconstructed_t_last_us - self.reconstructed_t_first_us) * 1e-3
+
+
+@dataclass(frozen=True)
+class RunArtifacts:
+    run_directory: Path
+    output_directory: Path
+    sample_count: int
+    median_roi_duration_ms: float
+    all_validations_passed: bool
+    paths: tuple[Path, ...]
+
+
+def discover_completed_runs(paths: list[Path]) -> list[Path]:
+    """Resolve run directories from explicit runs or dataset roots."""
+    runs: list[Path] = []
+    for supplied_path in paths:
+        path = supplied_path.expanduser()
+        if (path / "run_metadata.json").is_file():
+            candidates = [path]
+        else:
+            candidates = sorted(
+                metadata.parent for metadata in path.rglob("run_metadata.json")
+            )
+        if not candidates:
+            raise FileNotFoundError(f"No completed PeakLoc run found under {path}")
+        runs.extend(candidates)
+    return list(dict.fromkeys(run.resolve() for run in runs))
+
+
+def analyze_run(
+    run_directory: Path,
+    *,
+    sample_size: int = DEFAULT_SAMPLE_SIZE,
+    random_seed: int = DEFAULT_RANDOM_SEED,
+) -> RunArtifacts:
+    """Reconstruct and export a five-blink photophysics deconstruction."""
+    run_directory = run_directory.resolve()
+    metadata = _read_json(run_directory / "run_metadata.json")
+    config = _read_json(run_directory / "config_effective.json")
+    raw_path = _resolve_recording_path(str(metadata["input_file"]), run_directory)
+    localizations_path = _single_artifact(
+        run_directory, "localizations_prominence_fwhm_*_prominence_*.npy"
+    )
+    rois_path = _single_artifact(
+        run_directory, "rois_prominence_fwhm_*_prominence_*.npy"
+    )
+    localizations = np.load(localizations_path, mmap_mode="r", allow_pickle=False)
+    rois = np.load(rois_path, mmap_mode="r", allow_pickle=False)
+
+    samples = _select_samples(
+        localizations,
+        rois,
+        optical_pixel_size_nm=float(config["optical_pixel_size"]),
+        sample_size=sample_size,
+        random_seed=random_seed,
+    )
+    exclusions = _load_exclusions(run_directory)
+    target_mask, support_mask = _load_spatial_masks(run_directory, config)
+    regional_events = _read_sample_regions(
+        raw_path,
+        samples,
+        config,
+        exclusions,
+        support_mask,
+    )
+
+    analyzed = []
+    for sample in samples:
+        detection = _reconstruct_detection(
+            regional_events[sample.sample_id],
+            sample,
+            config,
+            target_mask,
+            support_mask,
+        )
+        analyzed.append(
+            _analyze_roi_events(
+                regional_events[sample.sample_id],
+                sample,
+                detection,
+                polarity_time_gate_us=float(config["polarity_time_gate_us"]),
+            )
+        )
+
+    output_directory = run_directory / str(config.get("qc_output_dirname", "qc"))
+    output_directory = output_directory / "photophysics_deconstruction"
+    output_directory.mkdir(parents=True, exist_ok=True)
+    paths = _write_outputs(
+        analyzed,
+        output_directory,
+        run_directory,
+        raw_path,
+        config,
+        random_seed,
+    )
+    durations = np.asarray([blink.roi_duration_ms for blink in analyzed])
+    validations = [_validation_row(blink) for blink in analyzed]
+    return RunArtifacts(
+        run_directory=run_directory,
+        output_directory=output_directory,
+        sample_count=len(analyzed),
+        median_roi_duration_ms=float(np.median(durations)),
+        all_validations_passed=all(row["all_checks_pass"] for row in validations),
+        paths=tuple(paths),
+    )
+
+
+def _select_samples(
+    localizations: np.ndarray,
+    rois: np.ndarray,
+    *,
+    optical_pixel_size_nm: float,
+    sample_size: int,
+    random_seed: int,
+) -> list[BlinkSample]:
+    names = set(localizations.dtype.names or ())
+    required = {
+        "E_total",
+        "E_total_n",
+        "fit_success",
+        "t_peak",
+        "x",
+        "y",
+        "sub_x",
+        "sub_y",
+        "sigma_x",
+        "sigma_y",
+        "cov_xy",
+        "nll_per_event",
+    }
+    if not required.issubset(names):
+        missing = sorted(required - names)
+        raise ValueError(f"Localization artifact lacks required fields: {missing}")
+    if sample_size <= 0:
+        raise ValueError("sample_size must be positive")
+
+    total_events = np.asarray(localizations["E_total"], dtype=np.float64) + np.asarray(
+        localizations["E_total_n"], dtype=np.float64
+    )
+    lower, upper = np.quantile(total_events, EVENT_COUNT_QUANTILES)
+    finite = (
+        np.isfinite(localizations["x"])
+        & np.isfinite(localizations["y"])
+        & np.isfinite(localizations["nll_per_event"])
+    )
+    eligible = np.flatnonzero(
+        localizations["fit_success"]
+        & finite
+        & (total_events >= lower)
+        & (total_events <= upper)
+    )
+    if eligible.size < sample_size:
+        raise ValueError(
+            f"Only {eligible.size} event-rich accepted fits are eligible for {sample_size} samples"
+        )
+
+    rng = np.random.default_rng(random_seed)
+    selected_indices = rng.choice(eligible, size=sample_size, replace=False)
+    selected_indices = selected_indices[
+        np.argsort(localizations["t_peak"][selected_indices], kind="stable")
+    ]
+    samples = []
+    roi_radius = int(rois["roi"].shape[-1] // 2)
+    for sample_id, localization_index in enumerate(selected_indices, start=1):
+        localization = localizations[int(localization_index)]
+        expected_x0 = int(round(float(localization["x"] - localization["sub_x"])))
+        expected_y0 = int(round(float(localization["y"] - localization["sub_y"])))
+        expected_peak_x = expected_x0 + roi_radius
+        expected_peak_y = expected_y0 + roi_radius
+        roi_index = _match_roi_index(
+            rois,
+            int(round(float(localization["t_peak"]))),
+            expected_peak_y,
+            expected_peak_x,
+        )
+        roi = rois[roi_index]
+        uncertainty_px = _localization_uncertainty_px(localization)
+        samples.append(
+            BlinkSample(
+                sample_id=sample_id,
+                localization_index=int(localization_index),
+                roi_index=roi_index,
+                t_peak_us=int(roi["t_peak"]),
+                peak_y=int(roi["peak"][0]),
+                peak_x=int(roi["peak"][1]),
+                fit_y=float(localization["y"]),
+                fit_x=float(localization["x"]),
+                sub_y=float(localization["sub_y"]),
+                sub_x=float(localization["sub_x"]),
+                positive_event_count=int(roi["total_events_roi"]),
+                negative_event_count=int(roi["total_neg_events_roi"]),
+                t_first_stored_us=int(roi["t_1st"]),
+                t_last_stored_us=int(roi["t_last"]),
+                dt_positive_s=float(roi["dt_pos_s"]),
+                dt_negative_s=float(roi["dt_neg_s"]),
+                uncertainty_nm=uncertainty_px * optical_pixel_size_nm,
+                nll_per_event=float(localization["nll_per_event"]),
+                roi_positive=np.asarray(roi["roi"], dtype=np.uint32).copy(),
+                roi_negative=np.asarray(roi["roi_n"], dtype=np.uint32).copy(),
+            )
+        )
+    return samples
+
+
+def _match_roi_index(
+    rois: np.ndarray,
+    t_peak_us: int,
+    expected_peak_y: int,
+    expected_peak_x: int,
+) -> int:
+    time_matches = np.flatnonzero(rois["t_peak"] == t_peak_us)
+    if time_matches.size == 0:
+        raise ValueError(
+            f"No ROI matches accepted localization peak time {t_peak_us} us"
+        )
+    peak_coordinates = rois["peak"][time_matches].astype(np.int64)
+    squared_distance = (peak_coordinates[:, 0] - expected_peak_y) ** 2 + (
+        peak_coordinates[:, 1] - expected_peak_x
+    ) ** 2
+    best = int(np.argmin(squared_distance))
+    if int(squared_distance[best]) != 0:
+        raise ValueError(
+            "ROI timestamp matched, but its detection center did not match the localization "
+            f"at {t_peak_us} us"
+        )
+    return int(time_matches[best])
+
+
+def _localization_uncertainty_px(localization: np.void) -> float:
+    variance_x = float(localization["sigma_x"]) ** 2
+    variance_y = float(localization["sigma_y"]) ** 2
+    covariance = float(localization["cov_xy"])
+    largest_eigenvalue = 0.5 * (
+        variance_x
+        + variance_y
+        + math.sqrt((variance_x - variance_y) ** 2 + 4.0 * covariance**2)
+    )
+    return math.sqrt(max(largest_eigenvalue, 0.0))
+
+
+def _read_sample_regions(
+    raw_path: Path,
+    samples: list[BlinkSample],
+    config: dict[str, Any],
+    exclusions: list[tuple[int, int]],
+    support_mask: np.ndarray,
+) -> dict[int, np.ndarray]:
+    slice_duration = int(config["slice_duration"])
+    slice_start = int(config.get("slice_start", 0))
+    neighborhood_radius = int(config["peak_neighbors"]) + int(
+        config["convolution_roi_radius"]
+    )
+    grouped: dict[tuple[int, int], list[BlinkSample]] = {}
+    for sample in samples:
+        start = (
+            slice_start
+            + ((sample.t_peak_us - slice_start) // slice_duration) * slice_duration
+        )
+        stop = start + slice_duration
+        grouped.setdefault((start, stop), []).append(sample)
+
+    pieces: dict[int, list[np.ndarray]] = {sample.sample_id: [] for sample in samples}
+    reader: Any = open_raw_reader(raw_path, int(config["max_raw_events"]))
+    for (start_us, stop_us), slice_samples in sorted(grouped.items()):
+        reader.seek_time(max(start_us, 0))
+        while reader.current_time < stop_us and not reader.is_done():
+            read_duration = min(RAW_READ_WINDOW_US, stop_us - int(reader.current_time))
+            if read_duration <= 0:
+                break
+            raw_chunk = reader.load_delta_t(read_duration)
+            if raw_chunk.size == 0:
+                continue
+            chunk = np.asarray(raw_chunk, dtype=EVENT_DTYPE)
+            chunk = chunk[chunk["t"] < stop_us]
+            chunk = _exclude_intervals(chunk, exclusions)
+            if chunk.size == 0:
+                continue
+            supported = support_mask[chunk["y"], chunk["x"]]
+            chunk = chunk[supported]
+            for sample in slice_samples:
+                within = (
+                    (chunk["y"] >= sample.peak_y - neighborhood_radius)
+                    & (chunk["y"] <= sample.peak_y + neighborhood_radius)
+                    & (chunk["x"] >= sample.peak_x - neighborhood_radius)
+                    & (chunk["x"] <= sample.peak_x + neighborhood_radius)
+                )
+                if np.any(within):
+                    pieces[sample.sample_id].append(chunk[within].copy())
+    return {
+        sample_id: (
+            np.concatenate(sample_pieces)
+            if sample_pieces
+            else np.empty(0, dtype=EVENT_DTYPE)
+        )
+        for sample_id, sample_pieces in pieces.items()
+    }
+
+
+def _exclude_intervals(
+    events: np.ndarray, exclusions: list[tuple[int, int]]
+) -> np.ndarray:
+    if events.size == 0 or not exclusions:
+        return events
+    keep = np.ones(events.size, dtype=np.bool_)
+    for start_us, stop_us in exclusions:
+        keep &= (events["t"] < start_us) | (events["t"] >= stop_us)
+    return events[keep]
+
+
+def _reconstruct_detection(
+    regional_events: np.ndarray,
+    sample: BlinkSample,
+    config: dict[str, Any],
+    target_mask: np.ndarray,
+    support_mask: np.ndarray,
+) -> DetectionTrace:
+    convolution_radius = int(config["convolution_roi_radius"])
+    neighbor_radius = int(config["peak_neighbors"])
+    y_min = max(sample.peak_y - neighbor_radius - convolution_radius, 0)
+    y_max = min(
+        sample.peak_y + neighbor_radius + convolution_radius,
+        support_mask.shape[0] - 1,
+    )
+    x_min = max(sample.peak_x - neighbor_radius - convolution_radius, 0)
+    x_max = min(
+        sample.peak_x + neighbor_radius + convolution_radius,
+        support_mask.shape[1] - 1,
+    )
+    support_y, support_x = np.nonzero(
+        support_mask[y_min : y_max + 1, x_min : x_max + 1]
+    )
+    support_coordinates = np.column_stack(
+        (support_y + y_min, support_x + x_min)
+    ).astype(np.int32)
+    target_y_min = max(sample.peak_y - neighbor_radius, 0)
+    target_y_max = min(sample.peak_y + neighbor_radius, target_mask.shape[0] - 1)
+    target_x_min = max(sample.peak_x - neighbor_radius, 0)
+    target_x_max = min(sample.peak_x + neighbor_radius, target_mask.shape[1] - 1)
+    target_y, target_x = np.nonzero(
+        target_mask[target_y_min : target_y_max + 1, target_x_min : target_x_max + 1]
+    )
+    target_coordinates = np.column_stack(
+        (target_y + target_y_min, target_x + target_x_min)
+    ).astype(np.int32)
+    if not np.any(
+        (target_coordinates[:, 0] == sample.peak_y)
+        & (target_coordinates[:, 1] == sample.peak_x)
+    ):
+        raise ValueError(
+            "The recorded detection center is absent from the saved target mask"
+        )
+
+    polarity_map, max_events_per_polarity = array_to_polarity_map(
+        regional_events, support_coordinates
+    )
+    maximum_signal_length = int(
+        max_events_per_polarity * 2 * (convolution_radius * 2 + 1) ** 2
+    )
+    signal_times, signal_cumulative, signal_coordinates = create_signal(
+        polarity_map,
+        target_coordinates,
+        maximum_signal_length,
+        convolution_roi_radius=convolution_radius,
+    )
+    interpolation_coefficient = int(config["interpolation_coefficient"])
+    prominence_threshold = float(config["prominence"])
+    candidates: list[DetectionCandidate] = []
+    winner_data: (
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None
+    ) = None
+    winner_peak_indices: np.ndarray | None = None
+    winner_prominences: np.ndarray | None = None
+
+    for raw_times, cumulative, coordinate in zip(
+        signal_times, signal_cumulative, signal_coordinates, strict=True
+    ):
+        prepared_times, prepared_cumulative = prepare_interpolation_axis(
+            raw_times, cumulative
+        )
+        if prepared_times is None or len(prepared_times) < int(
+            config["peak_min_event_count"]
+        ):
+            continue
+        interpolation_count = max(len(prepared_times) * interpolation_coefficient, 2)
+        interpolated_times = np.linspace(
+            prepared_times[0],
+            prepared_times[-1],
+            num=interpolation_count,
+            dtype=np.float64,
+        )
+        interpolated_cumulative = jit_interpolate(
+            prepared_times, prepared_cumulative, interpolated_times
+        )
+        peak_indices, properties = find_peaks(
+            interpolated_cumulative, prominence=prominence_threshold
+        )
+        for peak_index, prominence in zip(
+            peak_indices, properties["prominences"], strict=True
+        ):
+            candidates.append(
+                DetectionCandidate(
+                    y=int(coordinate[0]),
+                    x=int(coordinate[1]),
+                    t_peak_us=float(interpolated_times[peak_index]),
+                    prominence_events=float(prominence),
+                )
+            )
+        if int(coordinate[0]) == sample.peak_y and int(coordinate[1]) == sample.peak_x:
+            winner_data = (
+                np.asarray(prepared_times, dtype=np.float64),
+                np.asarray(prepared_cumulative, dtype=np.float64),
+                interpolated_times,
+                np.asarray(interpolated_cumulative, dtype=np.float64),
+                np.asarray(coordinate),
+            )
+            winner_peak_indices = np.asarray(peak_indices, dtype=np.intp)
+            winner_prominences = np.asarray(properties["prominences"], dtype=np.float64)
+
+    if (
+        winner_data is None
+        or winner_peak_indices is None
+        or winner_peak_indices.size == 0
+    ):
+        raise ValueError(f"Could not reconstruct peak at {sample.t_peak_us} us")
+    (
+        prepared_times,
+        prepared_cumulative,
+        interpolated_times,
+        interpolated_cumulative,
+        _,
+    ) = winner_data
+    distances = np.abs(interpolated_times[winner_peak_indices] - sample.t_peak_us)
+    nearest_index = int(np.argmin(distances))
+    winner_peak_index = int(winner_peak_indices[nearest_index])
+    if winner_prominences is None:
+        raise RuntimeError("Peak prominences were not reconstructed")
+    winner_candidate = DetectionCandidate(
+        y=sample.peak_y,
+        x=sample.peak_x,
+        t_peak_us=float(interpolated_times[winner_peak_index]),
+        prominence_events=float(winner_prominences[nearest_index]),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SparseEfficiencyWarning)
+        spline = CubicSmoothingSpline(
+            prepared_times,
+            prepared_cumulative,
+            smooth=float(config["spline_smooth"]),
+            normalizedsmooth=True,
+        ).spline
+    second_derivative = np.asarray(spline.derivative()(interpolated_times))
+    on_off = find_on_off(
+        np.asarray([winner_peak_index], dtype=np.int64),
+        second_derivative,
+        interpolated_times,
+        interpolated_cumulative,
+    )[0]
+    threshold_us = float(config["peak_time_threshold"])
+    nearby = tuple(
+        candidate
+        for candidate in candidates
+        if abs(candidate.t_peak_us - winner_candidate.t_peak_us) <= threshold_us
+    )
+    return DetectionTrace(
+        raw_time_us=prepared_times,
+        raw_cumulative_polarity=prepared_cumulative,
+        interpolated_time_us=interpolated_times,
+        interpolated_cumulative_polarity=interpolated_cumulative,
+        second_derivative=second_derivative,
+        candidate=winner_candidate,
+        window_start_us=float(on_off[0]),
+        window_stop_us=float(on_off[1]),
+        nearby_candidates=nearby,
+    )
+
+
+def _analyze_roi_events(
+    regional_events: np.ndarray,
+    sample: BlinkSample,
+    detection: DetectionTrace,
+    *,
+    polarity_time_gate_us: float,
+) -> AnalyzedBlink:
+    roi_radius = sample.roi_positive.shape[0] // 2
+    positive_gate_stop_us = sample.t_peak_us + polarity_time_gate_us
+    negative_gate_start_us = sample.t_peak_us - polarity_time_gate_us
+    # ROI records persist the two exposure durations exactly. Because ROI generation always
+    # enforces lower <= peak - gate and upper >= peak + gate, these identities recover the
+    # original count window even when replayed spline boundaries differ by sub-grid timing.
+    count_window_start_us = positive_gate_stop_us - sample.dt_positive_s * 1e6
+    count_window_stop_us = negative_gate_start_us + sample.dt_negative_s * 1e6
+    within_roi = (
+        (regional_events["y"] >= sample.peak_y - roi_radius)
+        & (regional_events["y"] <= sample.peak_y + roi_radius)
+        & (regional_events["x"] >= sample.peak_x - roi_radius)
+        & (regional_events["x"] <= sample.peak_x + roi_radius)
+        & (regional_events["t"] >= count_window_start_us)
+        & (regional_events["t"] < count_window_stop_us)
+    )
+    roi_events = np.sort(regional_events[within_roi], order="t", kind="stable")
+    positive = (roi_events["p"] == 1) & (roi_events["t"] < positive_gate_stop_us)
+    negative = (roi_events["p"] == 0) & (roi_events["t"] > negative_gate_start_us)
+    if roi_events.size == 0:
+        reconstructed_first = 0
+        reconstructed_last = 0
+    else:
+        reconstructed_first = int(roi_events["t"][0])
+        reconstructed_last = int(roi_events["t"][-1])
+    return AnalyzedBlink(
+        sample=sample,
+        detection=detection,
+        roi_events=roi_events,
+        count_window_start_us=count_window_start_us,
+        count_window_stop_us=count_window_stop_us,
+        positive_gate_stop_us=positive_gate_stop_us,
+        negative_gate_start_us=negative_gate_start_us,
+        reconstructed_positive_count=int(np.count_nonzero(positive)),
+        reconstructed_negative_count=int(np.count_nonzero(negative)),
+        reconstructed_t_first_us=reconstructed_first,
+        reconstructed_t_last_us=reconstructed_last,
+    )
+
+
+def _write_outputs(
+    analyzed: list[AnalyzedBlink],
+    output_directory: Path,
+    run_directory: Path,
+    raw_path: Path,
+    config: dict[str, Any],
+    random_seed: int,
+) -> list[Path]:
+    paths = [
+        _write_sample_selection(analyzed, output_directory),
+        _write_raw_events(analyzed, output_directory),
+        _write_detection_candidates(analyzed, output_directory),
+        _write_timing_summary(analyzed, output_directory),
+    ]
+    for blink in analyzed:
+        paths.extend(_plot_sample_deconstruction(blink, output_directory))
+    paths.extend(_plot_overview(analyzed, output_directory))
+    paths.extend(_plot_event_clouds_3d(analyzed, output_directory))
+    summary_path = _write_summary(
+        analyzed,
+        output_directory,
+        run_directory,
+        raw_path,
+        config,
+        random_seed,
+    )
+    report_path = _write_report(analyzed, output_directory, run_directory, summary_path)
+    paths.extend([summary_path, report_path])
+    return paths
+
+
+def _write_sample_selection(
+    analyzed: list[AnalyzedBlink], output_directory: Path
+) -> Path:
+    path = output_directory / "sample_selection.csv"
+    fieldnames = [
+        "sample_id",
+        "localization_index",
+        "roi_index",
+        "t_peak_us",
+        "peak_y_px",
+        "peak_x_px",
+        "fit_y_px",
+        "fit_x_px",
+        "positive_fit_events",
+        "negative_fit_events",
+        "total_fit_events",
+        "localization_uncertainty_nm",
+        "nll_per_event",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for blink in analyzed:
+            sample = blink.sample
+            writer.writerow(
+                {
+                    "sample_id": sample.sample_id,
+                    "localization_index": sample.localization_index,
+                    "roi_index": sample.roi_index,
+                    "t_peak_us": sample.t_peak_us,
+                    "peak_y_px": sample.peak_y,
+                    "peak_x_px": sample.peak_x,
+                    "fit_y_px": sample.fit_y,
+                    "fit_x_px": sample.fit_x,
+                    "positive_fit_events": sample.positive_event_count,
+                    "negative_fit_events": sample.negative_event_count,
+                    "total_fit_events": sample.total_event_count,
+                    "localization_uncertainty_nm": sample.uncertainty_nm,
+                    "nll_per_event": sample.nll_per_event,
+                }
+            )
+    return path
+
+
+def _write_raw_events(analyzed: list[AnalyzedBlink], output_directory: Path) -> Path:
+    path = output_directory / "raw_roi_events.csv"
+    fieldnames = [
+        "sample_id",
+        "event_index",
+        "t_us",
+        "t_relative_to_peak_us",
+        "x_px",
+        "y_px",
+        "polarity",
+        "used_in_positive_fit_count",
+        "used_in_negative_fit_count",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for blink in analyzed:
+            for event_index, event in enumerate(blink.roi_events):
+                timestamp = int(event["t"])
+                polarity = int(event["p"])
+                writer.writerow(
+                    {
+                        "sample_id": blink.sample.sample_id,
+                        "event_index": event_index,
+                        "t_us": timestamp,
+                        "t_relative_to_peak_us": timestamp - blink.sample.t_peak_us,
+                        "x_px": int(event["x"]),
+                        "y_px": int(event["y"]),
+                        "polarity": polarity,
+                        "used_in_positive_fit_count": int(
+                            polarity == 1 and timestamp < blink.positive_gate_stop_us
+                        ),
+                        "used_in_negative_fit_count": int(
+                            polarity == 0 and timestamp > blink.negative_gate_start_us
+                        ),
+                    }
+                )
+    return path
+
+
+def _write_detection_candidates(
+    analyzed: list[AnalyzedBlink], output_directory: Path
+) -> Path:
+    path = output_directory / "detection_candidates.csv"
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.writer(output_file)
+        writer.writerow(
+            [
+                "sample_id",
+                "candidate_y_px",
+                "candidate_x_px",
+                "candidate_t_peak_us",
+                "candidate_prominence_events",
+                "is_retained_peak",
+            ]
+        )
+        for blink in analyzed:
+            retained = blink.detection.candidate
+            for candidate in blink.detection.nearby_candidates:
+                is_retained = (
+                    candidate.y == retained.y
+                    and candidate.x == retained.x
+                    and candidate.t_peak_us == retained.t_peak_us
+                )
+                writer.writerow(
+                    [
+                        blink.sample.sample_id,
+                        candidate.y,
+                        candidate.x,
+                        candidate.t_peak_us,
+                        candidate.prominence_events,
+                        int(is_retained),
+                    ]
+                )
+    return path
+
+
+def _write_timing_summary(
+    analyzed: list[AnalyzedBlink], output_directory: Path
+) -> Path:
+    path = output_directory / "timing_summary.csv"
+    rows = [_timing_row(blink) | _validation_row(blink) for blink in analyzed]
+    with path.open("w", newline="", encoding="utf-8") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+def _timing_row(blink: AnalyzedBlink) -> dict[str, int | float]:
+    return {
+        "sample_id": blink.sample.sample_id,
+        "detector_window_start_us": blink.detection.window_start_us,
+        "count_window_start_us": blink.count_window_start_us,
+        "roi_first_event_us": blink.reconstructed_t_first_us,
+        "detected_peak_us": blink.sample.t_peak_us,
+        "roi_last_event_us": blink.reconstructed_t_last_us,
+        "count_window_stop_us": blink.count_window_stop_us,
+        "detector_window_stop_us": blink.detection.window_stop_us,
+        "rise_first_to_peak_ms": blink.rise_to_peak_ms,
+        "roi_first_to_last_duration_ms": blink.roi_duration_ms,
+        "decay_peak_to_last_ms": blink.peak_to_last_ms,
+        "positive_gate_stop_us": blink.positive_gate_stop_us,
+        "negative_gate_start_us": blink.negative_gate_start_us,
+        "raw_roi_event_count": int(blink.roi_events.size),
+        "reconstructed_positive_fit_count": blink.reconstructed_positive_count,
+        "reconstructed_negative_fit_count": blink.reconstructed_negative_count,
+    }
+
+
+def _validation_row(blink: AnalyzedBlink) -> dict[str, bool | int]:
+    first_matches = blink.reconstructed_t_first_us == blink.sample.t_first_stored_us
+    last_matches = blink.reconstructed_t_last_us == blink.sample.t_last_stored_us
+    positive_matches = (
+        blink.reconstructed_positive_count == blink.sample.positive_event_count
+    )
+    negative_matches = (
+        blink.reconstructed_negative_count == blink.sample.negative_event_count
+    )
+    return {
+        "stored_first_event_us": blink.sample.t_first_stored_us,
+        "stored_last_event_us": blink.sample.t_last_stored_us,
+        "stored_positive_fit_count": blink.sample.positive_event_count,
+        "stored_negative_fit_count": blink.sample.negative_event_count,
+        "first_timestamp_matches": first_matches,
+        "last_timestamp_matches": last_matches,
+        "positive_count_matches": positive_matches,
+        "negative_count_matches": negative_matches,
+        "all_checks_pass": (
+            first_matches and last_matches and positive_matches and negative_matches
+        ),
+    }
+
+
+def _plot_sample_deconstruction(
+    blink: AnalyzedBlink, output_directory: Path
+) -> list[Path]:
+    sample = blink.sample
+    with plt.rc_context(_publication_style()):
+        figure = plt.figure(figsize=(7.2, 6.3), constrained_layout=True)
+        grid = figure.add_gridspec(2, 3, height_ratios=(1.0, 1.15))
+        positive_axis = figure.add_subplot(grid[0, 0])
+        negative_axis = figure.add_subplot(grid[0, 1])
+        detection_axis = figure.add_subplot(grid[0, 2])
+        raster_axis = figure.add_subplot(grid[1, :2])
+        timing_axis = figure.add_subplot(grid[1, 2])
+
+        _plot_roi_map(
+            positive_axis,
+            sample.roi_positive,
+            sample,
+            cmap="Blues",
+            label="Positive events",
+        )
+        _plot_roi_map(
+            negative_axis,
+            sample.roi_negative,
+            sample,
+            cmap="Oranges",
+            label="Negative events",
+        )
+        _plot_detection_trace(detection_axis, blink)
+        _plot_event_raster(raster_axis, blink)
+        _plot_timing_calculation(timing_axis, blink)
+        _panel_labels(
+            [positive_axis, negative_axis, detection_axis, raster_axis, timing_axis]
+        )
+        figure.suptitle(
+            f"Blink {sample.sample_id}: retained peak at {sample.t_peak_us / 1e6:.6f} s",
+            fontsize=9,
+        )
+        stem = output_directory / f"blink_{sample.sample_id:02d}_deconstruction"
+        paths = _save_figure(figure, stem)
+        plt.close(figure)
+    return paths
+
+
+def _plot_roi_map(
+    axis: Any,
+    image: np.ndarray,
+    sample: BlinkSample,
+    *,
+    cmap: str,
+    label: str,
+) -> None:
+    artist = axis.imshow(image, origin="upper", cmap=cmap, interpolation="nearest")
+    axis.scatter(
+        sample.sub_x,
+        sample.sub_y,
+        marker="+",
+        s=35,
+        linewidths=1.2,
+        color=PLOT_COLORS["black"],
+        label="Fitted center",
+    )
+    radius = image.shape[0] // 2
+    axis.scatter(
+        radius,
+        radius,
+        marker="x",
+        s=25,
+        linewidths=1.0,
+        color=PLOT_COLORS["vermillion"],
+        label="Detection center",
+    )
+    axis.set(xlabel="ROI x (px)", ylabel="ROI y (px)", title=label)
+    axis.set_xticks([0, radius, image.shape[1] - 1])
+    axis.set_yticks([0, radius, image.shape[0] - 1])
+    plt.colorbar(artist, ax=axis, label="Events per pixel", fraction=0.046, pad=0.03)
+
+
+def _plot_detection_trace(axis: Any, blink: AnalyzedBlink) -> None:
+    trace = blink.detection
+    start = blink.count_window_start_us
+    stop = blink.count_window_stop_us
+    padding = max((stop - start) * 0.08, 2_000.0)
+    within_raw = (trace.raw_time_us >= start - padding) & (
+        trace.raw_time_us <= stop + padding
+    )
+    within_interpolated = (trace.interpolated_time_us >= start - padding) & (
+        trace.interpolated_time_us <= stop + padding
+    )
+    reference = float(trace.raw_cumulative_polarity[within_raw][0])
+    axis.step(
+        (trace.raw_time_us[within_raw] - blink.sample.t_peak_us) * 1e-3,
+        trace.raw_cumulative_polarity[within_raw] - reference,
+        where="post",
+        color=PLOT_COLORS["gray"],
+        linewidth=0.7,
+        label="Raw cumulative polarity",
+    )
+    axis.plot(
+        (trace.interpolated_time_us[within_interpolated] - blink.sample.t_peak_us)
+        * 1e-3,
+        trace.interpolated_cumulative_polarity[within_interpolated] - reference,
+        color=PLOT_COLORS["blue"],
+        linewidth=1.0,
+        label="Interpolated signal",
+    )
+    axis.axvspan(
+        (trace.window_start_us - blink.sample.t_peak_us) * 1e-3,
+        (trace.window_stop_us - blink.sample.t_peak_us) * 1e-3,
+        color=PLOT_COLORS["sky_blue"],
+        alpha=0.18,
+        linewidth=0,
+        label="Spline-derived window",
+    )
+    replay_peak_ms = (trace.candidate.t_peak_us - blink.sample.t_peak_us) * 1e-3
+    axis.axvline(
+        0.0,
+        color=PLOT_COLORS["vermillion"],
+        linewidth=1.0,
+        label="Stored retained peak",
+    )
+    if not np.isclose(replay_peak_ms, 0.0):
+        axis.axvline(
+            replay_peak_ms,
+            color=PLOT_COLORS["blue"],
+            linewidth=0.8,
+            linestyle=":",
+            label="RAW replay candidate",
+        )
+    axis.set(
+        xlabel="Time from retained peak (ms)",
+        ylabel="Cumulative polarity (events)",
+        title=f"Detection (prominence {trace.candidate.prominence_events:.1f})",
+    )
+    axis.legend(fontsize=5.5, loc="best")
+
+
+def _plot_event_raster(axis: Any, blink: AnalyzedBlink) -> None:
+    events = blink.roi_events
+    radius = blink.sample.roi_positive.shape[0] // 2
+    roi_width = radius * 2 + 1
+    pixel_index = (
+        (events["y"].astype(np.int64) - (blink.sample.peak_y - radius)) * roi_width
+        + events["x"].astype(np.int64)
+        - (blink.sample.peak_x - radius)
+    )
+    time_ms = (events["t"].astype(np.float64) - blink.sample.t_peak_us) * 1e-3
+    for polarity, label, color in (
+        (1, "Positive", PLOT_COLORS["blue"]),
+        (0, "Negative", PLOT_COLORS["vermillion"]),
+    ):
+        selected = events["p"] == polarity
+        axis.scatter(
+            time_ms[selected],
+            pixel_index[selected],
+            s=3,
+            alpha=0.60,
+            linewidths=0,
+            color=color,
+            rasterized=True,
+            label=label,
+        )
+    axis.axvline(0.0, color=PLOT_COLORS["black"], linewidth=0.8)
+    axis.axvline(
+        (blink.negative_gate_start_us - blink.sample.t_peak_us) * 1e-3,
+        color=PLOT_COLORS["gray"],
+        linewidth=0.7,
+        linestyle="--",
+    )
+    axis.axvline(
+        (blink.positive_gate_stop_us - blink.sample.t_peak_us) * 1e-3,
+        color=PLOT_COLORS["gray"],
+        linewidth=0.7,
+        linestyle="--",
+    )
+    axis.set(
+        xlabel="Raw event time from retained peak (ms)",
+        ylabel="ROI pixel index (row-major)",
+        title=f"All {events.size:,} raw events in the ROI count window",
+        ylim=(-2, roi_width**2 + 1),
+    )
+    axis.legend(ncol=2, loc="upper right")
+
+
+def _plot_timing_calculation(axis: Any, blink: AnalyzedBlink) -> None:
+    peak = blink.sample.t_peak_us
+    points = {
+        "first": (blink.reconstructed_t_first_us - peak) * 1e-3,
+        "peak": 0.0,
+        "last": (blink.reconstructed_t_last_us - peak) * 1e-3,
+        "window_start": (blink.count_window_start_us - peak) * 1e-3,
+        "window_stop": (blink.count_window_stop_us - peak) * 1e-3,
+    }
+    axis.hlines(2.0, points["window_start"], points["window_stop"], color="#BBBBBB")
+    axis.hlines(1.0, points["first"], points["peak"], color=PLOT_COLORS["blue"], lw=2)
+    axis.hlines(
+        1.0,
+        points["peak"],
+        points["last"],
+        color=PLOT_COLORS["vermillion"],
+        lw=2,
+    )
+    axis.scatter(
+        [points["first"], points["peak"], points["last"]],
+        [1.0, 1.0, 1.0],
+        s=14,
+        color=PLOT_COLORS["black"],
+        zorder=3,
+    )
+    axis.axvspan(-5.0, 5.0, color=PLOT_COLORS["yellow"], alpha=0.22, linewidth=0)
+    axis.annotate(
+        "first",
+        (points["first"], 1.0),
+        xytext=(0, 5),
+        textcoords="offset points",
+        ha="center",
+        fontsize=5.5,
+    )
+    axis.annotate(
+        "peak",
+        (points["peak"], 1.0),
+        xytext=(0, 5),
+        textcoords="offset points",
+        ha="center",
+        fontsize=5.5,
+    )
+    axis.annotate(
+        "last",
+        (points["last"], 1.0),
+        xytext=(0, 5),
+        textcoords="offset points",
+        ha="center",
+        fontsize=5.5,
+    )
+    axis.text(
+        0.03,
+        0.04,
+        f"peak - first = {blink.rise_to_peak_ms:.1f} ms\n"
+        f"last - first = {blink.roi_duration_ms:.1f} ms\n"
+        f"last - peak = {blink.peak_to_last_ms:.1f} ms",
+        transform=axis.transAxes,
+        va="bottom",
+        fontsize=5.8,
+    )
+    axis.set(
+        xlabel="Time from retained peak (ms)",
+        yticks=[1.0, 2.0],
+        yticklabels=["observed", "count window"],
+        title="Timing proxy calculation",
+        ylim=(-0.2, 2.4),
+    )
+
+
+def _plot_overview(analyzed: list[AnalyzedBlink], output_directory: Path) -> list[Path]:
+    sample_labels = [f"Blink {blink.sample.sample_id}" for blink in analyzed]
+    y = np.arange(len(analyzed))
+    rise = np.asarray([blink.rise_to_peak_ms for blink in analyzed])
+    decay = np.asarray([blink.peak_to_last_ms for blink in analyzed])
+    positive_counts = np.asarray(
+        [blink.reconstructed_positive_count for blink in analyzed]
+    )
+    negative_counts = np.asarray(
+        [blink.reconstructed_negative_count for blink in analyzed]
+    )
+    with plt.rc_context(_publication_style()):
+        figure, axes = plt.subplots(1, 2, figsize=(7.2, 3.0), constrained_layout=True)
+        axes[0].barh(
+            y,
+            rise,
+            left=-rise,
+            color=PLOT_COLORS["blue"],
+            label="First event to peak",
+        )
+        axes[0].barh(
+            y,
+            decay,
+            color=PLOT_COLORS["vermillion"],
+            label="Peak to last event",
+        )
+        axes[0].axvline(0, color=PLOT_COLORS["black"], linewidth=0.8)
+        axes[0].set(
+            xlabel="Time relative to retained peak (ms)",
+            yticks=y,
+            yticklabels=sample_labels,
+            title="ROI first-to-last timing proxy",
+        )
+        axes[0].legend(
+            loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2, borderaxespad=0
+        )
+        axes[0].invert_yaxis()
+        axes[1].barh(
+            y,
+            positive_counts,
+            color=PLOT_COLORS["blue"],
+            label="Positive fit events",
+        )
+        axes[1].barh(
+            y,
+            negative_counts,
+            left=positive_counts,
+            color=PLOT_COLORS["vermillion"],
+            label="Negative fit events",
+        )
+        axes[1].set(
+            xlabel="Events contributing to the joint fit",
+            yticks=y,
+            yticklabels=sample_labels,
+            title="Event-rich accepted sample",
+        )
+        axes[1].legend(
+            loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2, borderaxespad=0
+        )
+        axes[1].invert_yaxis()
+        _panel_labels(list(axes))
+        paths = _save_figure(figure, output_directory / "sample_overview")
+        plt.close(figure)
+    return paths
+
+
+def _plot_event_clouds_3d(
+    analyzed: list[AnalyzedBlink], output_directory: Path
+) -> list[Path]:
+    with plt.rc_context(_publication_style()):
+        figure = plt.figure(figsize=(7.2, 5.0))
+        figure.subplots_adjust(
+            left=0.01,
+            right=0.98,
+            bottom=0.03,
+            top=0.94,
+            wspace=0.05,
+            hspace=0.20,
+        )
+        for index, blink in enumerate(analyzed, start=1):
+            axis = figure.add_subplot(2, 3, index, projection="3d")
+            events = blink.roi_events
+            if events.size > MAX_3D_EVENTS_PER_SAMPLE:
+                indices = np.linspace(
+                    0, events.size - 1, MAX_3D_EVENTS_PER_SAMPLE, dtype=np.intp
+                )
+                events = events[indices]
+            relative_time_ms = (
+                events["t"].astype(np.float64) - blink.sample.t_peak_us
+            ) * 1e-3
+            for polarity, color in (
+                (1, PLOT_COLORS["blue"]),
+                (0, PLOT_COLORS["vermillion"]),
+            ):
+                selected = events["p"] == polarity
+                axis.scatter(
+                    events["x"][selected],
+                    events["y"][selected],
+                    relative_time_ms[selected],
+                    s=1.5,
+                    alpha=0.35,
+                    color=color,
+                    linewidths=0,
+                    rasterized=True,
+                )
+            axis.set_title(f"Blink {blink.sample.sample_id}", pad=0)
+            axis.set_xlabel("x (px)", labelpad=-7)
+            axis.set_ylabel("y (px)", labelpad=-8)
+            axis.set_zlabel("t - peak (ms)", labelpad=-7)
+            axis.tick_params(labelsize=4.5, pad=-2)
+            axis.set_box_aspect((1.0, 1.0, 0.85))
+            axis.view_init(elev=22, azim=-58)
+        legend_axis = figure.add_subplot(2, 3, 6)
+        legend_axis.axis("off")
+        legend_axis.scatter([], [], color=PLOT_COLORS["blue"], label="Positive event")
+        legend_axis.scatter(
+            [], [], color=PLOT_COLORS["vermillion"], label="Negative event"
+        )
+        legend_axis.legend(loc="center", frameon=False)
+        paths = _save_figure(figure, output_directory / "roi_event_clouds_3d")
+        plt.close(figure)
+    return paths
+
+
+def _write_summary(
+    analyzed: list[AnalyzedBlink],
+    output_directory: Path,
+    run_directory: Path,
+    raw_path: Path,
+    config: dict[str, Any],
+    random_seed: int,
+) -> Path:
+    timing_rows = [_timing_row(blink) for blink in analyzed]
+    validation_rows = [_validation_row(blink) for blink in analyzed]
+    durations = np.asarray([blink.roi_duration_ms for blink in analyzed])
+    payload = {
+        "run_directory": str(run_directory),
+        "raw_recording": str(raw_path),
+        "sample_size": len(analyzed),
+        "random_seed": random_seed,
+        "selection": {
+            "population": "accepted localizations",
+            "event_count_quantile_band": list(EVENT_COUNT_QUANTILES),
+            "sampling": "uniform without replacement, then sorted by peak time",
+        },
+        "pipeline_parameters": {
+            key: config[key]
+            for key in (
+                "convolution_roi_radius",
+                "interpolation_coefficient",
+                "peak_neighbors",
+                "peak_time_threshold",
+                "polarity_time_gate_us",
+                "prominence",
+                "roi_radius",
+                "slice_duration",
+                "spline_smooth",
+            )
+        },
+        "roi_duration_ms": {
+            "minimum": float(np.min(durations)),
+            "median": float(np.median(durations)),
+            "maximum": float(np.max(durations)),
+        },
+        "timing": timing_rows,
+        "validation": validation_rows,
+        "all_validations_passed": all(
+            row["all_checks_pass"] for row in validation_rows
+        ),
+        "interpretation": (
+            "The ROI first-to-last event duration is a detection-window statistic. It spans all "
+            "retained events in the fitted spatial ROI between the spline-derived bounds (expanded "
+            "when needed to include the polarity gates). It is not a direct AF647 ON-state lifetime."
+        ),
+        "literature": LITERATURE,
+    }
+    path = output_directory / "analysis_summary.json"
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _write_report(
+    analyzed: list[AnalyzedBlink],
+    output_directory: Path,
+    run_directory: Path,
+    summary_path: Path,
+) -> Path:
+    durations = np.asarray([blink.roi_duration_ms for blink in analyzed])
+    rise = np.asarray([blink.rise_to_peak_ms for blink in analyzed])
+    decay = np.asarray([blink.peak_to_last_ms for blink in analyzed])
+    validation_rows = [_validation_row(blink) for blink in analyzed]
+    references = "\n".join(
+        f"- [{item['citation']}]({item['url']}): {item['relevance']}"
+        for item in LITERATURE
+    )
+    report = f"""# Blink photophysics deconstruction
+
+Run: `{run_directory}`
+
+## Result
+
+The five reproducibly sampled, event-rich accepted fits have a median ROI first-to-last event span
+of **{np.median(durations):.1f} ms** (range {np.min(durations):.1f}-{np.max(durations):.1f} ms).
+The median first-event-to-peak interval is {np.median(rise):.1f} ms and the median peak-to-last-event
+interval is {np.median(decay):.1f} ms.
+
+This does **not** measure an Alexa Fluor 647 ON-state lifetime. PeakLoc first constructs a cumulative
+polarity trace over the configured 3 x 3 detection neighborhood, detects a prominence peak, and
+derives a broad interval from the smoothing spline's second derivative. ROI generation then uses the
+earliest and latest retained event anywhere in the
+{int(analyzed[0].sample.roi_positive.shape[0])} x
+{int(analyzed[0].sample.roi_positive.shape[1])} fit ROI inside that interval. The
+positive gate is one-sided (`t < peak + gate`) and the negative gate is one-sided
+(`t > peak - gate`); these conditions classify polarity lobes but do not constrain the full ROI to a
+10 ms interval. Background, neighboring emitters, and sparse tail events can therefore extend the
+first-to-last span far beyond a molecular transition.
+
+The RAW reconstruction matched stored first/last timestamps and positive/negative fit counts for
+**{sum(bool(row["all_checks_pass"]) for row in validation_rows)}/{len(validation_rows)}** samples.
+See `{summary_path.name}` for machine-readable values.
+
+## Exact timing definitions
+
+- `turn-on proxy`: absolute `t_1st`, the earliest retained event anywhere in the fitted ROI count
+  window. The per-blink rise proxy is `t_peak - t_1st`.
+- `on-duration proxy`: `t_last - t_1st`.
+- `turn-off proxy`: absolute `t_last`, the latest retained event anywhere in the fitted ROI count
+  window. The per-blink decay proxy is `t_last - t_peak`.
+- These are ROI-window event statistics, not state-transition estimators.
+
+## Files
+
+- `sample_overview.png` and `.pdf`: timing spans and fit-event counts for all five samples.
+- `blink_XX_deconstruction.png` and `.pdf`: ROI event maps, detection trace, every raw ROI event, and
+  timing arithmetic.
+- `roi_event_clouds_3d.png` and `.pdf`: x-y-time event clouds for the five samples.
+- `raw_roi_events.csv`: every raw timestamp, pixel, polarity, and fit-count membership.
+- `sample_selection.csv`, `timing_summary.csv`, and `detection_candidates.csv`: plotted source data.
+
+## Photophysics context
+
+AF647 kinetics depend strongly on excitation, buffer, and analysis conditions. Lin et al. reported
+few-millisecond ON-state lifetimes at high tested excitation intensities, but that observation cannot
+be transferred quantitatively without matching conditions. Event-camera events are log-intensity
+threshold crossings, so a fluorescence-state kinetic model must be fitted separately if molecular
+dwell times are the goal.
+
+{references}
+"""
+    path = output_directory / "README.md"
+    path.write_text(report, encoding="utf-8")
+    return path
+
+
+def _publication_style() -> dict[str, Any]:
+    return {
+        "font.family": "DejaVu Sans",
+        "font.size": 7,
+        "axes.titlesize": 7,
+        "axes.labelsize": 7,
+        "axes.linewidth": 0.6,
+        "xtick.labelsize": 6,
+        "ytick.labelsize": 6,
+        "xtick.major.width": 0.6,
+        "ytick.major.width": 0.6,
+        "legend.fontsize": 6,
+        "legend.frameon": False,
+        "lines.linewidth": 1.0,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    }
+
+
+def _panel_labels(axes: list[Any]) -> None:
+    for label, axis in zip(
+        "abcdefghijklmnopqrstuvwxyz"[: len(axes)], axes, strict=True
+    ):
+        axis.text(
+            -0.16,
+            1.08,
+            label,
+            transform=axis.transAxes,
+            fontsize=8,
+            fontweight="bold",
+            va="top",
+        )
+
+
+def _save_figure(figure: Any, stem: Path) -> list[Path]:
+    png_path = stem.with_suffix(".png")
+    pdf_path = stem.with_suffix(".pdf")
+    figure.savefig(png_path, dpi=PUBLICATION_DPI, bbox_inches="tight")
+    figure.savefig(pdf_path, bbox_inches="tight")
+    return [png_path, pdf_path]
+
+
+def _load_exclusions(run_directory: Path) -> list[tuple[int, int]]:
+    candidates = sorted(
+        (run_directory / "reports").glob("diffuse_flash_intervals_*.json")
+    )
+    if not candidates:
+        return []
+    payload = _read_json(candidates[-1])
+    return [
+        (int(interval["start_us"]), int(interval["stop_us"]))
+        for interval in payload.get("intervals", [])
+    ]
+
+
+def _load_spatial_masks(
+    run_directory: Path, config: dict[str, Any]
+) -> tuple[np.ndarray, np.ndarray]:
+    shape = (int(config["sensor_height"]), int(config["sensor_width"]))
+    metadata_paths = sorted((run_directory / "reports").glob("spatial_mask_*.json"))
+    metadata_paths = [
+        path for path in metadata_paths if path.name.startswith("spatial_mask_20")
+    ]
+    active = (
+        bool(_read_json(metadata_paths[-1]).get("active")) if metadata_paths else False
+    )
+    if not active:
+        full = np.ones(shape, dtype=np.bool_)
+        return full, full
+    target_path = _single_artifact(
+        run_directory / "reports", "spatial_mask_target_*.npy"
+    )
+    support_path = _single_artifact(
+        run_directory / "reports", "spatial_mask_support_*.npy"
+    )
+    target = np.asarray(np.load(target_path, allow_pickle=False), dtype=np.bool_)
+    support = np.asarray(np.load(support_path, allow_pickle=False), dtype=np.bool_)
+    if target.shape != shape or support.shape != shape:
+        raise ValueError(
+            "Saved spatial-mask shape does not match the effective configuration"
+        )
+    return target, support
+
+
+def _resolve_recording_path(input_file: str, run_directory: Path) -> Path:
+    path = Path(input_file).expanduser()
+    if path.is_file():
+        return path.resolve()
+    for parent in run_directory.parents:
+        candidate = parent / path
+        if candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        f"Input recording from run metadata is unavailable: {input_file}"
+    )
+
+
+def _single_artifact(directory: Path, pattern: str) -> Path:
+    candidates = sorted(directory.glob(pattern))
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            f"Expected exactly one artifact matching {pattern} in {directory}; "
+            f"found {len(candidates)}"
+        )
+    return candidates[0]
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
