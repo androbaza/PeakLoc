@@ -10,6 +10,15 @@ Coordinate convention:
 - Matplotlib imshow overlays must use:
     scatter(sub_x, sub_y)
 
+## Scientific Figures
+All scientific figures must be publication-ready at Nature-family journal standards. Use
+unambiguous labels and physical units, legible typography at the intended single- or double-column
+size, consistent panel labels and line weights, colorblind-safe palettes, and statistically honest
+axes and summaries. Avoid decorative clutter and misleading normalization or truncation. Export
+high-resolution raster output and a vector version when practical, and write the plotted source data
+alongside the figure when it is not already available in a documented machine-readable artifact.
+Use the shared constants in `localization_scripts/plot_style.py` to keep styling consistent.
+
 ## Environment & Commands
 Use pixi. Add dependencies with `pixi add <package>`.
 
