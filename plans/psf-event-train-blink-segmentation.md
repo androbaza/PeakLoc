@@ -1,46 +1,105 @@
 # PSF event-train blink segmentation
 
-## Goal
+## Goal and current decision
 
-Replace the current permissive spline-derived ROI timing window with a physically constrained,
-event-level segmentation stage. A valid localization must contain a compact positive-polarity
-turn-on train followed by a spatially matching negative-polarity turn-off train. Each matched pair
-becomes one blink ROI; unrelated background events and additional blink cycles must not enter that
-ROI.
+Replace the permissive spline-derived ROI timing proxy with a conservative event-level
+segmentation stage. A valid localization must contain a spatially compact positive-polarity
+turn-on train and a matching negative-polarity turn-off train anchored to the retained detection
+peak. The fit then uses the complete rectangular ROI, but only positive events in the explicit ON
+support and negative events in the explicit OFF support.
 
-The initial implementation should be conservative. A candidate without two convincing transition
-trains is rejected rather than rescued by widening its time window.
+The real-data prototype supports this design, with important corrections to the original plan:
 
-## What the three reference examples establish
+- The frequently observed 20--40 ms lead is a soft calibration prior, not a boundary rule.
+- In the inspected samples, a 3.5 px refined core separated the transition more cleanly than the
+  previous approximately 4.25 px diagnostic core, while a wider discovery pass protected against a
+  slightly displaced seed.
+- Polarity-specific gaps were needed for the named ideals: 3 ms isolated the concentrated positive
+  ON burst, while the weaker negative OFF response needed 8 ms to avoid fragmentation. A shared
+  8 ms gap chained sparse early positive activity into the user-identified 2025 ideal blink.
+- One retained peak should produce at most one anchored ON/OFF pair. Distinct cycle candidates are
+  often already represented by separate retained peaks and must not be emitted repeatedly from
+  every neighbouring seed.
+- Compact-core events are evidence for timing, not a spatial crop for fitting. Spatially cropping
+  the final ROI risks biasing the PSF fit.
+- The first release remains feature-gated and disabled by default. Current samples are sufficient
+  for a conservative prototype, but not for changing production defaults.
 
-All offsets below are relative to the saved detection peak and were measured from the exported
-`raw_roi_events.csv`. Counts refer to the compact region within 4.5 pixels of the fitted centre, not
-the full square ROI.
+## Real-data prototype review
 
-| Reference | Event-train evidence | Required result |
+### Scope
+
+The hypothesis was tested without a full recording run:
+
+- all 15 previously exported photophysics deconstructions from the 2025, 405-induced, and rapid-
+  blinking conditions (7,537 raw ROI events); and
+- 18 fresh deterministic accepted-fit samples (seed 7647), stratified by low, middle, and high
+  event count in the rapid-blinking and 405-induced recordings. Only a 500 ms context around
+  each seed was read for this second set (8,799 cropped ROI events).
+
+The combined prototype therefore covered 33 candidates and 16,336 events. It deliberately
+contains different event yields and acquisition conditions, but it is not an expert-labelled
+locked validation set.
+
+### Evidence
+
+| Observation | Result | Design consequence |
 | --- | --- | --- |
-| Rapid-blinking `blink_05` | Positive train is concentrated from about -40 to 0 ms, with 231 positive events in that interval. The principal negative train begins around +30 ms and extends as a weaker tail. A new positive cluster around +120 to +140 ms is spatially displaced. | Keep the central ON/OFF pair. Start near the dense -40 to 0 ms train, end after its matched negative train, and exclude the later positive cluster. |
-| 2025 `blink_02` | Positive events form one compact train over roughly -100 to -10 ms; its densest late portion is near the user's expected -40 to -20 ms region. Negative events occur mainly from about +10 to +110 ms. Events extending beyond +/-2 s set the current proxy endpoints but are not part of the compact transition. | Keep one pair and discard the remote events. Treat the exact onset boundary as an annotation/calibration target rather than forcing all pre-peak activity into the ROI. |
-| 2025 `blink_01` | The compact core contains at least three ordered positive/negative cycles: approximately -340 to -160 ms, -140 to +200 ms, and +260 to +500 ms. | Emit three independently timed ROI records if all three pairs pass quality gates. Never fit the full -677 to +849 ms interval as one blink. |
+| Fresh stratified candidates | 14/18 had an anchored train pair; low/middle/high strata contributed 5/6, 5/6, and 4/6 accepted pairs. All four rejections were `no_anchored_pair`. | Compact trains occurred beyond the named examples in this two-recording sample and were not confined to the highest-count fits. |
+| Ten accepted saved-sample pairs | The median segmented cycle span was 142.5685 ms versus a 523.067 ms median legacy span; the median per-candidate reduction was 74.678%. | The legacy proxy was much longer than the compact-train selection in these samples, consistent with temporal-flank contamination but not proof of exact physical boundaries. |
+| Eighteen fresh candidates | The median selected cycle span was 93.4 ms (range 50.2--151.1 ms). | A fixed narrow duration would reject some algorithmically accepted candidates. Retain hard safety bounds plus measured train evidence. |
+| Visual-inspection onset hypothesis | In the fresh accepted set, the median onset lead was 33.5 ms and 7/14 starts lay 20--40 ms before the seed. The range was 5.9--59.3 ms. | The 20--40 ms observation is a useful empirical prior, but measured train evidence still needs broader support. |
+| Annular background | Expected core background was only 0.004--0.324 event/ms in inspected intervals. | A normal z-score is unstable in this sparse regime. Use an area-corrected density ratio and a shrinkage-stabilized root Poisson-deviance score. The score is a gate, not a calibrated significance test. |
+| Core radius | Approximately 3.5 px separated trains more cleanly than 4.26 px in the inspected examples, while both named ideals retained ample transition events at 3 px. | Use a wider discovery core followed by a 3.5 px refined core. |
+| Polarity gap sweep | A shared 3 ms gap fragmented sparse OFF responses; a shared 8 ms gap merged the 2025 ideal ON activity from -101 to -13 ms. ON=3 ms and OFF=8 ms accepted both ideals with ON starts at -36.214 and -36.316 ms. | Use polarity-specific gaps and keep both as validation parameters. |
 
-These examples also expose a limitation of the current `peak_time_threshold = 40 ms`: temporal
-non-maximum suppression must not destroy a second physical blink before event-train segmentation
-can inspect it.
+With the final strict prototype defaults, 10/15 saved examples are accepted, and all 15 exact RAW
+reconstruction checks for stored first/last timestamps and positive/negative counts pass. Both
+user-identified ideal blinks are accepted with ON starts at -36.214 ms (rapid `blink_05`) and
+-36.316 ms (2025 `blink_02`) relative to their retained seeds. The displayed central seed of 2025
+`blink_01` is rejected because its terminal ON group has only five core events, below the 12-event
+ON-train gate. Persisted neighbouring seeds at -269.623 ms and +358.177 ms relative to the displayed
+seed are independently accepted instead of being merged into its interval. These are algorithmic
+interval decisions, not expert-confirmed physical cycle identities. Other rejections are explicit
+(`missing_on_train`, `missing_off_train`, or `no_anchored_pair`) rather than being rescued with a
+wider ROI.
+
+The persisted neighbouring seeds support selecting at most one anchored pair per retained seed
+while keeping the current 40 ms non-maximum suppression for this implementation. In a separate
+exploratory sweep, reducing suppression to 3 ms turned the 15 saved contexts into 46 seed groups.
+Without labels and duplicate ownership, that increase establishes neither additional physical
+cycles nor improved recall and would add repeated segmentation and assignment work.
+
+### What the prototype does not prove
+
+- The 33 candidates are not expert-labelled for exact first/last transition events. The same small
+  collection informed parameter iteration and the reported comparison, so the results are in-sample.
+- The candidates were drawn from previously accepted, event-rich fits. Acceptance rates are
+  conditional on that selection and do not estimate raw-candidate sensitivity or specificity.
+- The fresh 18-candidate set covers only the rapid and 405-induced recordings; the 2025 condition is
+  represented by its five saved deconstructions.
+- Samples do not establish sensitivity for weak, diffuse, out-of-focus, or very crowded emitters.
+- Acceptance yield is not yet a suitable optimization objective: a conservative rejection can be
+  preferable to a falsely merged blink.
+- Timing agreement and shorter selected spans do not prove that boundaries are physically exact or
+  that localization is less biased. Segmented maps were not refitted; fit-centre shift and residuals
+  still require comparison against expert-cleaned ROIs.
+- Slice-boundary recall is intentionally reduced because the initial integration has no temporal
+  halo.
 
 ## Photophysical interpretation
 
-Three timescales must remain distinct:
+Keep three timescales distinct:
 
-1. Fluorescence lifetime is on the nanosecond scale and is not measured by this pipeline.
-2. AF647 ON-state dwell time is condition dependent. Lin et al. report exponential ON-time
-   distributions and ON-state lifetimes of only a few milliseconds at 31--97 kW cm^-2 excitation.
+1. Fluorescence lifetime is on the nanosecond scale and is not measured here.
+2. AF647 ON-state dwell time depends on irradiance, buffer, and switching chemistry.
 3. An event-camera transition train is the thresholded, pixel-by-pixel response of a spatial PSF.
-   Its extent can include pixel threshold dispersion, spatial sampling, and detector/electronics
-   effects, so it need not equal the dye's ON-state dwell time.
+   Its duration also includes threshold dispersion, spatial sampling, and detector/electronics
+   effects, so it is not a direct dye-lifetime measurement.
 
-AF647 kinetics therefore constrain ordering and plausible duration, but literature values must be
-used as a soft prior until laser irradiance, buffer, camera bias, and sparse-molecule calibration
-match the recording. The final prior should be learned separately for each acquisition condition.
+AF647 kinetics motivate the expected polarity order and provide guards against implausibly long
+cycles, but literature values are a soft prior until irradiance, buffer, bias, and detector response
+match the recording. Thresholds must ultimately be validated per acquisition condition.
 
 Primary references:
 
@@ -51,252 +110,289 @@ Primary references:
 - van de Linde et al., *Nature Protocols* 6, 991--1009 (2011),
   <https://doi.org/10.1038/nprot.2011.336>.
 
-## Proposed pipeline
+## Corrected implementation design
 
-### 1. Preserve temporal candidates
+### 1. Keep peak detection as the seed generator
 
-Use the present peak finder only to seed a local spatial-temporal context. Do not use its cubic
-spline bounds as blink boundaries.
+Use each retained spatial-temporal peak only to identify a local context. Do not use spline bounds
+as blink endpoints. For the first implementation, retain the existing 40 ms non-maximum
+suppression because the inspected multi-cycle context retained separate candidate peaks. Revisit
+peak suppression only with a labelled missed-cycle study; a shorter suppression window is not a
+free accuracy improvement.
 
-- Retain all local temporal maxima within a connected spatial candidate.
-- Replace early 40 ms destructive merging with a short duplicate-peak suppression window, initially
-  3 ms, or defer suppression until event-train pairs are known.
-- Read a fixed physical-time context around each candidate, initially 150 ms before and 200 ms
-  after. This is a search context only: no event enters a fit merely because it is inside it.
-- If a transition train touches a context edge, extend the context once by 100 ms. Reject a second
-  edge contact rather than allowing unbounded expansion.
+Each seed can select zero or one anchored train pair. Nearby retained seeds may initially select
+the same physical pair, so duplicate-pair resolution remains an integration requirement before the
+feature becomes the default.
 
-This removes the present dependence on interpolation-array index distance, whose physical duration
-changes with event density.
+### 2. Read bounded context and reject incomplete edges
 
-### 2. Build a compact PSF-core signal
+Read a fixed 250 ms before and 250 ms after each seed. This is search context, not fit support.
+Reject candidates whose ROI crosses a spatial sensor boundary or whose full context crosses a
+temporal slice boundary. Do not infer a train boundary from truncated data or expand repeatedly.
 
-Temporal segmentation should use the part of the ROI in which events are likely to come from the
-candidate PSF.
+This deliberately sacrifices candidates near slice edges. Production defaulting requires owned
+temporal halos: read neighbouring context, assign a candidate to exactly one slice by seed time,
+and deduplicate overlap. Until that ownership rule exists, `context_before_slice` and
+`context_after_slice` are correct rejection reasons.
 
-1. Estimate a provisional centre from the peak image using a robust weighted centroid or the
-   existing fixed-sigma PSF template.
-2. Set the core radius to `clip(2.5 * psf_sigma_px, 3 px, 5 px)`. With the current
-   `psf_sigma = 1.703 px`, this is 4.26 px and closely matches the 4.5 px diagnostic used above.
-3. Use the remaining fit ROI as a background annulus. Estimate background independently for each
-   polarity from spatial-annulus events and the temporal context flanks.
-4. Assign a Gaussian spatial weight to every core event. Keep raw event identity and fields
-   `x`, `y`, `p`, and `t`; do not aggregate away timestamps needed for the final ROI.
+### 3. Detect trains in a compact core with sparse-background statistics
 
-The segmentation signal is then a 1 ms time series for each polarity containing:
+Use two cheap segmentation passes:
 
-- PSF-weighted event count;
-- number of distinct active pixels;
-- polarity purity;
-- weighted centroid and radial spread; and
-- excess over the expected annular-background count.
+1. Detect provisional trains within a 4.25 px discovery core around the integer seed.
+2. Compute an event-count-weighted centroid from the provisional ON/OFF pair and redetect within a
+   3.5 px core.
 
-The 1 ms series may be smoothed only with a 2--3 ms causal or symmetric kernel for scoring. Raw
-timestamps determine reported boundaries.
+The background region is the inscribed radial annulus from the core boundary to
+`roi_radius`; the square corners of the rectangular fit ROI are not included. For each polarity
+and candidate support, measure:
 
-### 3. Detect transition trains with background-relative hysteresis
+- raw event count and distinct active pixels;
+- polarity purity among all core events in that support;
+- exact lattice-pixel-area-corrected core/annulus density ratio;
+- root Poisson-deviance score over the shrinkage-stabilized annular expectation; and
+- centroid and radial spread.
 
-Detect positive and negative trains separately. A train starts when the background-normalized
-score exceeds a strict entry threshold and continues at a lower threshold. Bridge only short gaps.
-This can first be implemented as a deterministic hysteresis detector, then replaced by a constrained
-hidden semi-Markov model if validation shows a clear benefit.
+Use a small background pseudocount because an empty annulus must not imply infinite certainty. Do
+not use Gaussian z-scores at the observed sparse expected counts or interpret the deviance gate as
+a calibrated hypothesis-test significance.
 
-Initial, deliberately strict settings:
+### 4. Form concentrated transition groups
 
-| Setting | Initial value | Purpose |
-| --- | ---: | --- |
-| `temporal_bin_us` | 1,000 | Resolve transition structure without sparse microsecond bins. |
-| `burst_enter_z` | 5.0 | Require clear excess over local background. |
-| `burst_continue_z` | 2.0 | Retain the lower-density tail of a real train. |
-| `burst_max_gap_us` | 8,000 | Bridge threshold gaps inside a train, but not long background intervals. |
-| `burst_min_events` | 12 | Reject isolated background events. |
-| `burst_min_active_pixels` | 5 | Require a spatial PSF response rather than one hot pixel. |
-| `burst_min_polarity_purity` | 0.80 | Require positive ON and negative OFF evidence. |
-| `burst_min_duration_us` | 2,000 | Reject single-bin impulses. |
-| `burst_max_duration_us` | 120,000 | Prevent permissive trains while retaining the observed 2025 reference for calibration. |
+Sort same-polarity core events by raw timestamp. Split positive events at gaps greater than 3 ms
+and negative events at gaps greater than 8 ms. A group becomes a train only if it passes
+polarity-specific event-count and active-pixel gates, polarity purity, maximum duration,
+core/annulus density ratio, and the Poisson-deviance score.
 
-The thresholds are starting hypotheses, not final constants. The reference examples are too few to
-estimate reliable operating characteristics.
+Initial strict settings supported by the prototype are:
 
-For an accepted train, set its start and end to the first and last raw event assigned to bins above
-the continuation threshold. Do not use the first or last event in the search context.
+| Setting | Value |
+| --- | ---: |
+| `temporal_bin_us` | 1,000 |
+| `temporal_max_on_interevent_gap_us` | 3,000 |
+| `temporal_max_off_interevent_gap_us` | 8,000 |
+| `temporal_min_on_events` / `temporal_min_off_events` | 12 / 8 |
+| `temporal_min_on_active_pixels` / `temporal_min_off_active_pixels` | 6 / 5 |
+| `temporal_min_polarity_purity` | 0.80 |
+| `temporal_max_train_duration_us` | 150,000 |
+| `temporal_min_core_density_ratio` | 1.5 |
+| `temporal_min_interval_deviance` | 2.0 |
 
-### 4. Pair ON and OFF trains as one physical cycle
+The first and last raw events in the accepted group are diagnostic extrema. The fit support is the
+containing half-open 1 ms interval `[support_start_us, support_stop_us)`. Store both; never replace
+the raw timestamps with bin edges in reported photophysics.
 
-Construct candidate edges from every positive train to every later negative train in the same local
-context. Score an edge using:
+The 3/8 ms rules are intentionally strict concentrated-component definitions. If labelled weak
+trains show systematic fragmentation, compare them with significant-bin hysteresis that bridges
+only supported gaps. Do not relax the ON gap merely to increase yield: doing so reintroduces the
+early events the user-identified boundary excludes.
 
-- correct polarity order;
-- centre separation, initially no more than 1.25 px;
-- compatible radial spread and PSF-template correlation;
-- unexplained background between and around the trains;
-- ON-state interval between the end of the positive train and start of the negative train; and
-- a condition-specific photophysical duration prior.
+### 5. Select one seed-anchored ON/OFF pair
 
-Use dynamic programming or minimum-cost ordered matching to choose a non-overlapping set of pairs.
-The matching objective should prefer several strong, compact cycles over one long interval spanning
-multiple cycles. A new positive train before the chosen negative train creates an ambiguity penalty;
-if both possible pairs remain plausible, reject them instead of merging them.
+Form all provisional positive/negative edges and retain only pairs satisfying:
 
-Initial physical guards:
+- the ON train starts no later than the seed and ends no more than 30 ms after it;
+- the OFF train ends no earlier than the seed and starts no more than 30 ms before it;
+- ON/OFF endpoints overlap by at most 20 ms, which accommodates pixel-level transition overlap in
+  the rapid ideal example;
+- total first-ON to last-OFF span is at most 300 ms; and
+- ON/OFF centroid distance is at most 1.75 px.
 
-| Setting | Initial value | Interpretation |
-| --- | ---: | --- |
-| `pair_min_on_state_us` | 1,000 | Below this, timing is likely unresolved. |
-| `pair_max_on_state_us` | 150,000 | Hard guard, intentionally broader than the literature prior. |
-| `pair_max_cycle_span_us` | 250,000 | Maximum from first ON-train event to last OFF-train event. |
-| `pair_max_centroid_distance_px` | 1.25 | Both transitions must describe the same spatial emitter. |
-| `pair_duration_prior_mode_us` | 30,000 | Soft starting prior centred on the observed 20--40 ms lead, not a hard crop. |
+Rank admissible pairs first by temporal anchor cost, then centroid distance, then event support.
+If two distinct pairs have anchor costs within 5 ms, reject as `ambiguous_pairing`. The observed
+20--40 ms onset lead can be reported and later added as a weak condition-specific prior, but it
+must not override train evidence.
 
-The mode must be fitted from accepted sparse AF647 calibration data for each laser/buffer/bias
-condition. A broad log-normal or gamma prior is safer than a symmetric Gaussian because switching
-times are right-skewed.
+### 6. Refine timing before the expensive fit
 
-### 5. Split and assign events without overlap
+Redetect once around the event-weighted pair centroid and stop. This is a two-pass segmentation,
+not two full PSF fits. Run the existing Poisson localization once on the accepted, materialized
+ROI. This avoids doubling the dominant nonlinear-fit cost and avoids making segmentation depend on
+a fit already contaminated by permissive timing.
 
-Each selected ON/OFF pair creates one `BlinkInterval` and one ROI record.
+The current fixed PSF width and segmentation gates do not provide a validated focus-quality
+decision. Train compactness, density, and deviance reject some diffuse evidence, but explicit
+focus classification and post-segmentation fit-likelihood/residual validation remain future work.
 
-The temporal extent is the union of its two transition trains plus the intervening ON-state interval.
-Events enter the ROI only when both conditions hold:
+### 7. Materialize full rectangular, polarity-specific fit supports
 
-1. their timestamp lies inside that pair's explicit interval; and
-2. their spatial likelihood under the provisional PSF exceeds their likelihood under the local
-   background/competing-PSF models.
+The compact core determines whether a transition is real; it does not determine which spatial
+pixels the PSF fit may see. After refinement:
 
-When two pairs are close, assign each event to the pair with maximum posterior probability and keep
-an assignment margin. Do not duplicate an event across ROIs. Reject events below the margin as
-background. This replaces the current one-sided polarity gates, which admit arbitrarily early
-positive and arbitrarily late negative events.
+- accumulate every positive event in the full rectangular ROI during the ON half-open support;
+- accumulate every negative event in the full rectangular ROI during the OFF half-open support;
+- exclude the quiet interval from both polarity maps unless it overlaps an explicit support; and
+- never discard a fit event only because it lies outside the 3.5 px detection core.
 
-### 6. Fit, refine once, and stop
+The accepted production ROI record stores ON/OFF support starts and stops, raw first/last event
+timestamps, counts, active pixels, centroids, density/deviance scores, pair score, endpoint overlap,
+quiet dwell, cycle span, parent seed, and refinement count. Train radial spread and the internal
+pair cost remain available only during segmentation/QC and are not production ROI fields.
+Downstream temporal summaries use explicit segmented fields when present and retain a clearly
+labelled legacy fallback for old artifacts.
 
-1. Fit the provisional pair using only its assigned events.
-2. Recompute the PSF core, spatial likelihoods, train boundaries, and pair score around the fitted
-   centre.
-3. Refit once if the centre moved by at least 0.1 px or either boundary moved by at least 1 ms.
-4. Accept when the second pass is stable. Reject non-convergent candidates; do not widen their
-   windows repeatedly.
+### 8. Reject explicitly and conservatively
 
-This two-pass design provides the fitted centre needed for clean segmentation without making the
-initial segmentation depend on a fit that already contains background or neighbouring blinks.
+Stable reasons include `empty_context`, `missing_on_train`, `missing_off_train`,
+`no_anchored_pair`, `ambiguous_pairing`, refined-pass variants, sensor/ROI boundary failures,
+and slice-context failures. Blinks without a concentrated multi-pixel event train are weak/diffuse
+evidence and should be rejected rather than assigned a wider timing window.
 
-### 7. Apply explicit acceptance and rejection gates
+## Configuration and rollout
 
-A blink must pass all of the following:
+Expose typed, validated `temporal_*` settings in the existing flat pipeline configuration. Keep
+`temporal_segmentation_enabled = false` by default while legacy ROI generation remains available.
+The earlier shared `temporal_max_interevent_gap_us` key is replaced by the explicit ON and OFF
+keys shown above; external configs using the shared key must migrate because unknown keys are
+rejected. Do not tune an acquisition profile silently during development. Validation settings must
+be recorded with acquisition-condition provenance.
 
-- one positive train and one later negative train are matched;
-- both trains pass event-count, active-pixel, polarity-purity, and background-excess gates;
-- transition centroids and widths are compatible with one PSF;
-- fitted PSF likelihood is better than a diffuse/background model;
-- the fitted width or residual pattern is not out-of-focus;
-- the pair satisfies hard cycle-duration guards;
-- no strong unassigned transition train lies inside the final interval; and
-- iterative boundaries and centre converge.
+Before enabling the feature by default:
 
-Store stable machine-readable rejection reasons such as `missing_on_train`, `missing_off_train`,
-`diffuse_train`, `centroid_mismatch`, `ambiguous_pairing`, `cycle_too_long`, and
-`segmentation_not_converged`. Blinks without clear rapid trains should fail one of the first four
-gates rather than receive a larger ROI.
+1. implement slice halos and deterministic ownership;
+2. resolve duplicate pair selection across nearby retained seeds;
+3. label weak/diffuse and crowded cases, not only ideal accepted fits;
+4. validate timing and localization bias on held-out recordings; and
+5. establish condition-specific settings or demonstrate that one profile generalizes.
 
-## Data model and configuration changes
+## Performance review
 
-Return named types instead of enlarging existing tuples:
+The design bounds work per seed to one rectangular ROI over a 500 ms context. Build the per-pixel
+time/polarity index once per slice; use binary searches and compiled extraction to gather each
+context. The two segmentation passes operate only on gathered events and require four temporal
+sorts (two polarities at two centres), followed by one nonlinear localization fit for accepted
+candidates.
 
-```python
-@dataclass(frozen=True)
-class TransitionTrain:
-    polarity: int
-    first_event_us: int
-    last_event_us: int
-    event_indices: np.ndarray
-    weighted_centroid_x: float
-    weighted_centroid_y: float
-    event_count: int
-    active_pixel_count: int
-    polarity_purity: float
-    background_z_score: float
+Primary performance risks are:
 
+- repeatedly gathering overlapping contexts for dense neighbouring seeds;
+- sorting the same local events for duplicate seeds;
+- increased candidate count if peak suppression is relaxed;
+- Python object allocation for train records; and
+- QC code scanning an entire long slice when only a few exact sample intervals are requested.
 
-@dataclass(frozen=True)
-class BlinkInterval:
-    seed_peak_us: int
-    on_train: TransitionTrain
-    off_train: TransitionTrain
-    assigned_event_indices: np.ndarray
-    pair_score: float
-    iteration_count: int
-```
+Mitigations, in order, are to keep current peak suppression, reuse the slice event index, read QC
+events by exact per-sample intervals, benchmark candidate extraction separately from segmentation
+and fitting, and only then consider caching overlapping contexts or compiled grouping. Current QC
+may reread overlapping sample intervals; interval merging remains a future optimization. Do not
+optimize by spatially cropping fit maps or by removing provenance.
 
-Add a `temporal_segmentation` configuration section containing the settings above. Keep current
-`find_on_off` settings available behind a temporary compatibility flag, but mark spline bounds and
-`polarity_time_gate` as legacy. Saved ROI/localization records should include train boundaries,
-pair scores, background scores, iteration count, parent seed identifier, split-cycle identifier,
-and rejection reason.
+Real-data performance validation must remain subsampled. Report candidates/s, events/s, median and
+95th-percentile time per candidate, peak memory, acceptance fraction, and the fraction of runtime
+spent in extraction, segmentation, and fitting. Benchmark cold and warm compiled paths separately;
+never extrapolate a first-call compilation time to a full run.
 
-## Tuning protocol
+The final 3/8 ms implementation was timed on the 15 saved real-data fixtures only. Direct
+segmentation took a median 0.425 ms per candidate (95th percentile 0.670 ms) and sustained about
+2,782 candidates/s or 1.40 million cropped events/s when warm. Rebuilding the small per-recording
+event index, extracting contexts, segmenting, and materializing accepted ROIs together took
+1.15 ms/candidate when warm (871 candidates/s). The first recording call in a fresh process took
+0.79 s and included one-time compiled-extraction initialization; subsequent recording fixtures took
+4.6--7.4 ms. These local exploratory timings do not preserve enough hardware and repetition
+metadata for cross-machine comparison. They also exclude nonlinear fitting and do not characterize
+peak memory or dense full-slice contention, so they support the subsampled implementation but not a
+portable or full-run runtime claim.
 
-The settings should be tuned iteratively, but not by repeatedly inspecting only the three named
-examples.
+## Accuracy validation protocol
 
-1. Annotate the three references with ON-train start/end, OFF-train start/end, cycle count, and
-   accept/reject status. The user-proposed -20 to -40 ms onset should be recorded as an annotation,
-   while the earlier activity in 2025 `blink_02` remains visible for adjudication.
-2. Build a stratified annotation set of at least 50--100 candidates spanning all acquisition
-   conditions, event counts, focus quality, crowded regions, and diffuse backgrounds.
-3. Split by recording, not by event, into tuning and locked validation sets.
-4. Optimize in this order: background/train thresholds, spatial compactness, ON/OFF pairing, then
-   duration priors. This avoids using the photophysical prior to hide a poor train detector.
-5. Score boundary error, event-assignment precision/recall, blink accept/reject precision, and
-   split/merge error. Give false merges and background contamination more weight than rejected weak
-   blinks.
-6. Start strict and relax one parameter family at a time only when validation recall improves
-   without materially increasing merge or contamination rates.
-7. Lock thresholds per acquisition condition and confirm on an untouched recording.
+The prototype is hypothesis evidence, not threshold certification. Continue as follows:
 
-Recommended primary metrics:
+1. Export the exact 33-candidate manifest, selection metadata, and benchmark method. The current
+   plan records seed 7647 and aggregate counts, but this is not yet a locked machine-readable
+   validation artifact.
+2. Expert-label exact ON/OFF raw-event boundaries, cycle identity, compact/diffuse status, and
+   accept/reject status for the named references plus a balanced weak/crowded sample.
+3. Split by recording, not by event or blink, into tuning and locked validation sets.
+4. Tune in order: gap/group evidence, spatial compactness/background gates, anchored pairing, then
+   optional duration priors. This prevents photophysical priors from hiding a poor detector.
+5. Weight false merges and background contamination more heavily than conservative weak-blink
+   rejection.
+6. Freeze profiles before testing an untouched recording.
+
+Primary accuracy metrics are:
 
 - median absolute ON/OFF boundary error in milliseconds;
-- fraction of assigned events within expert-labelled trains;
-- false-merge rate per 1,000 candidates;
-- missed-split rate per 1,000 candidates;
-- accepted-blink precision and yield; and
-- localization shift relative to expert-cleaned event assignments.
+- event-assignment precision/recall against expert trains;
+- false-merge and missed-split rates per 1,000 candidates;
+- accepted-blink precision and yield with confidence intervals;
+- cycle-span and quiet-dwell distribution shift versus the legacy proxy; and
+- fitted-centre displacement and residual change versus expert-cleaned ROIs.
 
-## Required diagnostic output
+For the current small validation, always report denominators and individual candidates alongside
+summaries; do not imply population-level generalization from medians alone.
 
-Every validation candidate should get a publication-ready deconstruction containing:
+## Current diagnostics and remaining validation outputs
 
-- raw polarity raster with every timestamp available in source data;
-- PSF-weighted 1 ms train scores and entry/continuation thresholds;
-- core versus annulus event rates;
-- detected trains and matched pair edges;
-- final assigned versus rejected events in x-y-time;
-- first-pass and refined boundaries;
-- fit residual or PSF-versus-diffuse likelihood; and
-- a concise acceptance/rejection table.
+The three regenerated five-sample QC sets currently provide:
 
-Export high-resolution PNG and vector PDF, and write plotted source-data CSV files beside them in
-the run's `qc/photophysics_deconstruction/` directory.
+- legacy ROI event maps and raw legacy-window timestamps;
+- a bounded detection trace and a +/-250 ms polarity raster, with every plotted trace point and
+  context event exported row by row;
+- provisional/refined transition-train tables with acceptance metrics;
+- the selected interval, pair score, explicit timing arithmetic, and rejection reason;
+- full-ROI segmented fit-event tables distinguished from compact-core evidence;
+- 1 ms core/annulus activity tables and three-dimensional event views; and
+- nearby retained-seed intervals for separating cycle candidates.
 
-## Implementation sequence
+Use the shared publication style, physical units, colourblind-safe encoding, honest axes, and
+legible single-/double-column typography. Export high-resolution PNG and vector PDF where
+practical. Current machine-readable artifacts include legacy ROI events, transition trains, the
+selected pair/interval, exact segmentation-context events, raw/interpolated detection curves,
+binned context activity, segmented fit events, nearby-seed decisions, timing comparison, and
+settings/provenance.
 
-1. Add pure feature-extraction, train-detection, ordered-pairing, and assignment functions with
-   synthetic focused, weak, background-contaminated, and multi-cycle examples.
-2. Add `BlinkInterval` provenance to ROI generation while retaining a legacy compatibility path.
-3. Add the two-pass fit/segmentation loop and stable rejection reasons.
-4. Extend the deconstruction notebook so thresholds and pair decisions are inspectable.
-5. Tune on annotated examples, freeze condition-specific profiles, and run the locked validation.
-6. Compare localization yield, split/merge rate, timing distributions, and final reconstruction
-   quality against the current pipeline before changing the default.
+The segmented-to-legacy fit-event count ratio is descriptive, not event-assignment recall: the
+segmented ROI can be recentered and can include events outside the legacy time window. Legacy
+reconstruction consistency checks likewise verify replay fidelity, not that the legacy temporal
+boundary is physically correct.
 
-## Definition of done
+A locked validation package must additionally export every admissible pair edge with anchor cost
+and ambiguity margin, and post-segmentation fit residual or PSF-versus-diffuse evidence. These
+outputs remain future work and are required before claiming event-assignment precision/recall or
+localization improvement.
 
-- Rapid `blink_05` selects the compact central pair and excludes the later positive cluster.
-- 2025 `blink_02` excludes the multi-second flank events and exposes any disagreement between the
-  algorithmic and expert onset boundaries.
-- 2025 `blink_01` becomes independently fitted, non-overlapping blink ROIs rather than one long ROI.
-- Candidates lacking compact, polarity-ordered trains are rejected with an explicit reason.
-- No boundary depends on interpolation sample index or the first/last event in a permissive window.
-- The locked validation set meets thresholds chosen before it is evaluated.
-- Nature-quality diagnostics and their source data are written for all reference and validation
-  examples.
+## Implementation sequence and gates
+
+1. **Prototype evidence -- complete:** test the train hypothesis on 33 candidates/16,336 events,
+   sweep core radius and grouping gap, and retain the documented in-sample corrections above.
+2. **Pure segmentation -- complete for feature-gated use:** deterministic train detection,
+   sparse-background gates, anchored pairing, ambiguity rejection, centroid refinement, and
+   focused synthetic edge cases.
+3. **ROI integration -- implemented behind a disabled flag:** per-slice indexed extraction,
+   explicit QC records, full rectangular polarity-specific support materialization, and temporal
+   provenance through localization.
+4. **Photophysics QC -- complete for the current diagnostic scope:** all three five-blink sample
+   sets were regenerated from exact per-sample RAW intervals. All 15 legacy timestamp/count replay
+   checks pass, and train, selected-pair, timing, fit-event, activity, and nearby-seed artifacts were
+   written. Row-level context events and detection curves reproduce the plotted data; all-pair-edge
+   and post-refit outputs listed above remain future validation requirements.
+5. **Subsampled real-data comparison -- complete for timing selection:** rerun deterministic
+   candidates and compare selected train timing with legacy outputs without a full recording.
+   Post-segmentation localization refits were not performed, so this is not a localization-accuracy
+   result.
+6. **Held-out validation and production hardening -- future gate:** expert labels, slice halos,
+   duplicate ownership, weak/diffuse assessment, exact validation source artifacts, locked
+   recording-level validation, and only then consideration of enabling the feature by default.
+
+## Definition of done for this implementation
+
+- Rapid `blink_05` selects its compact central pair with an ON start 36.214 ms before its seed and
+  excludes the later displaced activity.
+- 2025 `blink_02` selects an ON start 36.316 ms before its seed and reports raw versus support
+  boundaries rather than using remote flank events as endpoints.
+- Persisted seeds 269.623 ms before and 358.177 ms after the displayed 2025 `blink_01` seed form
+  separate accepted intervals; its weak central seed is explicitly rejected.
+- Candidates lacking compact, polarity-ordered trains are rejected with explicit reasons.
+- No accepted timing boundary depends on a spline sample index or a permissive context extremum.
+- Production ROI materialization retains the full rectangular spatial support within explicit
+  ON/OFF time windows; no real-data post-segmentation refit was used for the comparison.
+- Across the ten accepted saved samples, median selected cycle span is 142.5685 ms versus a
+  523.067 ms median legacy span, with a 74.678% median per-candidate reduction. This demonstrates
+  stricter, train-aligned selection on the sample, not ground-truth temporal or localization
+  accuracy.
+- All 15 exact RAW reconstruction checks pass without a full recording run.
+- Nature-style regenerated diagnostics and the current machine-readable train, interval, activity,
+  and event tables are written for all 15 reference samples. The additional locked-validation
+  source artifacts identified above remain future work.
+- The feature stays disabled by default until held-out accuracy, edge ownership, and duplicate
+  handling meet the production gates above.
