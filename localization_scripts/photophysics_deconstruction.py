@@ -1875,9 +1875,14 @@ def _plot_detection_trace(axis: Any, blink: AnalyzedBlink) -> None:
     axis.set(
         xlabel="Time from retained peak (ms)",
         ylabel="Cumulative polarity (events)",
-        title=f"Detection replay (prominence {trace.candidate.prominence_events:.1f})",
+        title="Detection replay",
     )
-    axis.legend(fontsize=5.5, loc="best")
+    axis.legend(
+        fontsize=5.5,
+        loc="best",
+        title=f"Prominence = {trace.candidate.prominence_events:.1f} events",
+        title_fontsize=5.5,
+    )
 
 
 def _plot_event_raster(axis: Any, blink: AnalyzedBlink) -> None:
