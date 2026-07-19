@@ -77,12 +77,12 @@ def main() -> None:
     parser.add_argument(
         "--output", type=Path, default=Path("calibration_event_model.npz")
     )
-    parser.add_argument("--pixel-size-nm", type=float, default=67.0)
+    parser.add_argument("--pixel-size-nm", type=float, default=77.0)
     parser.add_argument("--sensor-model", default="unknown")
     parser.add_argument("--calibration-id", default="event-model-calibration")
     parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--width", type=int, default=None)
-    parser.add_argument("--max-events", type=int, default=1_000_000)
+    parser.add_argument("--max-events", type=int, default=1_000_000_000)
     args = parser.parse_args()
 
     dark_path = Path(input("Dark .raw recording path: ").strip()).expanduser()
