@@ -19,28 +19,39 @@ Typical contents:
 ```text
 AF647_coverslip/
 └── 20260712_143015_123456/
-    ├── localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
-    ├── rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
-    ├── localization_qc_*.npy
-    ├── figures/
-    │   ├── *_smlm_*.png
-    │   └── *_smlm_*_12bit.tiff
-    ├── reports/
-    │   ├── effective_config_*.json
-    │   └── report_*.md
-    └── qc/
-        ├── uncertainty_lowest_36_combined.png
-        ├── uncertainty_highest_36_combined.png
-        ├── uncertainty_quantile_samples.png
-        └── other QC outputs
+    ├── share/                         # concise collaborator-ready bundle
+    │   ├── README.md
+    │   ├── figures/
+    │   │   ├── smlm_reconstruction.png
+    │   │   ├── detection_and_fit_summary.png
+    │   │   └── temporal_blink_*.png
+    │   ├── statistics/
+    │   └── metadata/
+    └── debug/                          # detailed technical audit trail
+        ├── arrays/
+        │   ├── localizations_*.npy
+        │   ├── rois_*.npy
+        │   └── localization_qc_*.npy
+        ├── qc/
+        │   ├── roi_detection_decision_replay.png
+        │   ├── fit_uncertainty_quantile_montage.png
+        │   └── fit_hot_pixel_dominated_rois.png
+        ├── reports/
+        ├── provenance/
+        └── temp_files/
 ```
+
+Send the complete `share/` directory to collaborators. It deliberately contains only
+the final reconstruction, concise statistical evidence, and provenance needed to
+interpret it. Keep `debug/` with the run owner: it contains large arrays and technical
+diagnostics needed to audit choices, diagnose failures, or reproduce the hand-off.
 
 ## Localization `.npy`
 
 Main output:
 
 ```text
-localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
+debug/arrays/localizations_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
 ```
 
 This is a structured NumPy array. Each row corresponds to one accepted localization.
@@ -109,7 +120,6 @@ Peak time in microseconds.
 Useful for:
 
 - temporal filtering,
-- drift correction,
 - odd/even FRC splitting,
 - checking acquisition stability.
 
@@ -178,7 +188,7 @@ Do not compare it blindly across very different configurations or calibration st
 Main ROI output:
 
 ```text
-rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
+debug/arrays/rois_prominence_fwhm_<fwhm>_prominence_<prominence>.npy
 ```
 
 This stores the extracted event-count ROIs used for fitting.
@@ -214,7 +224,7 @@ For routine downstream analysis, start from the localization `.npy`, not the ROI
 QC output is usually named like:
 
 ```text
-localization_qc_*.npy
+debug/arrays/localization_qc_*.npy
 ```
 
 This table contains attempted fits and filter decisions.
@@ -263,76 +273,68 @@ uncertainty
 
 Use this field to understand why a parameter setting is too strict or too permissive.
 
-## Figures
+## Collaborator bundle: `share/`
 
-The `figures/` directory contains diagnostic and rendered outputs.
+The `share/` directory is the complete hand-off package. It is intentionally small,
+readable without code, and separated from arrays and implementation diagnostics.
+Start with `share/README.md`, then inspect its figures and accompanying statistics.
 
-When `plot_result` is true, expected SMLM render files include:
+### Final figures
 
-```text
-*_smlm_<datetime>.png
-*_smlm_<datetime>_12bit.tiff
-```
+`share/figures/` contains named, publication-sized outputs. Static charts are written
+as 450 dpi PNGs and as PDFs where a vector representation is meaningful.
 
-### PNG render
+- `smlm_reconstruction.png` and `smlm_reconstruction_12bit.tiff` are the cropped
+  final reconstruction preview and quantitative raster, respectively.
+- `detection_and_fit_summary.png` summarizes the detection funnel, fit uncertainty,
+  spatial localization density, and the hot-pixel screen.
+- `temporal_blink_timing_estimates.png` and
+  `temporal_blink_dynamics_over_recording.png` summarize temporal dynamics.
+- `temporal_blink_spatial_maps.png` shows spatial timing summaries with a labelled
+  colorbar and physical time units for every panel.
+- `frc_resolution.png`, when enough localizations are available, shows the FRC result.
 
-The PNG is a visual preview. It may contain annotations such as a scalebar.
+The spatial maps use an opaque neutral value for bins without enough localizations and
+a colorbar for each time scale. A sparse dataset therefore remains visibly sparse
+instead of becoming an apparently empty white square.
 
-Use it for:
+The timing-estimate distribution is displayed from 0 to 1000 ms. Longer intervals are
+not discarded: the figure annotates their number and the complete distribution remains
+in the statistics JSON.
 
-- quick inspection,
-- lab notebook screenshots,
-- sanity checks.
+### Statistics and metadata
 
-### 12-bit TIFF render
+`share/statistics/` contains the data underlying the collaborator figures in compact,
+machine-readable form:
 
-The TIFF render is more suitable for downstream image analysis.
+- `run_summary.json` records headline counts and fit-quality summaries.
+- `temporal_blink_statistics.json` records timing quantiles and the number outside the
+  0–1000 ms display range.
+- `temporal_blink_spatial_bin_statistics.csv` and
+  `temporal_blink_dynamics_over_recording.csv` preserve plotted temporal summaries.
+- `frc_summary.json`, when available, records the resolution estimate and warning.
 
-Use it for:
+`share/metadata/` stores the effective configuration, run metadata, software versions,
+and configuration hash. Keep it with the figures whenever sharing or archiving a run.
 
-- external image tools,
-- quantitative image workflows,
-- figure preparation after validation.
+## Technical audit trail: `debug/`
 
-## Reports
+`debug/` contains the detailed evidence needed to diagnose, reproduce, or challenge a
+pipeline decision. It is not the default collaborator hand-off.
 
-The `reports/` folder stores run reports and effective settings.
+- `debug/arrays/` contains accepted localizations, attempted fits, ROIs, and QC arrays.
+- `debug/qc/roi_detection_decision_replay.png` shows example ROI event signals and
+  their cumulative selected-event decision trace.
+- `debug/qc/fit_uncertainty_quantile_montage.png` samples fits through uncertainty
+  quantiles, so a permissive setting cannot hide poor ROIs in an average summary.
+- `debug/qc/fit_hot_pixel_dominated_rois.png` highlights ROIs with a large single-pixel
+  event fraction, including rejected or accepted cases that need manual review.
+- `debug/reports/` and `debug/provenance/` retain slice diagnostics, preflight results,
+  detailed tables, and configuration provenance.
 
-Typical contents:
-
-```text
-effective_config_*.json
-report_*.md
-```
-
-The effective config is important because it records the actual parameters used for that run.
-
-Always keep reports together with localization outputs.
-
-## QC directory
-
-The `qc/` folder contains detailed diagnostic plots.
-
-Common outputs include:
-
-```text
-uncertainty_lowest_36_combined.png
-uncertainty_highest_36_combined.png
-uncertainty_lowest_36_positive.png
-uncertainty_highest_36_positive.png
-uncertainty_lowest_36_negative.png
-uncertainty_highest_36_negative.png
-uncertainty_quantile_samples.png
-uncertainty_failed_fits.png
-```
-
-Use these plots to answer:
-
-- Are low-uncertainty fits visually plausible?
-- Are high-uncertainty fits weak, asymmetric, clipped, or noisy?
-- Are many fits failing because of invalid covariance?
-- Does the configured `sigma_psf_px` match the observed event-count ROIs?
-- Is `roi_radius` too small or too large?
+Use the decision replay and fit montages before changing peak, ROI, or fit thresholds.
+They distinguish a plausible PSF-like event from a single hot pixel or a weak,
+background-dominated ROI.
 
 ## Loading outputs in Python
 
@@ -341,7 +343,7 @@ Example:
 ```python
 import numpy as np
 
-locs = np.load("localizations_prominence_fwhm_4.01_prominence_12.0.npy")
+locs = np.load("debug/arrays/localizations_prominence_fwhm_4.01_prominence_12.0.npy")
 print(locs.dtype.names)
 print(locs.shape)
 
@@ -379,7 +381,7 @@ locs_filtered = locs[mask]
 Load QC table:
 
 ```python
-qc = np.load("localization_qc_example.npy")
+qc = np.load("debug/arrays/localization_qc_example.npy")
 accepted = qc["accepted"]
 reasons = qc["primary_rejection_reason"]
 ```
@@ -420,7 +422,7 @@ A suspicious run may show:
 For most analysis, start from:
 
 ```text
-localizations_*.npy
+debug/arrays/localizations_*.npy
 ```
 
 Then apply:
@@ -429,6 +431,5 @@ Then apply:
 2. Uncertainty filtering.
 3. Event-count filtering.
 4. Time filtering.
-5. Optional drift correction.
-6. Optional FRC resolution estimate.
-7. Final rendering.
+5. Optional FRC resolution estimate.
+6. Final rendering.

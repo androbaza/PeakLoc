@@ -80,12 +80,12 @@
   "max_fit_center_offset_px": 1.75,
   "qc_enabled": true,
   "qc_output_dirname": "qc",
-  "qc_static_dpi": 200,
-  "qc_save_vector": false,
+  "qc_static_dpi": 450,
+  "qc_save_vector": true,
   "qc_max_events_for_interactive": 50000,
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
   "qc_generate_interactive": false,
-  "qc_generate_temporal_3d": true,
+  "qc_generate_temporal_3d": false,
   "qc_keep_intermediates": false
 }

@@ -244,7 +244,7 @@ the convolution and ROI neighbors needed for those targets.
 The feature is off by default because it intentionally excludes locations that were
 not active during calibration. It falls back to full-sensor processing when no safe
 components are found or the support region covers too much of the sensor. Each enabled
-run saves target/support masks and metadata in `reports/` for auditability.
+run saves target/support masks and metadata in `debug/reports/` for auditability.
 
 `spatial_mask_min_density_quotient` is the normalized seed threshold. PeakLoc first
 calculates the sample's mean event density:
@@ -314,7 +314,7 @@ Within each time bin, either polarity can identify a transition. That polarity m
 meet both the event-count and full-sensor active-pixel thresholds. Detected bins no
 more than `diffuse_flash_max_gap_us` apart are treated as one illumination interval,
 then `diffuse_flash_padding_us` is added at both ends. The run writes the exact
-intervals and excluded event count to `reports/diffuse_flash_intervals_*.json` and
+intervals and excluded event count to `debug/reports/diffuse_flash_intervals_*.json` and
 summarizes them in the run report. Set `diffuse_flash_rejection_enabled` to `false`
 for an audit comparison.
 
@@ -816,19 +816,13 @@ Example:
 
 ### `qc_output_dirname`
 
-Name of the QC output directory.
-
-Example:
-
-```json
-{
-  "qc_output_dirname": "qc"
-}
-```
+Retained for compatibility with existing configuration files. It no longer changes the
+standard artifact layout: collaborator-ready outputs always go to `share/`, while
+arrays and technical diagnostics go to `debug/`.
 
 ### `qc_static_dpi`
 
-DPI for static QC figures.
+DPI for static figures. The default is 450 dpi for publication-scale raster output.
 
 Example:
 
@@ -840,21 +834,21 @@ Example:
 
 ### `qc_save_vector`
 
-Save vector graphics such as SVG/PDF when supported.
+Save a PDF counterpart when a vector representation is meaningful.
 
 Example:
 
 ```json
 {
-  "qc_save_vector": false
+  "qc_save_vector": true
 }
 ```
 
-Keep this false unless you specifically need vector files.
+Keep this true for collaborator review and figure preparation.
 
 ### `qc_max_events_for_interactive`
 
-Maximum number of events used in interactive QC plots.
+Maximum localizations used in optional interactive debug plots.
 
 Example:
 
@@ -864,11 +858,11 @@ Example:
 }
 ```
 
-Large values produce heavier HTML files.
+Large values produce heavier HTML files under `debug/`.
 
 ### `qc_uncertainty_montage_n`
 
-Number of low/high uncertainty examples shown in QC montages.
+Number of ROI examples shown across each fit-review montage in `debug/qc/`.
 
 Example:
 
@@ -880,7 +874,7 @@ Example:
 
 ### `qc_generate_html`
 
-Generate HTML QC summaries where supported.
+Generate the lightweight HTML index for the collaborator-ready `share/` bundle.
 
 Example:
 
@@ -892,19 +886,33 @@ Example:
 
 ### `qc_generate_interactive`
 
-Generate interactive QC plots where supported.
+Generate optional interactive technical diagnostics under `debug/`.
 
 Example:
 
 ```json
 {
-  "qc_generate_interactive": true
+  "qc_generate_interactive": false
+}
+```
+
+### `qc_generate_temporal_3d`
+
+Compatibility switch for the retired interactive temporal 3D view. It defaults to
+`false`; the standard temporal outputs are static, labelled figures and statistics in
+`share/`.
+
+Example:
+
+```json
+{
+  "qc_generate_temporal_3d": false
 }
 ```
 
 ### `qc_keep_intermediates`
 
-Keep intermediate QC files.
+Reserved compatibility option for intermediate QC retention.
 
 Example:
 
@@ -914,7 +922,7 @@ Example:
 }
 ```
 
-Set true only when debugging.
+The standard `debug/` audit artifacts are retained independently of this option.
 
 ## Plotting
 
@@ -930,7 +938,8 @@ Example:
 }
 ```
 
-If true, the pipeline writes rendered images to the output `figures/` directory.
+If true, the pipeline writes cropped SMLM preview and quantitative raster images to
+`share/figures/`.
 
 ### `plot_subplotsize`
 
@@ -961,7 +970,7 @@ Example:
 Set false when debugging intermediate arrays.
 
 For `.raw` input, PeakLoc also creates a temporary disk-backed normalized event cache
-inside `temp_files/`. Leave enough free disk space for that cache and the per-slice
+inside `debug/temp_files/`. Leave enough free disk space for that cache and the per-slice
 arrays; it is removed with the other temporary outputs when this setting is true.
 
 ## Recommended beginner configs
@@ -997,13 +1006,13 @@ arrays; it is removed with the other temporary outputs when this setting is true
   "max_localization_uncertainty_nm": 50.0,
   "max_fit_cond": 10000000000.0,
   "qc_enabled": true,
-  "qc_output_dirname": "qc",
   "qc_static_dpi": 450,
-  "qc_save_vector": false,
+  "qc_save_vector": true,
   "qc_max_events_for_interactive": 50000,
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
-  "qc_generate_interactive": true,
+  "qc_generate_interactive": false,
+  "qc_generate_temporal_3d": false,
   "qc_keep_intermediates": false,
   "plot_result": true
 }
@@ -1040,13 +1049,13 @@ arrays; it is removed with the other temporary outputs when this setting is true
   "max_localization_uncertainty_nm": 50.0,
   "max_fit_cond": 10000000000.0,
   "qc_enabled": true,
-  "qc_output_dirname": "qc",
   "qc_static_dpi": 450,
-  "qc_save_vector": false,
+  "qc_save_vector": true,
   "qc_max_events_for_interactive": 50000,
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
-  "qc_generate_interactive": true,
+  "qc_generate_interactive": false,
+  "qc_generate_temporal_3d": false,
   "qc_keep_intermediates": false,
   "plot_result": true
 }

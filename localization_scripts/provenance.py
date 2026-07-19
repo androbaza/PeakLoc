@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from localization_scripts.artifact_layout import ArtifactLayout
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
 from localization_scripts.preflight import effective_config_hash
 
@@ -36,15 +37,16 @@ def save_portable_outputs(
     localization_qc: np.ndarray,
     timestamp: str,
 ) -> list[Path]:
-    output_dir = Path(recording.output_folder)
+    layout = ArtifactLayout.from_run_directory(recording.output_folder)
+    layout.ensure_directories()
     artifacts = ProvenanceArtifacts(
-        accepted_csv=output_dir / "localizations_accepted.csv",
-        attempted_csv=output_dir / "localizations_attempted.csv",
-        qc_csv=output_dir / "localization_qc.csv",
-        run_metadata_json=output_dir / "run_metadata.json",
-        software_versions_json=output_dir / "software_versions.json",
-        config_effective_json=output_dir / "config_effective.json",
-        config_hash_txt=output_dir / "config_hash.txt",
+        accepted_csv=layout.share_statistics_dir / "accepted_localizations.csv",
+        attempted_csv=layout.debug_provenance_dir / "attempted_localizations.csv",
+        qc_csv=layout.debug_provenance_dir / "localization_qc.csv",
+        run_metadata_json=layout.share_metadata_dir / "run_metadata.json",
+        software_versions_json=layout.share_metadata_dir / "software_versions.json",
+        config_effective_json=layout.share_metadata_dir / "effective_config.json",
+        config_hash_txt=layout.share_metadata_dir / "config_hash.txt",
     )
     _write_structured_csv(accepted_localizations, artifacts.accepted_csv)
     _write_structured_csv(attempted_localizations, artifacts.attempted_csv)

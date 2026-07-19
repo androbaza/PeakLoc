@@ -18,7 +18,7 @@ GAUSSIAN_SIGMA_RENDER_PIXELS = 1.0
 NORMALIZATION_PERCENTILE = 99.8
 TIFF_BIT_DEPTH = 12
 PNG_DISPLAY_GAMMA = 2.0
-PNG_DPI = 300
+PNG_DPI = 450
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class SmlmRenderResult:
     localization_count: int
     render_pixel_size_nm: float
     image_shape: tuple[int, int]
+    crop_bounds_px: tuple[float, float, float, float] | None
 
 
 def save_smlm_visualization(
@@ -37,6 +38,8 @@ def save_smlm_visualization(
     optical_pixel_size_nm: float,
     timestamp: str,
     sensor_shape: tuple[int, int] | None = None,
+    output_stem: str | None = None,
+    crop_to_data: bool = False,
 ) -> SmlmRenderResult | None:
     coordinates = extract_localization_coordinates(localizations)
     if coordinates.size == 0:
@@ -46,32 +49,47 @@ def save_smlm_visualization(
     output_folder.mkdir(parents=True, exist_ok=True)
     source_path = Path(localizations_path)
     render_pixel_size_nm = optical_pixel_size_nm / RENDER_OVERSAMPLING
+    crop_bounds_px: tuple[float, float, float, float] | None = None
+    coordinates_to_render = coordinates
+    render_shape = sensor_shape
+    if crop_to_data:
+        crop_bounds_px = _data_crop_bounds(coordinates, sensor_shape)
+        x_start, y_start, x_stop, y_stop = crop_bounds_px
+        coordinates_to_render = coordinates - np.asarray([x_start, y_start])
+        render_shape = (
+            max(1, int(np.ceil(y_stop - y_start))),
+            max(1, int(np.ceil(x_stop - x_start))),
+        )
     density = render_density_image(
-        coordinates,
+        coordinates_to_render,
         RENDER_OVERSAMPLING,
-        sensor_shape=sensor_shape,
+        sensor_shape=render_shape,
     )
 
     image_8bit = normalize_to_uint(density, bit_depth=8)
     image_12bit = normalize_to_uint(density, bit_depth=TIFF_BIT_DEPTH)
 
-    base_name = f"{source_path.stem}_smlm_{timestamp}"
+    base_name = output_stem or f"{source_path.stem}_smlm_{timestamp}"
     png_path = output_folder / f"{base_name}.png"
     tiff_path = output_folder / f"{base_name}_12bit.tiff"
+
+    tiff_metadata: dict[str, object] = {
+        "axes": "YX",
+        "PhysicalSizeX": render_pixel_size_nm,
+        "PhysicalSizeY": render_pixel_size_nm,
+        "PhysicalSizeXUnit": "nm",
+        "PhysicalSizeYUnit": "nm",
+        "SignificantBits": TIFF_BIT_DEPTH,
+    }
+    if crop_bounds_px is not None:
+        tiff_metadata["PeakLocCropBoundsSensorPixels"] = list(crop_bounds_px)
 
     save_png_preview(image_8bit, png_path, render_pixel_size_nm)
     tifffile.imwrite(
         tiff_path,
         image_12bit,
         photometric="minisblack",
-        metadata={
-            "axes": "YX",
-            "PhysicalSizeX": render_pixel_size_nm,
-            "PhysicalSizeY": render_pixel_size_nm,
-            "PhysicalSizeXUnit": "nm",
-            "PhysicalSizeYUnit": "nm",
-            "SignificantBits": TIFF_BIT_DEPTH,
-        },
+        metadata=tiff_metadata,
     )
 
     return SmlmRenderResult(
@@ -80,7 +98,29 @@ def save_smlm_visualization(
         localization_count=coordinates.shape[0],
         render_pixel_size_nm=render_pixel_size_nm,
         image_shape=(int(image_12bit.shape[0]), int(image_12bit.shape[1])),
+        crop_bounds_px=crop_bounds_px,
     )
+
+
+def _data_crop_bounds(
+    coordinates: np.ndarray, sensor_shape: tuple[int, int] | None
+) -> tuple[float, float, float, float]:
+    """Return an inclusive data crop with a small physical-coordinate margin."""
+    x_min, y_min = np.min(coordinates, axis=0)
+    x_max, y_max = np.max(coordinates, axis=0)
+    x_margin = max((x_max - x_min) * 0.08, 4.0)
+    y_margin = max((y_max - y_min) * 0.08, 4.0)
+    x_start = float(np.floor(x_min - x_margin))
+    y_start = float(np.floor(y_min - y_margin))
+    x_stop = float(np.ceil(x_max + x_margin + 1.0))
+    y_stop = float(np.ceil(y_max + y_margin + 1.0))
+    if sensor_shape is not None:
+        height, width = sensor_shape
+        x_start = max(0.0, x_start)
+        y_start = max(0.0, y_start)
+        x_stop = min(float(width), x_stop)
+        y_stop = min(float(height), y_stop)
+    return x_start, y_start, max(x_stop, x_start + 1.0), max(y_stop, y_start + 1.0)
 
 
 def extract_localization_coordinates(localizations: np.ndarray) -> np.ndarray:

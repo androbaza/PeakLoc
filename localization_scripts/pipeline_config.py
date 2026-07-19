@@ -107,13 +107,13 @@ class PeakLocConfig:
     max_localization_uncertainty_nm: float | None = None
     qc_enabled: bool = True
     qc_output_dirname: str = "qc"
-    qc_static_dpi: int = 200
-    qc_save_vector: bool = False
+    qc_static_dpi: int = 450
+    qc_save_vector: bool = True
     qc_max_events_for_interactive: int = 50_000
     qc_uncertainty_montage_n: int = 36
     qc_generate_html: bool = True
     qc_generate_interactive: bool = False
-    qc_generate_temporal_3d: bool = True
+    qc_generate_temporal_3d: bool = False
     qc_keep_intermediates: bool = False
 
     @classmethod

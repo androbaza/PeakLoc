@@ -17,6 +17,7 @@ from scipy.sparse import SparseEfficiencyWarning
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
+from localization_scripts.artifact_layout import ArtifactLayout
 from localization_scripts.event_array_processing import (
     EVENT_DTYPE,
     array_to_polarity_map,
@@ -210,16 +211,47 @@ def discover_completed_runs(paths: list[Path]) -> list[Path]:
     runs: list[Path] = []
     for supplied_path in paths:
         path = supplied_path.expanduser()
-        if (path / "run_metadata.json").is_file():
-            candidates = [path]
-        else:
-            candidates = sorted(
-                metadata.parent for metadata in path.rglob("run_metadata.json")
-            )
+        candidates = _completed_run_candidates(path)
         if not candidates:
             raise FileNotFoundError(f"No completed PeakLoc run found under {path}")
         runs.extend(candidates)
     return list(dict.fromkeys(run.resolve() for run in runs))
+
+
+def _completed_run_candidates(path: Path) -> list[Path]:
+    """Find legacy and structured-layout runs below ``path``."""
+    if path.is_file():
+        metadata_paths = [path] if path.name == "run_metadata.json" else []
+    elif path.is_dir():
+        metadata_paths = [
+            metadata_path
+            for metadata_path in (
+                path / "share" / "metadata" / "run_metadata.json",
+                path / "run_metadata.json",
+            )
+            if metadata_path.is_file()
+        ]
+        if not metadata_paths:
+            metadata_paths = sorted(path.rglob("run_metadata.json"))
+    else:
+        metadata_paths = []
+
+    return list(
+        dict.fromkeys(
+            _run_directory_from_metadata(metadata_path)
+            for metadata_path in metadata_paths
+        )
+    )
+
+
+def _run_directory_from_metadata(metadata_path: Path) -> Path:
+    """Return the run root for a metadata file in either supported layout."""
+    if (
+        metadata_path.parent.name == "metadata"
+        and metadata_path.parent.parent.name == "share"
+    ):
+        return metadata_path.parent.parent.parent
+    return metadata_path.parent
 
 
 def _temporal_settings_from_mapping(
@@ -242,16 +274,18 @@ def analyze_run(
 ) -> RunArtifacts:
     """Reconstruct and export a five-blink photophysics deconstruction."""
     run_directory = run_directory.resolve()
-    metadata = _read_json(run_directory / "run_metadata.json")
-    config = _read_json(run_directory / "config_effective.json")
+    metadata = _read_json(_metadata_artifact(run_directory, "run_metadata.json"))
+    config = _read_json(_metadata_artifact(run_directory, "config_effective.json"))
     raw_path = _resolve_recording_path(str(metadata["input_file"]), run_directory)
     temporal_settings = temporal_settings or _temporal_settings_from_mapping(config)
     temporal_settings.validate()
-    localizations_path = _single_artifact(
-        run_directory, "localizations_prominence_fwhm_*_prominence_*.npy"
+    localizations_path = _single_array_artifact(
+        run_directory,
+        "localizations_prominence_fwhm_*_prominence_*.npy",
     )
-    rois_path = _single_artifact(
-        run_directory, "rois_prominence_fwhm_*_prominence_*.npy"
+    rois_path = _single_array_artifact(
+        run_directory,
+        "rois_prominence_fwhm_*_prominence_*.npy",
     )
     localizations = np.load(localizations_path, mmap_mode="r", allow_pickle=False)
     rois = np.load(rois_path, mmap_mode="r", allow_pickle=False)
@@ -293,8 +327,7 @@ def analyze_run(
             )
         )
 
-    output_directory = run_directory / str(config.get("qc_output_dirname", "qc"))
-    output_directory = output_directory / "photophysics_deconstruction"
+    output_directory = _photophysics_output_directory(run_directory, config)
     output_directory.mkdir(parents=True, exist_ok=True)
     paths = _write_outputs(
         analyzed,
@@ -2519,10 +2552,60 @@ def _save_figure(figure: Any, stem: Path) -> list[Path]:
     return [png_path, pdf_path]
 
 
-def _load_exclusions(run_directory: Path) -> list[tuple[int, int]]:
-    candidates = sorted(
-        (run_directory / "reports").glob("diffuse_flash_intervals_*.json")
+def _metadata_artifact(run_directory: Path, filename: str) -> Path:
+    """Resolve a metadata file from the structured layout or a legacy run."""
+    layout = ArtifactLayout.from_run_directory(run_directory)
+    for candidate in (
+        layout.share_metadata_dir / filename,
+        run_directory / filename,
+    ):
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"Missing {filename} in structured or legacy metadata locations for {run_directory}"
     )
+
+
+def _single_array_artifact(run_directory: Path, pattern: str) -> Path:
+    """Resolve one diagnostic array, preferring the structured debug location."""
+    layout = ArtifactLayout.from_run_directory(run_directory)
+    search_directories = (layout.debug_arrays_dir, run_directory)
+    for directory in search_directories:
+        if not directory.is_dir():
+            continue
+        candidates = sorted(directory.glob(pattern))
+        if len(candidates) == 1:
+            return candidates[0]
+        if candidates:
+            raise FileNotFoundError(
+                f"Expected exactly one array matching {pattern} in {directory}; "
+                f"found {len(candidates)}"
+            )
+    raise FileNotFoundError(
+        f"No diagnostic array matching {pattern} found for run {run_directory}"
+    )
+
+
+def _reports_directory(run_directory: Path) -> Path:
+    """Return the report directory for a structured or legacy run."""
+    layout = ArtifactLayout.from_run_directory(run_directory)
+    if layout.debug_reports_dir.is_dir():
+        return layout.debug_reports_dir
+    return run_directory / "reports"
+
+
+def _photophysics_output_directory(run_directory: Path, config: dict[str, Any]) -> Path:
+    """Place deconstruction outputs under debug for newly structured runs."""
+    layout = ArtifactLayout.from_run_directory(run_directory)
+    if (layout.share_metadata_dir / "run_metadata.json").is_file():
+        return layout.debug_qc_dir / "photophysics_deconstruction"
+    legacy_qc_directory = run_directory / str(config.get("qc_output_dirname", "qc"))
+    return legacy_qc_directory / "photophysics_deconstruction"
+
+
+def _load_exclusions(run_directory: Path) -> list[tuple[int, int]]:
+    report_directory = _reports_directory(run_directory)
+    candidates = sorted(report_directory.glob("diffuse_flash_intervals_*.json"))
     if not candidates:
         return []
     payload = _read_json(candidates[-1])
@@ -2536,7 +2619,8 @@ def _load_spatial_masks(
     run_directory: Path, config: dict[str, Any]
 ) -> tuple[np.ndarray, np.ndarray]:
     shape = (int(config["sensor_height"]), int(config["sensor_width"]))
-    metadata_paths = sorted((run_directory / "reports").glob("spatial_mask_*.json"))
+    report_directory = _reports_directory(run_directory)
+    metadata_paths = sorted(report_directory.glob("spatial_mask_*.json"))
     metadata_paths = [
         path for path in metadata_paths if path.name.startswith("spatial_mask_20")
     ]
@@ -2546,12 +2630,8 @@ def _load_spatial_masks(
     if not active:
         full = np.ones(shape, dtype=np.bool_)
         return full, full
-    target_path = _single_artifact(
-        run_directory / "reports", "spatial_mask_target_*.npy"
-    )
-    support_path = _single_artifact(
-        run_directory / "reports", "spatial_mask_support_*.npy"
-    )
+    target_path = _single_artifact(report_directory, "spatial_mask_target_*.npy")
+    support_path = _single_artifact(report_directory, "spatial_mask_support_*.npy")
     target = np.asarray(np.load(target_path, allow_pickle=False), dtype=np.bool_)
     support = np.asarray(np.load(support_path, allow_pickle=False), dtype=np.bool_)
     if target.shape != shape or support.shape != shape:

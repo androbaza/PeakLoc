@@ -150,7 +150,7 @@ def benchmark_scenarios() -> tuple[SyntheticBenchmarkScenario, ...]:
             "slow_rise_fall",
             (SyntheticBlink(32.0, 32.0, 10_000, 80_000, 20_000, 80_000, 80.0, 1.7),),
         ),
-        SyntheticBenchmarkScenario("known_drift_localizations", (bright,)),
+        SyntheticBenchmarkScenario("stationary_reference_localizations", (bright,)),
     )
 
 

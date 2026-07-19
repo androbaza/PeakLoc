@@ -27,6 +27,7 @@ from natsort import natsorted
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
+from localization_scripts.artifact_layout import ArtifactLayout
 from localization_scripts.calibration import EventCalibration, load_calibration
 from localization_scripts.event_array_processing import (
     array_to_polarity_map,
@@ -44,7 +45,7 @@ from localization_scripts.diffuse_flash import (
     exclude_time_intervals,
     iter_retained_event_spans,
 )
-from localization_scripts.fit_review import save_uncertainty_montages
+from localization_scripts.fit_review_diagnostics import save_fit_review_diagnostics
 from localization_scripts.localization_fitting import (
     localization_uncertainty_px,
     localization_qc_dtype,
@@ -57,7 +58,7 @@ from localization_scripts.peak_finding import (
     group_timestamps_by_coordinate,
 )
 from localization_scripts.pipeline_config import PeakLocConfig
-from localization_scripts.plot_style import PREVIEW_DPI
+from localization_scripts.plot_style import PREVIEW_DPI, save_publication_figure
 from localization_scripts.plotting_functions import plot_rois_from_locs
 from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.qc_dashboard import EventQCAccumulator, save_run_qc_dashboard
@@ -495,8 +496,11 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
     for filename in natsorted(input_files):
         logger.info("Processing {}", filename)
         recording = process_recording(filename, config, run_timestamp)
-        report_folder = recording.output_folder / "reports"
-        settings_path = report_folder / f"peakloc_settings_{run_timestamp}.json"
+        layout = ArtifactLayout.from_run_directory(recording.output_folder)
+        layout.ensure_directories()
+        settings_path = (
+            layout.debug_reports_dir / f"peakloc_settings_{run_timestamp}.json"
+        )
         write_effective_run_settings(
             config, recording.calibration_metadata, settings_path
         )
@@ -852,9 +856,10 @@ def process_recording(
     filename: Path, config: PeakLocConfig, run_timestamp: str
 ) -> RecordingResult:
     recording_start = time.time()
-    out_folder_localizations = filename.with_suffix("") / run_timestamp
-    out_folder_localizations.mkdir(parents=True, exist_ok=True)
-    temp_files_localization = out_folder_localizations / "temp_files"
+    run_directory = filename.with_suffix("") / run_timestamp
+    layout = ArtifactLayout.from_run_directory(run_directory)
+    layout.ensure_directories()
+    temp_files_localization = layout.temp_files_dir
     clear_stale_slice_artifacts(temp_files_localization)
     event_store = open_event_store(filename, config, temp_files_localization)
     events = event_store.events
@@ -862,7 +867,7 @@ def process_recording(
         time_min, time_max = event_time_bounds(events)
         recording = RecordingResult(
             input_file=filename,
-            output_folder=out_folder_localizations,
+            output_folder=run_directory,
             event_count=int(events.size),
             time_min=time_min,
             time_max=time_max,
@@ -983,7 +988,7 @@ def process_recording(
                 event_path=event_path,
                 event_format="npy" if filename.suffix == ".npy" else "raw_cache",
                 event_count=int(events.size),
-                output_folder=out_folder_localizations,
+                output_folder=layout.debug_dir,
                 config=config,
                 spatial_mask=active_spatial_mask,
                 diffuse_flash_intervals=flash_detection.intervals,
@@ -1018,7 +1023,7 @@ def process_recording(
                             filename,
                             config,
                             calibration,
-                            out_folder_localizations,
+                            layout.debug_dir,
                             active_spatial_mask,
                             flash_detection.intervals,
                         )
@@ -1029,14 +1034,14 @@ def process_recording(
                             filename,
                             config,
                             calibration,
-                            out_folder_localizations,
+                            layout.debug_dir,
                             active_spatial_mask,
                         )
                 finally:
                     del event_slice
                     release_unused_memory()
                 if slice_result is not None:
-                    _write_slice_manifest(slice_result, out_folder_localizations)
+                    _write_slice_manifest(slice_result, layout.debug_dir)
                     _validate_slice_result(slice_result)
                     recording.slice_results.append(slice_result)
                     recording.artifacts.extend(slice_result.artifacts)
@@ -1073,27 +1078,27 @@ def process_recording(
             return recording
 
         localizations_path = (
-            out_folder_localizations
+            layout.debug_arrays_dir
             / f"localizations_prominence_fwhm_{config.dataset_fwhm:g}"
             f"_prominence_{config.prominence:g}.npy"
         )
         attempted_localizations_path = (
-            out_folder_localizations
+            layout.debug_arrays_dir
             / f"attempted_localizations_prominence_fwhm_{config.dataset_fwhm:g}"
             f"_prominence_{config.prominence:g}.npy"
         )
         rois_path = (
-            out_folder_localizations / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
+            layout.debug_arrays_dir / f"rois_prominence_fwhm_{config.dataset_fwhm:g}"
             f"_prominence_{config.prominence:g}.npy"
         )
         localization_qc_path = (
-            out_folder_localizations
+            layout.debug_arrays_dir
             / f"localization_qc_prominence_fwhm_{config.dataset_fwhm:g}"
             f"_prominence_{config.prominence:g}.npy"
         )
         localization_qc_csv_path = localization_qc_path.with_suffix(".csv")
         temporal_segmentation_qc_path = (
-            out_folder_localizations
+            layout.debug_arrays_dir
             / f"temporal_segmentation_qc_prominence_fwhm_{config.dataset_fwhm:g}"
             f"_prominence_{config.prominence:g}.npy"
         )
@@ -1175,7 +1180,7 @@ def process_recording(
         recording.artifacts.extend(
             save_processed_plots(
                 localizations,
-                out_folder_localizations,
+                layout,
                 localizations_path,
                 config,
                 run_timestamp,
@@ -1276,7 +1281,9 @@ def detect_recording_diffuse_flashes(
 def save_diffuse_flash_intervals(
     recording: RecordingResult, config: PeakLocConfig, timestamp: str
 ) -> Path:
-    report_folder = recording.output_folder / "reports"
+    report_folder = ArtifactLayout.from_run_directory(
+        recording.output_folder
+    ).debug_reports_dir
     report_folder.mkdir(parents=True, exist_ok=True)
     path = report_folder / f"diffuse_flash_intervals_{timestamp}.json"
     payload = {
@@ -1360,7 +1367,9 @@ def save_spatial_mask_artifacts(
     timestamp: str,
 ) -> list[Path]:
     """Save auditable spatial-mask diagnostics without retaining event-density data."""
-    report_folder = recording.output_folder / "reports"
+    report_folder = ArtifactLayout.from_run_directory(
+        recording.output_folder
+    ).debug_reports_dir
     report_folder.mkdir(parents=True, exist_ok=True)
     metadata = {
         **spatial_mask.metadata(),
@@ -1549,7 +1558,9 @@ def _directory_size_bytes(path: Path) -> int:
 
 
 def write_slice_metrics(recording: RecordingResult, timestamp: str) -> list[Path]:
-    report_folder = recording.output_folder / "reports"
+    report_folder = ArtifactLayout.from_run_directory(
+        recording.output_folder
+    ).debug_reports_dir
     report_folder.mkdir(parents=True, exist_ok=True)
     json_path = report_folder / f"slice_metrics_{timestamp}.json"
     csv_path = report_folder / f"slice_metrics_{timestamp}.csv"
@@ -1685,15 +1696,17 @@ def summarize_fit_qc(
 
 def save_processed_plots(
     localizations: np.ndarray,
-    out_folder: Path,
+    layout: ArtifactLayout,
     localizations_path: Path,
     config: PeakLocConfig,
     timestamp: str,
     attempted_localizations: np.ndarray | None = None,
     localization_qc: np.ndarray | None = None,
 ) -> list[Path]:
-    figure_folder = out_folder / "figures"
-    figure_folder.mkdir(parents=True, exist_ok=True)
+    share_figure_dir = layout.share_figures_dir
+    debug_figure_dir = layout.debug_qc_dir
+    share_figure_dir.mkdir(parents=True, exist_ok=True)
+    debug_figure_dir.mkdir(parents=True, exist_ok=True)
     artifacts = []
 
     if config.plot_result and localizations.size == 0:
@@ -1707,20 +1720,28 @@ def save_processed_plots(
             dataset_FWHM=config.dataset_fwhm,
         )
         if roi_fit_figure is not None:
-            roi_fit_path = figure_folder / f"roi_fits_{timestamp}.png"
-            roi_fit_figure.savefig(roi_fit_path, dpi=PREVIEW_DPI, bbox_inches="tight")
+            roi_fit_path = debug_figure_dir / "roi_fit_overview.png"
+            artifacts.extend(
+                save_publication_figure(
+                    roi_fit_figure,
+                    roi_fit_path,
+                    dpi=max(config.qc_static_dpi, PREVIEW_DPI),
+                    save_vector=config.qc_save_vector,
+                )
+            )
             plt.close(roi_fit_figure)
-            artifacts.append(roi_fit_path)
             logger.info("Saved ROI fit plot to {}", roi_fit_path)
 
     if config.plot_result and localizations.size:
         result = save_smlm_visualization(
             localizations,
             localizations_path,
-            figure_folder,
+            share_figure_dir,
             optical_pixel_size_nm=config.optical_pixel_size_nm,
             timestamp=timestamp,
             sensor_shape=config.sensor_shape,
+            output_stem="smlm_reconstruction",
+            crop_to_data=True,
         )
         if result is not None:
             artifacts.extend([result.png_path, result.tiff_path])
@@ -1732,17 +1753,17 @@ def save_processed_plots(
         and attempted_localizations is not None
         and localization_qc is not None
     ):
-        montage_paths = save_uncertainty_montages(
+        review_paths = save_fit_review_diagnostics(
             attempted_localizations,
             localizations,
             localization_qc,
-            figure_folder,
+            debug_figure_dir,
             config=config,
             n=getattr(config, "qc_uncertainty_montage_n", 36),
             dpi=getattr(config, "qc_static_dpi", 450),
         )
-        artifacts.extend(montage_paths)
-        logger.info("Saved {} uncertainty review montage(s)", len(montage_paths))
+        artifacts.extend(review_paths)
+        logger.info("Saved {} fit-review diagnostic(s)", len(review_paths))
 
     return artifacts
 
@@ -1794,9 +1815,9 @@ def is_slice_temp_artifact(filename: str) -> bool:
 def write_run_report(
     recording: RecordingResult, config: PeakLocConfig, timestamp: str
 ) -> Path:
-    report_folder = recording.output_folder / "reports"
+    report_folder = ArtifactLayout.from_run_directory(recording.output_folder).share_dir
     report_folder.mkdir(parents=True, exist_ok=True)
-    report_path = report_folder / f"peakloc_report_{timestamp}.md"
+    report_path = report_folder / "run_report.md"
     if report_path not in recording.artifacts:
         recording.artifacts.append(report_path)
 
@@ -1948,7 +1969,7 @@ def _spatial_mask_report_lines(recording: RecordingResult) -> list[str]:
 def _scientific_validation_lines(
     recording: RecordingResult, config: PeakLocConfig
 ) -> list[str]:
-    qc_summary = _load_named_json_artifact(recording, "run_qc_summary.json")
+    qc_summary = _load_named_json_artifact(recording, "run_summary.json")
     frc_summary = _load_named_json_artifact(recording, "frc_summary.json")
     qc_index = _find_artifact(recording, "index.html")
     preflight_report = _find_artifact(recording, "preflight_report.md")
@@ -1986,23 +2007,19 @@ def _scientific_validation_lines(
         else:
             lines.append("- Rejection reasons: `none recorded`")
     else:
-        lines.append("- QC dashboard summary: `not available`")
+        lines.append("- Collaborator summary: `not available`")
 
     if frc_summary:
         lines.append(
             f"- FRC resolution: `{_format_json_float(frc_summary.get('resolution_nm'))} nm`"
         )
-        lines.append(
-            f"- Drift correction status: `{frc_summary.get('drift_method', 'n/a')}`"
-        )
         if frc_summary.get("warning"):
             warnings.append(f"FRC warning: {frc_summary['warning']}")
     else:
         lines.append("- FRC resolution: `not available`")
-        lines.append("- Drift correction status: `not available`")
 
     if qc_index is not None:
-        lines.append(f"- QC dashboard: `{qc_index}`")
+        lines.append(f"- Collaborator index: `{qc_index}`")
     lines.extend(["", "### Warnings Requiring Attention", ""])
     if warnings:
         lines.extend(f"- {warning}" for warning in warnings)

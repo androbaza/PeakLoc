@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
+from localization_scripts.artifact_layout import ArtifactLayout
 from localization_scripts.pipeline_config import load_peakloc_config
 from localization_scripts.smlm_visualization import save_smlm_visualization
 
@@ -41,7 +42,10 @@ def main() -> None:
     config = load_peakloc_config(args.config)
     localizations_path = args.localizations or ask_for_localizations_path()
     localizations = np.load(localizations_path)
-    output_dir = args.output_dir or localizations_path.parent / "figures"
+    default_output_dir, crop_to_data, output_stem = _default_output_settings(
+        localizations_path
+    )
+    output_dir = args.output_dir or default_output_dir
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     result = save_smlm_visualization(
@@ -49,6 +53,8 @@ def main() -> None:
         localizations_path,
         output_dir,
         optical_pixel_size_nm=config.optical_pixel_size_nm,
+        output_stem=output_stem,
+        crop_to_data=crop_to_data,
         timestamp=timestamp,
         sensor_shape=config.sensor_shape,
     )
@@ -63,6 +69,22 @@ def main() -> None:
         result.localization_count,
         result.render_pixel_size_nm,
     )
+
+
+def _default_output_settings(
+    localizations_path: Path,
+) -> tuple[Path, bool, str | None]:
+    """Choose a shareable output location for arrays from a structured run."""
+    arrays_directory = localizations_path.parent
+    if arrays_directory.name != "arrays" or arrays_directory.parent.name != "debug":
+        return arrays_directory / "figures", False, None
+    layout = ArtifactLayout.from_run_directory(arrays_directory.parent.parent)
+    if (
+        arrays_directory == layout.debug_arrays_dir
+        and (layout.share_metadata_dir / "run_metadata.json").is_file()
+    ):
+        return layout.share_figures_dir, True, None
+    return arrays_directory / "figures", False, None
 
 
 def ask_for_localizations_path() -> Path:

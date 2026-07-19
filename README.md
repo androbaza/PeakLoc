@@ -92,13 +92,24 @@ data/
 ├── AF647_coverslip.raw
 └── AF647_coverslip/
     └── 20260712_143015_123456/
-        ├── localizations_*.npy
-        ├── rois_*.npy
-        ├── localization_qc_*.npy
-        ├── figures/
-        ├── reports/
-        └── qc/
+        ├── share/                         # send this directory to collaborators
+        │   ├── README.md                   # run summary and hand-off guide
+        │   ├── figures/                    # final labelled PNG and PDF figures
+        │   ├── statistics/                 # compact CSV and JSON summaries
+        │   └── metadata/                   # effective settings and software provenance
+        └── debug/                          # technical audit trail; do not hand off by default
+            ├── arrays/                     # localization, ROI, and attempted-fit arrays
+            ├── qc/                         # fit montages and diagnostic figures
+            ├── reports/                    # slice, mask, and run diagnostics
+            ├── provenance/                 # detailed audit tables and preflight material
+            └── temp_files/                 # transient per-slice worker output
 ```
+
+Use `share/` as the collaborator-ready bundle. Its figures include the cropped SMLM
+reconstruction, detection and fit summary, temporal dynamics, spatial timing maps with
+units-bearing colorbars, and FRC when available. Timing-distribution panels display the
+physically relevant 0–1000 ms range and report longer values in the accompanying
+statistics rather than expanding the axis until the data disappear.
 
 ## Minimal smoke run
 
@@ -222,7 +233,6 @@ PeakLoc is under active development. Important limitations are:
 - Simultaneous overlapping emitters are not fully resolved as independent emitters.
 - Uncalibrated mode can be useful for exploration, but is not publication-grade.
 - The default calibration-free settings are not a substitute for dark and blank calibration recordings.
-- Legacy drift helper functionality exists, but should not be presented as the recommended final drift-correction path.
 - Parameter values are dataset-dependent. Defaults are starting points, not universal microscope settings.
 
 ## License

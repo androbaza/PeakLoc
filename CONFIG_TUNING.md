@@ -108,7 +108,7 @@ Use the full-stream interval filter for these recordings:
 
 The full interval between paired transitions is removed before spatial-mask
 calibration and localization. Disable the filter only for an audit comparison and
-inspect `reports/diffuse_flash_intervals_*.json` for the exact removed ranges.
+inspect `debug/reports/diffuse_flash_intervals_*.json` for the exact removed ranges.
 
 ## Calibration and Fixed Implementation Settings
 
@@ -132,12 +132,15 @@ inspect `reports/diffuse_flash_intervals_*.json` for the exact removed ranges.
 - Set `plot_result` to `false` for parameter sweeps that do not need rendered outputs.
 - Set `qc_enabled` to `false` for fast iterations. Attempted, accepted, ROI, and QC
   arrays are still written.
-- Default `qc_static_dpi` is 200. Use 450 for publication exports.
-- `qc_generate_interactive` is off by default because Plotly artifacts add substantial
-  runtime and disk usage. Enable it for interactive review runs.
-- `qc_generate_temporal_3d` separately controls the temporal Plotly artifact. It is
-  enabled for full QC runs and samples at most `qc_max_events_for_interactive`
-  localizations, while the statistics and static maps use all accepted localizations.
+- Static figures default to 450 dpi PNG plus a vector PDF counterpart. Retain both when
+  preparing a figure; do not downsample the source artifact for review.
+- `qc_output_dirname` remains readable for compatibility with older configuration files;
+  it does not alter the standard `share/` and `debug/` layout.
+- `qc_generate_interactive` is off by default because interactive artifacts add
+  substantial runtime and disk usage. Enable it only for a technical review in `debug/`.
+- `qc_generate_temporal_3d` defaults to false. The collaborator hand-off uses static,
+  units-labelled temporal figures and machine-readable summaries instead of an opaque
+  3D HTML view.
 - The sparse-structure spatial mask is calibrated from the first 60 seconds. The
   rapid-switching recording's historical 400-event cutoff was 2.67 times its mean
   sample density, so use `spatial_mask_min_density_quotient: 2.7` as the portable
@@ -155,18 +158,25 @@ inspect `reports/diffuse_flash_intervals_*.json` for the exact removed ranges.
 
 ## Temporal Blink Artifacts
 
-The `qc/` folder contains temporal maps, a per-spatial-bin CSV, summary JSON/Markdown,
-timing distributions, and `temporal_blink_spatial_3d.html`. The maps visualize the
-accepted localizations over the final image using the first ROI event, first-to-last
-ROI event duration, and last ROI event.
+Collaborator-facing temporal artifacts are saved under `share/`, not mixed with the
+technical QC montages in `debug/qc/`.
 
-These are ROI-window timing proxies, not direct molecular turn-on or turn-off times:
-they include all events in the fitted ROI window and can reflect background, hot pixels,
-and the peak-detection timing window. Use spatial patterns as a lead for review, then
-validate any biological claim with signal-associated event timing or an independent
-measurement.
+- `share/figures/temporal_blink_timing_estimates.png` shows boundary and duration
+  distributions.
+- `share/figures/temporal_blink_dynamics_over_recording.png` and
+  `temporal_blink_spatial_maps.png` show recording-time and spatial summaries.
+- `share/statistics/temporal_blink_statistics.json` plus the spatial-bin and
+  recording-time CSVs preserve the plotted values and full distribution summaries.
 
-The current `slice_duration` creates repeated bins from `slice_start` through the end
-of a recording. It does not limit a RAW run to one bin. RAW inputs are staged on disk
-and processed one time slice at a time, so long recordings no longer require the full
-event array to remain resident.
+All spatial timing maps use an opaque background for bins without sufficient data and
+a colorbar with explicit seconds or milliseconds units. This prevents sparse maps from
+looking like blank white figures and makes their timescale independently interpretable.
+
+The timing-estimate panel is intentionally limited to 0–1000 ms, the relevant display
+range for expected blinks. Values above that range remain in the statistics and are
+counted in the figure annotation rather than stretching the axis and hiding the bulk of
+the data.
+
+These timing values are ROI-window or temporal-segmentation proxies, not direct
+molecular turn-on or turn-off times. They can reflect background, hot pixels, and the
+peak-detection timing window. Use spatial patterns as a lead for review, then validate

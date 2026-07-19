@@ -282,7 +282,7 @@ def _artifact_paths(results: list[Any], *, prefix: str, suffix: str) -> list[Pat
 
 
 def _prefer_full_outputs(paths: list[Path]) -> list[Path]:
-    full_outputs = [path for path in paths if path.parent.name != "temp_files"]
+    full_outputs = [path for path in paths if "temp_files" not in path.parts]
     return full_outputs or paths
 
 

@@ -51,9 +51,9 @@ Recommended path:
 1. Prepare `.raw`, `.bias`, and calibration files.
 2. Run strict preflight.
 3. Process a short slice.
-4. Inspect QC.
+4. Inspect `share/` for the collaborator-ready result and `debug/qc/` for fit evidence.
 5. Run full batch.
-6. Use `localizations_*.npy` for downstream work.
+6. Use `debug/arrays/localizations_*.npy` for downstream work.
 
 Example:
 
@@ -64,7 +64,7 @@ pixi run python PeakLoc.py --config config.json --strict-preflight
 Main output:
 
 ```text
-localizations_*.npy
+debug/arrays/localizations_*.npy
 ```
 
 Important fields:
@@ -94,9 +94,12 @@ Test whether changes to fitting, ROI size, PSF width, or uncertainty filters imp
 Use:
 
 ```text
-rois_*.npy
-localization_qc_*.npy
-qc/
+debug/arrays/rois_*.npy
+debug/arrays/localization_qc_*.npy
+debug/qc/roi_detection_decision_replay.png
+debug/qc/fit_uncertainty_quantile_montage.png
+debug/qc/fit_hot_pixel_dominated_rois.png
+share/statistics/run_summary.json
 ```
 
 Useful parameters to sweep:
@@ -171,23 +174,18 @@ If most fits are rejected by uncertainty, possible causes include:
 - calibration/background handling is poor,
 - sample is too dense or noisy.
 
-## Use case 5: drift and FRC postprocessing
+## Use case 5: FRC resolution summary
 
-PeakLoc contains modules for drift and FRC-related postprocessing.
+PeakLoc estimates FRC from split accepted localizations and reports the result without a
+postprocessing coordinate transform.
 
-Use drift correction carefully.
+1. Confirm that the reconstruction and fit-quality screens in `share/figures/` are plausible.
+2. Inspect `share/figures/frc_resolution.png` when it is produced.
+3. Record the estimate and any warning from `share/statistics/frc_summary.json`.
+4. Treat FRC as supporting evidence alongside ROI and fit diagnostics, not a stand-alone claim.
 
-The current drift helper should be treated as a basic helper, not as the recommended final publication-grade drift workflow.
-
-A safer workflow is:
-
-1. Export accepted localization table.
-2. Apply independently validated drift correction.
-3. Render before and after drift correction.
-4. Estimate FRC using split localizations.
-5. Confirm that visual structure and FRC behavior are consistent.
-
-FRC requires enough localizations. Sparse data can produce unstable or uninformative FRC estimates.
+FRC requires enough localizations. Sparse or strongly heterogeneous data can produce an
+unstable or uninformative curve.
 
 ## Use case 6: synthetic validation
 
@@ -305,18 +303,6 @@ background_mode
 
 Use sweeps and QC rather than assuming defaults are correct.
 
-## Known limitation: legacy drift helper
-
-The repository contains a drift helper, but it should not be documented as the recommended final drift-correction method.
-
-Use it only as:
-
-- a basic diagnostic,
-- a starting point for method development,
-- a temporary helper for exploratory runs.
-
-For final analysis, use a validated drift-correction workflow and document it separately.
-
 ## Practical decision guide
 
 Use PeakLoc for:
@@ -335,7 +321,7 @@ Be cautious when using PeakLoc for:
 - dense simultaneous emitters,
 - uncalibrated quantitative comparisons,
 - biological conclusions from default parameters,
-- drift-sensitive resolution claims,
+- long-acquisition resolution claims,
 - comparisons across different bias/camera settings.
 
 ## Minimum quality evidence for serious use
@@ -347,13 +333,13 @@ Before trusting a dataset, collect and keep:
 - dark calibration recording,
 - laser-on blank calibration recording,
 - event calibration `.npz`,
-- effective config JSON,
-- preflight report,
-- localization `.npy`,
-- QC table,
-- QC montages,
-- rendered preview,
-- postprocessing notebook or script,
-- final filtering criteria.
+- complete `share/` bundle, including its README, statistics, and metadata,
+- `debug/provenance/` preflight and detailed audit outputs,
+- `debug/arrays/localizations_*.npy` and `localization_qc_*.npy`,
+- `debug/qc/` decision replays and fit-quantile/hot-pixel montages,
+- `share/figures/smlm_reconstruction.png` and the 12-bit TIFF raster,
+- temporal timing statistics and temporal spatial maps with units-bearing colorbars,
+- `share/statistics/frc_summary.json` when an FRC estimate is available,
+- final filtering criteria and any downstream analysis script.
 
 A result without these artifacts should be considered exploratory.

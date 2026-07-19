@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -13,17 +12,20 @@ import numpy as np
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
-from localization_scripts.blink_temporal_qc import save_blink_temporal_qc
-from localization_scripts.fit_review import save_uncertainty_montages
+from localization_scripts.artifact_layout import ArtifactLayout
+from localization_scripts.collaborator_figures import save_detection_and_fit_summary
 from localization_scripts.localization_fitting import localization_uncertainty_px
-from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
+from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plot_style import (
     EVENT_DENSITY_CMAP,
     PLOT_COLORS,
     SEQUENTIAL_CMAP,
+    save_publication_figure,
+    style_publication_axis,
 )
 from localization_scripts.postprocessing import save_postprocessing_qc
 from localization_scripts.preflight import run_preflight, write_preflight_report
+from localization_scripts.temporal_reporting import save_temporal_dynamics_artifacts
 
 
 @dataclass(frozen=True)
@@ -132,8 +134,8 @@ def save_run_qc_dashboard(
     timestamp: str,
     event_qc: EventQCAccumulator | None = None,
 ) -> list[Path]:
-    output_dir = Path(recording.output_folder) / config.qc_output_dirname
-    output_dir.mkdir(parents=True, exist_ok=True)
+    layout = ArtifactLayout.from_run_directory(recording.output_folder)
+    layout.ensure_directories()
     artifacts: list[Path] = []
 
     summary = build_qc_summary(
@@ -144,8 +146,8 @@ def save_run_qc_dashboard(
         localization_qc=localization_qc,
         rois=rois,
     )
-    summary_json_path = output_dir / "run_qc_summary.json"
-    summary_md_path = output_dir / "run_qc_summary.md"
+    summary_json_path = layout.share_statistics_dir / "run_summary.json"
+    summary_md_path = layout.share_dir / "README.md"
     summary_json_path.write_text(
         json.dumps(_json_ready(summary), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -153,18 +155,13 @@ def save_run_qc_dashboard(
     summary_md_path.write_text(_summary_markdown(summary), encoding="utf-8")
     artifacts.extend([summary_json_path, summary_md_path])
 
-    effective_config_path = output_dir / "effective_config.json"
-    write_effective_config(config, effective_config_path)
-    artifacts.append(effective_config_path)
-
-    preflight_path = output_dir / "preflight_report.md"
+    preflight_path = layout.debug_reports_dir / "preflight_report.md"
     write_preflight_report(run_preflight(config), preflight_path)
     artifacts.append(preflight_path)
 
     static_paths = save_static_qc_figures(
-        output_dir=output_dir,
+        output_dir=layout.debug_qc_dir,
         config=config,
-        recording=recording,
         summary=summary,
         localizations=localizations,
         attempted_localizations=attempted_localizations,
@@ -175,10 +172,36 @@ def save_run_qc_dashboard(
     )
     artifacts.extend(static_paths)
 
+    collaborator_paths = save_detection_and_fit_summary(
+        detection_funnel=summary.detection_funnel,
+        accepted_localizations=localizations,
+        attempted_localizations=attempted_localizations,
+        localization_qc=localization_qc,
+        figure_dir=layout.share_figures_dir,
+        config=config,
+    )
+    collaborator_paths.extend(
+        save_temporal_dynamics_artifacts(
+            localizations,
+            layout.share_figures_dir,
+            layout.share_statistics_dir,
+            config,
+        )
+    )
+    collaborator_paths.extend(
+        save_postprocessing_qc(
+            localizations,
+            config,
+            layout.share_figures_dir,
+            layout.share_statistics_dir,
+        )
+    )
+    artifacts.extend(collaborator_paths)
+
     interactive_paths: list[Path] = []
     if config.qc_generate_interactive:
         interactive_paths = save_interactive_qc_figures(
-            output_dir=output_dir,
+            output_dir=layout.debug_qc_dir,
             config=config,
             localizations=localizations,
             attempted_localizations=attempted_localizations,
@@ -187,19 +210,10 @@ def save_run_qc_dashboard(
         )
         artifacts.extend(interactive_paths)
 
-    temporal_paths = save_blink_temporal_qc(localizations, output_dir, config)
-    artifacts.extend(temporal_paths)
-    static_paths.extend(
-        path
-        for path in temporal_paths
-        if path.suffix in {".png", ".json", ".md", ".csv"}
-    )
-    interactive_paths.extend(path for path in temporal_paths if path.suffix == ".html")
-
     if config.qc_generate_html:
-        index_path = output_dir / "index.html"
+        index_path = layout.share_dir / "index.html"
         index_path.write_text(
-            _index_html(summary, static_paths, interactive_paths, timestamp),
+            _index_html(summary, collaborator_paths, timestamp, layout.share_dir),
             encoding="utf-8",
         )
         artifacts.append(index_path)
@@ -257,7 +271,9 @@ def build_qc_summary(
     }
     return QCDashboardSummary(
         input_file=str(recording.input_file),
-        output_dir=str(Path(recording.output_folder) / config.qc_output_dirname),
+        output_dir=str(
+            ArtifactLayout.from_run_directory(recording.output_folder).share_dir
+        ),
         event_count=processed_event_count,
         attempted_fit_count=attempted_count,
         accepted_localization_count=accepted_count,
@@ -276,7 +292,6 @@ def save_static_qc_figures(
     *,
     output_dir: Path,
     config: PeakLocConfig,
-    recording: Any,
     summary: QCDashboardSummary,
     localizations: np.ndarray,
     attempted_localizations: np.ndarray,
@@ -293,73 +308,73 @@ def save_static_qc_figures(
     )
     figure_specs = [
         (
-            "01_event_density_total.png",
+            "event_density_total.png",
             lambda ax: _plot_image(ax, density_total, "Event density"),
         ),
         (
-            "02_event_density_polarity.png",
+            "event_density_by_polarity.png",
             lambda ax: _plot_polarity_density(ax, density_pos, density_neg),
         ),
         (
-            "03_peak_candidate_density.png",
+            "peak_candidate_density.png",
             lambda ax: _plot_peak_candidate_density(
                 ax, attempted_localizations, config
             ),
         ),
         (
-            "04_detection_funnel.png",
+            "detection_funnel.png",
             lambda ax: _plot_bar(ax, summary.detection_funnel, "Detection funnel"),
         ),
         (
-            "05_fit_rejection_reasons.png",
+            "fit_rejection_reasons.png",
             lambda ax: _plot_bar(
                 ax, summary.rejection_reasons, "Fit rejection reasons"
             ),
         ),
         (
-            "06_uncertainty_histogram.png",
+            "uncertainty_distribution.png",
             lambda ax: _plot_uncertainty_histogram(ax, localization_qc, config),
         ),
         (
-            "07_uncertainty_vs_events.png",
+            "uncertainty_vs_event_count.png",
             lambda ax: _plot_uncertainty_vs_field(
                 ax, localization_qc, "E_total", "Events"
             ),
         ),
         (
-            "08_uncertainty_vs_nll.png",
+            "uncertainty_vs_nll_per_event.png",
             lambda ax: _plot_uncertainty_vs_field(
                 ax, localization_qc, "nll_per_event", "NLL/event"
             ),
         ),
         (
-            "09_fit_condition_vs_uncertainty.png",
+            "fit_condition_vs_uncertainty.png",
             lambda ax: _plot_uncertainty_vs_field(
                 ax, localization_qc, "fit_cond", "Fit condition"
             ),
         ),
         (
-            "10_background_vs_signal.png",
+            "background_vs_signal.png",
             lambda ax: _plot_background_vs_signal(ax, attempted_localizations),
         ),
         (
-            "11_localization_density_render.png",
+            "accepted_localization_density_data_crop.png",
             lambda ax: _plot_localization_density(ax, localizations, config),
         ),
         (
-            "12_time_binned_localization_count.png",
+            "localization_count_over_time.png",
             lambda ax: _plot_time_binned_count(ax, localizations),
         ),
         (
-            "13_time_binned_median_uncertainty.png",
+            "uncertainty_over_time.png",
             lambda ax: _plot_time_binned_uncertainty(ax, localizations, config),
         ),
         (
-            "14_spatial_uncertainty_heatmap.png",
+            "spatial_uncertainty.png",
             lambda ax: _plot_spatial_uncertainty(ax, localizations, config),
         ),
         (
-            "15_hot_pixel_overlay.png",
+            "hot_pixel_overlay.png",
             lambda ax: _plot_hot_pixel_overlay(
                 ax, density_total, attempted_localizations
             ),
@@ -368,35 +383,6 @@ def save_static_qc_figures(
     for filename, plotter in figure_specs:
         paths.extend(_save_single_axis_figure(output_dir / filename, config, plotter))
 
-    montage_paths = _reuse_uncertainty_montages(recording, output_dir)
-    if not montage_paths:
-        montage_paths = save_uncertainty_montages(
-            attempted_localizations,
-            localizations,
-            localization_qc,
-            output_dir,
-            config=config,
-            n=config.qc_uncertainty_montage_n,
-            dpi=config.qc_static_dpi,
-        )
-    paths.extend(montage_paths)
-    lowest = (
-        output_dir
-        / f"uncertainty_lowest_{config.qc_uncertainty_montage_n}_combined.png"
-    )
-    highest = (
-        output_dir
-        / f"uncertainty_highest_{config.qc_uncertainty_montage_n}_combined.png"
-    )
-    paths.extend(
-        _copy_if_exists(
-            [
-                (lowest, output_dir / "16_lowest_uncertainty_36.png"),
-                (highest, output_dir / "17_highest_uncertainty_36.png"),
-            ]
-        )
-    )
-    paths.extend(save_postprocessing_qc(localizations, config, output_dir))
     return paths
 
 
@@ -483,13 +469,13 @@ def save_interactive_qc_figures(
 def _save_single_axis_figure(path: Path, config: PeakLocConfig, plotter) -> list[Path]:
     fig, axis = plt.subplots(figsize=(6.0, 4.2), constrained_layout=True)
     plotter(axis)
-    saved = [path]
-    fig.savefig(path, dpi=config.qc_static_dpi, bbox_inches="tight")
-    if config.qc_save_vector:
-        for suffix in (".svg", ".pdf"):
-            vector_path = path.with_suffix(suffix)
-            fig.savefig(vector_path, bbox_inches="tight")
-            saved.append(vector_path)
+    style_publication_axis(axis)
+    saved = save_publication_figure(
+        fig,
+        path,
+        dpi=max(config.qc_static_dpi, 450),
+        save_vector=config.qc_save_vector,
+    )
     plt.close(fig)
     return saved
 
@@ -721,26 +707,6 @@ def _plot_hot_pixel_overlay(
     axis.set_ylabel("y px")
 
 
-def _copy_if_exists(copies: list[tuple[Path, Path]]) -> list[Path]:
-    paths: list[Path] = []
-    for source, destination in copies:
-        if source.is_file():
-            shutil.copyfile(source, destination)
-            paths.append(destination)
-    return paths
-
-
-def _reuse_uncertainty_montages(recording: Any, output_dir: Path) -> list[Path]:
-    source_dir = Path(recording.output_folder) / "figures"
-    sources = sorted(
-        path
-        for pattern in ("uncertainty_*", "roi_detection_replay_*")
-        for path in source_dir.glob(pattern)
-        if path.suffix in {".png", ".svg", ".pdf"}
-    )
-    return _copy_if_exists([(source, output_dir / source.name) for source in sources])
-
-
 def _write_static_interactive_map(
     path: Path, loc_source: np.ndarray, uncertainty: np.ndarray, hover_text: list[str]
 ) -> None:
@@ -771,7 +737,7 @@ def _write_static_interactive_map(
 
 def _summary_markdown(summary: QCDashboardSummary) -> str:
     lines = [
-        "# PeakLoc Run QC Summary",
+        "# PeakLoc collaborator bundle",
         "",
         f"- Input file: `{summary.input_file}`",
         f"- Events loaded: `{summary.event_count}`",
@@ -804,27 +770,33 @@ def _summary_markdown(summary: QCDashboardSummary) -> str:
 
 def _index_html(
     summary: QCDashboardSummary,
-    static_paths: list[Path],
-    interactive_paths: list[Path],
+    artifact_paths: list[Path],
     timestamp: str,
+    share_dir: Path,
 ) -> str:
+    link_paths = [
+        share_dir / "README.md",
+        share_dir / "statistics" / "run_summary.json",
+        *artifact_paths,
+    ]
     links = "\n".join(
-        f'<li><a href="{path.name}">{path.name}</a></li>'
-        for path in static_paths + interactive_paths
-        if path.suffix in {".png", ".html", ".json", ".md", ".csv"}
+        f'<li><a href="{relative}">{relative}</a></li>'
+        for path in dict.fromkeys(link_paths)
+        if path.suffix in {".png", ".pdf", ".tiff", ".json", ".md", ".csv"}
+        for relative in [path.relative_to(share_dir).as_posix()]
     )
     warnings = "".join(f"<li>{warning}</li>" for warning in summary.warnings)
     return f"""<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>PeakLoc QC</title></head>
+<head><meta charset="utf-8"><title>PeakLoc collaborator bundle</title></head>
 <body>
-<h1>PeakLoc QC</h1>
+<h1>PeakLoc collaborator bundle</h1>
 <p>Run timestamp: <code>{timestamp}</code></p>
 <p>Attempted fits: <code>{summary.attempted_fit_count}</code>; accepted:
 <code>{summary.accepted_from_qc_count}</code></p>
 <h2>Warnings</h2>
 <ul>{warnings or "<li>No dashboard warnings.</li>"}</ul>
-<h2>Artifacts</h2>
+<h2>Shareable artifacts</h2>
 <ul>{links}</ul>
 </body>
 </html>

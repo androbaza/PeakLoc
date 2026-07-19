@@ -350,7 +350,6 @@ def test_write_run_report_includes_scientific_validation_summary(tmp_path):
                 "resolution_nm": 45.0,
                 "threshold": 1 / 7,
                 "warning": None,
-                "drift_method": "binned_median",
             }
         ),
         encoding="utf-8",
