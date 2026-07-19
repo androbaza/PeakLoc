@@ -18,6 +18,8 @@ from localization_scripts.temporal_segmentation import (
     segment_candidate_events,
 )
 
+DETECTION_REPLAY_TIME_BIN_COUNT = 128
+
 
 @dataclass(frozen=True)
 class TemporalRoiGenerationResult:
@@ -37,6 +39,13 @@ class TemporalRoiGenerationResult:
 def temporal_roi_record_dtype(roi_radius: int) -> list[tuple]:
     return [
         *roi_record_dtype(roi_radius),
+        (
+            "roi_event_histogram",
+            np.uint32,
+            (2, DETECTION_REPLAY_TIME_BIN_COUNT),
+        ),
+        ("roi_event_histogram_start_us", np.uint64),
+        ("roi_event_histogram_bin_us", np.uint32),
         ("temporal_segmented", np.bool_),
         ("segmentation_id", np.uint64),
         ("parent_seed_peak_us", np.uint64),
@@ -193,6 +202,13 @@ def generate_temporally_segmented_rois(
                 qc_row["rejection_reason"] = "refined_roi_out_of_bounds"
                 qc_rows.append(qc_row)
                 continue
+            histogram_start_us = seed_peak_us - settings.context_pre_us
+            histogram_bin_us = int(
+                np.ceil(
+                    (settings.context_pre_us + settings.context_post_us)
+                    / DETECTION_REPLAY_TIME_BIN_COUNT
+                )
+            )
             base_values = _materialize_segmented_roi(
                 index.dict_indices,
                 index.times,
@@ -204,6 +220,9 @@ def generate_temporally_segmented_rois(
                 interval.on_train.support_stop_us,
                 interval.off_train.support_start_us,
                 interval.off_train.support_stop_us,
+                histogram_start_us,
+                histogram_bin_us,
+                DETECTION_REPLAY_TIME_BIN_COUNT,
             )
             roi = _build_temporal_roi_record(
                 base_values,
@@ -215,6 +234,8 @@ def generate_temporally_segmented_rois(
                 center_x=center_x,
                 image_start=(min_y, min_x),
                 roi_radius=roi_radius,
+                histogram_start_us=histogram_start_us,
+                histogram_bin_us=histogram_bin_us,
             )
             segmentation_id += 1
             roi_chunks.append(roi)
@@ -331,11 +352,15 @@ def _materialize_segmented_roi(
     on_stop_us,
     off_start_us,
     off_stop_us,
+    histogram_start_us,
+    histogram_bin_us,
+    histogram_bin_count,
 ):
     roi_side = roi_radius * 2 + 1
     roi_positive = np.zeros((roi_side, roi_side), dtype=np.uint32)
     roi_negative = np.zeros((roi_side, roi_side), dtype=np.uint32)
     roi_event_times = np.zeros((2, roi_side, roi_side), dtype=np.uint64)
+    roi_event_histogram = np.zeros((2, histogram_bin_count), dtype=np.uint32)
     total_positive = 0
     total_negative = 0
     first_event = 0
@@ -354,6 +379,9 @@ def _materialize_segmented_roi(
                     continue
                 timestamp = times[row][event_index]
                 roi_positive[y - center_y + roi_radius, x - center_x + roi_radius] += 1
+                histogram_index = (timestamp - histogram_start_us) // histogram_bin_us
+                if 0 <= histogram_index < histogram_bin_count:
+                    roi_event_histogram[0, histogram_index] += 1
                 total_positive += 1
                 if first_pixel_event == 0 or timestamp < first_pixel_event:
                     first_pixel_event = timestamp
@@ -366,6 +394,9 @@ def _materialize_segmented_roi(
                     continue
                 timestamp = times[row][event_index]
                 roi_negative[y - center_y + roi_radius, x - center_x + roi_radius] += 1
+                histogram_index = (timestamp - histogram_start_us) // histogram_bin_us
+                if 0 <= histogram_index < histogram_bin_count:
+                    roi_event_histogram[1, histogram_index] += 1
                 total_negative += 1
                 if first_pixel_event == 0 or timestamp < first_pixel_event:
                     first_pixel_event = timestamp
@@ -385,6 +416,7 @@ def _materialize_segmented_roi(
         roi_positive,
         roi_negative,
         roi_event_times,
+        roi_event_histogram,
         total_positive,
         total_negative,
         first_event,
@@ -403,11 +435,14 @@ def _build_temporal_roi_record(
     center_x: int,
     image_start: tuple[int, int],
     roi_radius: int,
+    histogram_start_us: int,
+    histogram_bin_us: int,
 ) -> np.ndarray:
     (
         roi_positive,
         roi_negative,
         roi_event_times,
+        roi_event_histogram,
         total_positive,
         total_negative,
         first_event,
@@ -417,6 +452,9 @@ def _build_temporal_roi_record(
     record["roi"] = roi_positive
     record["roi_n"] = roi_negative
     record["roi_event_times"] = roi_event_times
+    record["roi_event_histogram"] = roi_event_histogram
+    record["roi_event_histogram_start_us"] = histogram_start_us
+    record["roi_event_histogram_bin_us"] = histogram_bin_us
     record["total_events_roi"] = total_positive
     record["total_neg_events_roi"] = total_negative
     record["t_1st"] = first_event

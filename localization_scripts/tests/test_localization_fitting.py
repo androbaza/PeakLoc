@@ -66,6 +66,10 @@ def test_temporal_segmentation_provenance_survives_localization() -> None:
     rois["t_on_window_stop"] = 88_000
     rois["t_off_window_start"] = 112_000
     rois["t_off_window_stop"] = 122_000
+    rois["roi_event_histogram"][0, 0, :3] = [5, 8, 5]
+    rois["roi_event_histogram"][0, 1, :2] = [4, 6]
+    rois["roi_event_histogram_start_us"] = 50_000
+    rois["roi_event_histogram_bin_us"] = 4_000
     rois["t_on_first"] = 70_250
     rois["t_on_last"] = 87_250
     rois["t_off_first"] = 112_500
@@ -93,6 +97,9 @@ def test_temporal_segmentation_provenance_survives_localization() -> None:
     assert int(localizations["t_off_last"][0]) == 121_500
     assert int(localizations["quiet_dwell_us"][0]) == 25_250
     assert float(localizations["pair_score"][0]) == 0.75
+    assert int(np.sum(localizations["roi_event_histogram"][0])) == 28
+    assert int(np.sum(localizations["roi_event_histogram"][0, 1])) == 10
+    assert int(localizations["roi_event_histogram_start_us"][0]) == 50_000
 
 
 def test_localize_rois_filters_poisson_results_before_downstream_outputs():

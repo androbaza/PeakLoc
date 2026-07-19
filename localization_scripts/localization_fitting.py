@@ -9,6 +9,7 @@ from localization_scripts.calibration import EventCalibration
 from localization_scripts.event_array_processing import slice_data
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.poisson_fitting import fit_joint_poisson_roi
+from localization_scripts.temporal_roi_generation import DETECTION_REPLAY_TIME_BIN_COUNT
 
 FWHM_FROM_SIGMA = 2.354820045
 
@@ -181,6 +182,13 @@ def localize_joint_poisson(
             fit_result.valid_pixel_count,
             roi_record["roi_event_times"][0],
             roi_record["roi_event_times"][1],
+            _roi_value(
+                roi_record,
+                "roi_event_histogram",
+                np.zeros((2, DETECTION_REPLAY_TIME_BIN_COUNT), dtype=np.uint32),
+            ),
+            int(_roi_value(roi_record, "roi_event_histogram_start_us", 0)),
+            int(_roi_value(roi_record, "roi_event_histogram_bin_us", 0)),
             roi_record["roi"],
             roi_record["roi_n"],
             bool(_roi_value(roi_record, "temporal_segmented", False)),
@@ -457,6 +465,13 @@ def _joint_poisson_localization_dtype(roi_rad: int) -> list[tuple]:
         ("valid_pixel_count", np.uint32),
         ("roi_event_times", np.uint64, roi_shape),
         ("roi_event_times_n", np.uint64, roi_shape),
+        (
+            "roi_event_histogram",
+            np.uint32,
+            (2, DETECTION_REPLAY_TIME_BIN_COUNT),
+        ),
+        ("roi_event_histogram_start_us", np.uint64),
+        ("roi_event_histogram_bin_us", np.uint32),
         ("roi", np.uint32, roi_shape),
         ("roi_n", np.uint32, roi_shape),
         ("temporal_segmented", np.bool_),

@@ -276,6 +276,10 @@ def test_temporal_roi_counts_full_spatial_roi_only_in_train_windows() -> None:
     assert roi["roi_n"][6, 11] == 1
     assert roi["dt_pos_s"] == (488_000 - 470_000) * 1e-6
     assert roi["dt_neg_s"] == (522_000 - 512_000) * 1e-6
+    assert int(np.sum(roi["roi_event_histogram"][0])) == 19
+    assert int(np.sum(roi["roi_event_histogram"][1])) == 11
+    assert roi["roi_event_histogram_start_us"] == 250_000
+    assert roi["roi_event_histogram_bin_us"] > 0
     assert generated.qc["accepted"].tolist() == [True]
 
 

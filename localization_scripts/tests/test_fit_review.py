@@ -102,13 +102,13 @@ def test_detection_replay_montage_marks_selected_blink_windows(monkeypatch, tmp_
     localizations = _localizations(1)
     qc_table = _qc_table(localizations)
     spans = []
-    original_axvspan = Axes.axvspan
+    original_hlines = Axes.hlines
 
-    def axvspan_spy(self, xmin, xmax, *args, **kwargs):
+    def hlines_spy(self, y, xmin, xmax, *args, **kwargs):
         spans.append((xmin, xmax))
-        return original_axvspan(self, xmin, xmax, *args, **kwargs)
+        return original_hlines(self, y, xmin, xmax, *args, **kwargs)
 
-    monkeypatch.setattr(Axes, "axvspan", axvspan_spy)
+    monkeypatch.setattr(Axes, "hlines", hlines_spy)
 
     save_uncertainty_montages(
         localizations,
@@ -147,6 +147,9 @@ def _localizations(count: int) -> np.ndarray:
             ("t_on_window_stop", np.uint64),
             ("t_off_window_start", np.uint64),
             ("t_off_window_stop", np.uint64),
+            ("roi_event_histogram", np.uint32, (2, 8)),
+            ("roi_event_histogram_start_us", np.uint64),
+            ("roi_event_histogram_bin_us", np.uint32),
             ("roi", np.uint32, roi_shape),
             ("roi_n", np.uint32, roi_shape),
         ],
@@ -169,6 +172,12 @@ def _localizations(count: int) -> np.ndarray:
     localizations["t_on_window_stop"] = 999_000
     localizations["t_off_window_start"] = 1_001_000
     localizations["t_off_window_stop"] = 1_015_000
+    localizations["roi_event_histogram"] = np.asarray(
+        [[0, 2, 3, 0, 1, 0, 0, 0], [0, 0, 1, 2, 0, 3, 0, 0]],
+        dtype=np.uint32,
+    )
+    localizations["roi_event_histogram_start_us"] = 992_000
+    localizations["roi_event_histogram_bin_us"] = 1_000
     localizations["roi"] = 1
     localizations["roi_n"] = 2
     return localizations

@@ -163,9 +163,9 @@ def _save_detection_replay_montage(
         height_ratios=[2.1, 0.9] * tile_rows,
     )
     figure.suptitle(
-        "ROI detection replay: seed peak and selected polarity windows\n"
-        "orange ×: detector seed; purple +: fitted center; orange line: cycle peak; "
-        "blue dashed line: detector peak; shaded bars: selected fit windows",
+        "ROI detection replay: detector seed, fitted center, and selected blink events\n"
+        "orange trace: positive cumulative; sky-blue trace: negative cumulative; lower brackets: "
+        "selected windows; orange line: cycle peak; blue dashed line: detector peak when distinct.",
         fontsize=10,
     )
     for tile_index, localization_index in enumerate(indices):
@@ -266,10 +266,11 @@ def _draw_detection_timing(
     if parent_peak_us <= 0.0:
         parent_peak_us = peak_us
     windows = _selected_blink_windows(row, peak_us)
-    limits = [value for window in windows for value in window[:2]] + [
-        parent_peak_us,
-        peak_us,
-    ]
+    traces = _cumulative_event_traces(row)
+    limits = [value for window in windows for value in window[:2]]
+    limits.extend((parent_peak_us, peak_us))
+    if traces is not None:
+        limits.extend((traces[0][0], traces[0][-1]))
     left_us, right_us = min(limits), max(limits)
     padding_us = max((right_us - left_us) * 0.08, 1_000.0)
     axis.set_xlim(
@@ -277,16 +278,60 @@ def _draw_detection_timing(
         (right_us + padding_us - peak_us) * 1e-3,
     )
 
-    for y_position, (start_us, stop_us, label, color) in enumerate(windows):
-        start_ms = (start_us - peak_us) * 1e-3
-        stop_ms = (stop_us - peak_us) * 1e-3
-        axis.axvspan(start_ms, stop_ms, color=color, alpha=0.28, linewidth=0)
-        axis.hlines(y_position, start_ms, stop_ms, color=color, linewidth=1.4)
-        axis.vlines(
-            [start_ms, stop_ms], y_position - 0.12, y_position + 0.12, color=color
+    if traces is None:
+        axis.text(
+            0.5,
+            0.55,
+            "Cumulative event trace\nunavailable in this legacy ROI",
+            ha="center",
+            va="center",
+            fontsize=5,
+            transform=axis.transAxes,
+        )
+    else:
+        times_us, positive_cumulative, negative_cumulative = traces
+        times_ms = (times_us - peak_us) * 1e-3
+        axis.step(
+            times_ms,
+            positive_cumulative,
+            where="post",
+            color=DEBUG_COLORS["positive_events"],
+            linewidth=0.9,
+        )
+        axis.step(
+            times_ms,
+            negative_cumulative,
+            where="post",
+            color=DEBUG_COLORS["negative_events"],
+            linewidth=0.9,
         )
 
-    axis.axvline(0.0, color=DEBUG_COLORS["unmatched_localization"], linewidth=0.9)
+    for window_index, (start_us, stop_us, _label, color) in enumerate(windows):
+        start_ms = (start_us - peak_us) * 1e-3
+        stop_ms = (stop_us - peak_us) * 1e-3
+        bracket_y = 0.06 + window_index * 0.09
+        axis.hlines(
+            bracket_y,
+            start_ms,
+            stop_ms,
+            color=color,
+            linewidth=1.3,
+            transform=axis.get_xaxis_transform(),
+        )
+        axis.vlines(
+            [start_ms, stop_ms],
+            bracket_y - 0.025,
+            bracket_y + 0.025,
+            color=color,
+            linewidth=1.0,
+            transform=axis.get_xaxis_transform(),
+        )
+
+    axis.axvline(
+        0.0,
+        color=DEBUG_COLORS["unmatched_localization"],
+        linewidth=0.9,
+    )
     if not np.isclose(parent_peak_us, peak_us):
         axis.axvline(
             (parent_peak_us - peak_us) * 1e-3,
@@ -294,16 +339,38 @@ def _draw_detection_timing(
             linewidth=0.8,
             linestyle="--",
         )
-    axis.set(
-        ylim=(-0.45, len(windows) - 0.55),
-        yticks=np.arange(len(windows)),
-        yticklabels=[window[2] for window in windows],
-        xlabel="Time from cycle peak (ms)",
-    )
-    axis.tick_params(axis="both", labelsize=5, length=2)
+    axis.set(xlabel="Time from cycle peak (ms)", ylabel="Cumulative events")
+    axis.tick_params(axis="both", labelsize=5, length=2, pad=1)
     axis.grid(axis="x", color="#D9D9D9", linewidth=0.4)
     for spine in ("top", "right", "left"):
         axis.spines[spine].set_visible(False)
+
+
+def _cumulative_event_traces(
+    row: np.void,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    names = row.dtype.names or ()
+    required = {
+        "roi_event_histogram",
+        "roi_event_histogram_start_us",
+        "roi_event_histogram_bin_us",
+    }
+    if not required.issubset(names):
+        return None
+    histogram = np.asarray(row["roi_event_histogram"], dtype=np.float64)
+    start_us = _float_field(row, "roi_event_histogram_start_us", 0.0)
+    bin_us = _float_field(row, "roi_event_histogram_bin_us", 0.0)
+    if (
+        histogram.ndim != 2
+        or histogram.shape[0] != 2
+        or start_us <= 0.0
+        or bin_us <= 0.0
+    ):
+        return None
+    times_us = start_us + np.arange(histogram.shape[1] + 1, dtype=np.float64) * bin_us
+    positive = np.concatenate(([0.0], np.cumsum(histogram[0])))
+    negative = np.concatenate(([0.0], np.cumsum(histogram[1])))
+    return times_us, positive, negative
 
 
 def _selected_blink_windows(
