@@ -2565,10 +2565,13 @@ def _resolve_recording_path(input_file: str, run_directory: Path) -> Path:
     path = Path(input_file).expanduser()
     if path.is_file():
         return path.resolve()
+    relative_path = path
+    if path.parts[:1] == ("data",):
+        relative_path = Path(*path.parts[1:])
     for parent in run_directory.parents:
-        candidate = parent / path
-        if candidate.is_file():
-            return candidate.resolve()
+        for candidate in (parent / path, parent / relative_path):
+            if candidate.is_file():
+                return candidate.resolve()
     raise FileNotFoundError(
         f"Input recording from run metadata is unavailable: {input_file}"
     )
