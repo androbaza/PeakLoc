@@ -734,7 +734,8 @@ def _reuse_uncertainty_montages(recording: Any, output_dir: Path) -> list[Path]:
     source_dir = Path(recording.output_folder) / "figures"
     sources = sorted(
         path
-        for path in source_dir.glob("uncertainty_*")
+        for pattern in ("uncertainty_*", "roi_detection_replay_*")
+        for path in source_dir.glob(pattern)
         if path.suffix in {".png", ".svg", ".pdf"}
     )
     return _copy_if_exists([(source, output_dir / source.name) for source in sources])

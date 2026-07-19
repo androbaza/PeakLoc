@@ -60,6 +60,7 @@ def test_save_uncertainty_montages_writes_stable_filenames(tmp_path):
         "uncertainty_lowest_3_negative.png",
         "uncertainty_highest_3_negative.png",
         "uncertainty_quantile_samples.png",
+        "roi_detection_replay_quantile_samples.png",
     }
     assert expected.issubset({path.name for path in paths})
     assert all((tmp_path / filename).is_file() for filename in expected)
@@ -95,6 +96,34 @@ def test_save_uncertainty_montages_uses_sub_x_sub_y_scatter(monkeypatch, tmp_pat
     assert (1.25, 2.75) in scatter_calls
 
 
+def test_detection_replay_montage_marks_selected_blink_windows(monkeypatch, tmp_path):
+    from matplotlib.axes import Axes
+
+    localizations = _localizations(1)
+    qc_table = _qc_table(localizations)
+    spans = []
+    original_axvspan = Axes.axvspan
+
+    def axvspan_spy(self, xmin, xmax, *args, **kwargs):
+        spans.append((xmin, xmax))
+        return original_axvspan(self, xmin, xmax, *args, **kwargs)
+
+    monkeypatch.setattr(Axes, "axvspan", axvspan_spy)
+
+    save_uncertainty_montages(
+        localizations,
+        localizations,
+        qc_table,
+        tmp_path,
+        config=PeakLocConfig(sigma_psf_px=1.2),
+        n=1,
+        dpi=80,
+    )
+
+    assert (-10.0, -1.0) in spans
+    assert (1.0, 15.0) in spans
+
+
 def _localizations(count: int) -> np.ndarray:
     roi_shape = (5, 5)
     localizations = np.zeros(
@@ -111,6 +140,13 @@ def _localizations(count: int) -> np.ndarray:
             ("nll_per_event", np.float64),
             ("fit_cond", np.float64),
             ("fit_success", np.bool_),
+            ("t_peak", np.float64),
+            ("t_1st", np.float64),
+            ("t_last", np.float64),
+            ("t_on_window_start", np.uint64),
+            ("t_on_window_stop", np.uint64),
+            ("t_off_window_start", np.uint64),
+            ("t_off_window_stop", np.uint64),
             ("roi", np.uint32, roi_shape),
             ("roi_n", np.uint32, roi_shape),
         ],
@@ -126,6 +162,13 @@ def _localizations(count: int) -> np.ndarray:
     localizations["nll_per_event"] = 1.2
     localizations["fit_cond"] = 10.0
     localizations["fit_success"] = True
+    localizations["t_peak"] = 1_000_000
+    localizations["t_1st"] = 990_000
+    localizations["t_last"] = 1_015_000
+    localizations["t_on_window_start"] = 990_000
+    localizations["t_on_window_stop"] = 999_000
+    localizations["t_off_window_start"] = 1_001_000
+    localizations["t_off_window_stop"] = 1_015_000
     localizations["roi"] = 1
     localizations["roi_n"] = 2
     return localizations

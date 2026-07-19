@@ -21,8 +21,10 @@ MONTAGE_FILENAMES = (
     "uncertainty_lowest_36_negative.png",
     "uncertainty_highest_36_negative.png",
     "uncertainty_quantile_samples.png",
+    "roi_detection_replay_quantile_samples.png",
 )
 FAILED_MONTAGE_FILENAME = "uncertainty_failed_fits.png"
+DETECTION_REPLAY_MONTAGE_FILENAME = "roi_detection_replay_quantile_samples.png"
 
 
 def select_uncertainty_extremes(
@@ -88,12 +90,13 @@ def save_uncertainty_montages(
             )
 
     quantile_path = output_dir / "uncertainty_quantile_samples.png"
+    quantile_indices = _select_quantile_sample_indices(
+        attempted_localizations, qc_table, per_bin=6
+    )
     paths.extend(
         _save_index_montage(
             attempted_localizations,
-            _select_quantile_sample_indices(
-                attempted_localizations, qc_table, per_bin=6
-            ),
+            quantile_indices,
             accepted_localizations,
             qc_table,
             quantile_path,
@@ -102,6 +105,17 @@ def save_uncertainty_montages(
             title="Uncertainty quantile samples",
             dpi=dpi,
             show_covariance=True,
+            save_vector=save_vector,
+        )
+    )
+
+    replay_path = output_dir / DETECTION_REPLAY_MONTAGE_FILENAME
+    paths.extend(
+        _save_detection_replay_montage(
+            attempted_localizations,
+            quantile_indices,
+            replay_path,
+            dpi=dpi,
             save_vector=save_vector,
         )
     )
@@ -126,6 +140,207 @@ def save_uncertainty_montages(
         )
 
     return paths
+
+
+def _save_detection_replay_montage(
+    localizations: np.ndarray,
+    indices: np.ndarray,
+    output_path: Path,
+    *,
+    dpi: int,
+    save_vector: bool,
+) -> list[Path]:
+    """Show sampled ROIs with the temporal peak and windows that formed them."""
+    max_tiles = max(int(indices.size), 1)
+    columns = min(6, max_tiles)
+    tile_rows = int(np.ceil(max_tiles / columns))
+    figure = plt.figure(
+        figsize=(columns * 2.3, tile_rows * 3.25), constrained_layout=True
+    )
+    grid = figure.add_gridspec(
+        tile_rows * 2,
+        columns,
+        height_ratios=[2.1, 0.9] * tile_rows,
+    )
+    figure.suptitle(
+        "ROI detection replay: seed peak and selected polarity windows\n"
+        "orange ×: detector seed; purple +: fitted center; orange line: cycle peak; "
+        "blue dashed line: detector peak; shaded bars: selected fit windows",
+        fontsize=10,
+    )
+    for tile_index, localization_index in enumerate(indices):
+        row_index, column_index = divmod(tile_index, columns)
+        spatial_axis = figure.add_subplot(grid[row_index * 2, column_index])
+        timing_axis = figure.add_subplot(grid[row_index * 2 + 1, column_index])
+        _draw_detection_replay_tile(
+            spatial_axis,
+            timing_axis,
+            localizations[int(localization_index)],
+        )
+
+    if indices.size == 0:
+        empty_axis = figure.add_subplot(grid[:, :])
+        empty_axis.text(
+            0.5,
+            0.5,
+            "No finite uncertainty samples",
+            ha="center",
+            va="center",
+            transform=empty_axis.transAxes,
+        )
+        empty_axis.axis("off")
+
+    paths = [output_path]
+    figure.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    if save_vector:
+        for suffix in (".svg", ".pdf"):
+            vector_path = output_path.with_suffix(suffix)
+            figure.savefig(vector_path, bbox_inches="tight")
+            paths.append(vector_path)
+    plt.close(figure)
+    return paths
+
+
+def _draw_detection_replay_tile(
+    spatial_axis,
+    timing_axis,
+    row: np.void,
+) -> None:
+    image = _roi_image(row, "combined")
+    spatial_axis.imshow(image, cmap="gray", interpolation="none", origin="upper")
+    detection_x, detection_y = _detection_center_in_roi(row, image)
+    spatial_axis.scatter(
+        detection_x,
+        detection_y,
+        color=DEBUG_COLORS["unmatched_localization"],
+        marker="x",
+        s=22,
+        linewidths=1.0,
+        zorder=5,
+    )
+    sub_x = _float_field(row, "sub_x", (image.shape[1] - 1) / 2)
+    sub_y = _float_field(row, "sub_y", (image.shape[0] - 1) / 2)
+    spatial_axis.scatter(
+        sub_x,
+        sub_y,
+        color=DEBUG_COLORS["residual"],
+        marker="+",
+        s=22,
+        linewidths=1.0,
+        zorder=5,
+    )
+    spatial_axis.set(
+        title=f"id {_int_field(row, 'id', -1)} | ROI",
+        xticks=[],
+        yticks=[],
+    )
+    for spine in spatial_axis.spines.values():
+        spine.set_linewidth(0.7)
+
+    _draw_detection_timing(timing_axis, row)
+
+
+def _detection_center_in_roi(row: np.void, image: np.ndarray) -> tuple[float, float]:
+    fallback_x = (image.shape[1] - 1) / 2
+    fallback_y = (image.shape[0] - 1) / 2
+    names = row.dtype.names or ()
+    required = {"parent_seed_x", "parent_seed_y", "x", "y", "sub_x", "sub_y"}
+    if not required.issubset(names):
+        return fallback_x, fallback_y
+    roi_x0 = _float_field(row, "x", np.nan) - _float_field(row, "sub_x", np.nan)
+    roi_y0 = _float_field(row, "y", np.nan) - _float_field(row, "sub_y", np.nan)
+    if not np.isfinite(roi_x0) or not np.isfinite(roi_y0):
+        return fallback_x, fallback_y
+    return (
+        _float_field(row, "parent_seed_x", fallback_x) - roi_x0,
+        _float_field(row, "parent_seed_y", fallback_y) - roi_y0,
+    )
+
+
+def _draw_detection_timing(
+    axis,
+    row: np.void,
+) -> None:
+    peak_us = _float_field(row, "t_peak", 0.0)
+    parent_peak_us = _float_field(row, "parent_seed_peak_us", peak_us)
+    if parent_peak_us <= 0.0:
+        parent_peak_us = peak_us
+    windows = _selected_blink_windows(row, peak_us)
+    limits = [value for window in windows for value in window[:2]] + [
+        parent_peak_us,
+        peak_us,
+    ]
+    left_us, right_us = min(limits), max(limits)
+    padding_us = max((right_us - left_us) * 0.08, 1_000.0)
+    axis.set_xlim(
+        (left_us - padding_us - peak_us) * 1e-3,
+        (right_us + padding_us - peak_us) * 1e-3,
+    )
+
+    for y_position, (start_us, stop_us, label, color) in enumerate(windows):
+        start_ms = (start_us - peak_us) * 1e-3
+        stop_ms = (stop_us - peak_us) * 1e-3
+        axis.axvspan(start_ms, stop_ms, color=color, alpha=0.28, linewidth=0)
+        axis.hlines(y_position, start_ms, stop_ms, color=color, linewidth=1.4)
+        axis.vlines(
+            [start_ms, stop_ms], y_position - 0.12, y_position + 0.12, color=color
+        )
+
+    axis.axvline(0.0, color=DEBUG_COLORS["unmatched_localization"], linewidth=0.9)
+    if not np.isclose(parent_peak_us, peak_us):
+        axis.axvline(
+            (parent_peak_us - peak_us) * 1e-3,
+            color=DEBUG_COLORS["truth"],
+            linewidth=0.8,
+            linestyle="--",
+        )
+    axis.set(
+        ylim=(-0.45, len(windows) - 0.55),
+        yticks=np.arange(len(windows)),
+        yticklabels=[window[2] for window in windows],
+        xlabel="Time from cycle peak (ms)",
+    )
+    axis.tick_params(axis="both", labelsize=5, length=2)
+    axis.grid(axis="x", color="#D9D9D9", linewidth=0.4)
+    for spine in ("top", "right", "left"):
+        axis.spines[spine].set_visible(False)
+
+
+def _selected_blink_windows(
+    row: np.void, peak_us: float
+) -> list[tuple[float, float, str, str]]:
+    names = row.dtype.names or ()
+    required = {
+        "t_on_window_start",
+        "t_on_window_stop",
+        "t_off_window_start",
+        "t_off_window_stop",
+    }
+    if required.issubset(names) and all(
+        _float_field(row, field, 0.0) > 0.0 for field in required
+    ):
+        return [
+            (
+                _float_field(row, "t_off_window_start", peak_us),
+                _float_field(row, "t_off_window_stop", peak_us),
+                "Negative",
+                DEBUG_COLORS["negative_events"],
+            ),
+            (
+                _float_field(row, "t_on_window_start", peak_us),
+                _float_field(row, "t_on_window_stop", peak_us),
+                "Positive",
+                DEBUG_COLORS["positive_events"],
+            ),
+        ]
+    return [
+        (
+            _float_field(row, "t_1st", peak_us),
+            _float_field(row, "t_last", peak_us),
+            "ROI events",
+            DEBUG_COLORS["truth"],
+        )
+    ]
 
 
 def _save_index_montage(
