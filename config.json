@@ -77,7 +77,7 @@
   "max_localization_uncertainty_px": null,
   "max_localization_uncertainty_nm": 50.0,
   "max_fit_cond": 100.0,
-  "max_fit_center_offset_px": 3.0,
+  "max_fit_center_offset_px": 1.75,
   "qc_enabled": true,
   "qc_output_dirname": "qc",
   "qc_static_dpi": 200,

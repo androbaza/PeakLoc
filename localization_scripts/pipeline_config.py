@@ -102,7 +102,7 @@ class PeakLocConfig:
     min_events_neg: int = 3
     min_valid_pixels: int = 1
     max_fit_cond: float = 100.0
-    max_fit_center_offset_px: float | None = 3.0
+    max_fit_center_offset_px: float | None = 1.75
     max_localization_uncertainty_px: float | None = None
     max_localization_uncertainty_nm: float | None = None
     qc_enabled: bool = True

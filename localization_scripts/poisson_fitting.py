@@ -17,6 +17,7 @@ from localization_scripts.psf_model import (
 MIN_MU = 1e-9
 MIN_PARAM = 1e-6
 FISHER_PINV_RCOND = 1e-12
+CENTER_CONSTRAINT_PENALTY = 10_000_000.0
 
 
 @dataclass(frozen=True)
@@ -112,10 +113,12 @@ def fit_joint_poisson_roi(
             roi_calibration.bg_neg,
             config.background_mode,
         )
-        return _poisson_nll(roi_pos, mu_pos, valid_mask) + _poisson_nll(
-            roi_neg,
-            mu_neg,
-            valid_mask,
+        return (
+            _poisson_nll(roi_pos, mu_pos, valid_mask)
+            + _poisson_nll(roi_neg, mu_neg, valid_mask)
+            + _center_constraint_penalty(
+                params[0], params[1], center_x, center_y, config
+            )
         )
 
     initial[0] = np.clip(initial[0], *x_bounds)
@@ -137,6 +140,9 @@ def fit_joint_poisson_roi(
         converged_attempts or finite_attempts or fit_attempts, key=lambda fit: fit.fun
     )
     params = np.asarray(result.x, dtype=np.float64)
+    params[:2] = _constrain_center_to_radius(
+        params[0], params[1], center_x, center_y, config
+    )
     psf = pixel_integrated_gaussian(
         _shape_2d(roi_pos), params[0], params[1], sigma_psf_px
     )
@@ -243,6 +249,49 @@ def _center_bounds(
     if offset is None:
         return 0.0, float(size - 1)
     return max(0.0, center - offset), min(float(size - 1), center + offset)
+
+
+def _center_constraint_penalty(
+    x: float,
+    y: float,
+    center_x: float,
+    center_y: float,
+    config: PeakLocConfig,
+) -> float:
+    """Keep the fitted center within a radial displacement from the ROI seed.
+
+    L-BFGS-B can only apply axis-aligned bounds.  Applying the configured offset
+    independently to x and y made the allowed search area a square, admitting
+    corner solutions up to sqrt(2) times farther from the detection center than
+    requested.  A stiff radial penalty completes that square into the intended
+    circular search region while retaining the fast bounded optimizer.
+    """
+    offset = config.max_fit_center_offset_px
+    if offset is None:
+        return 0.0
+    radial_offset = float(np.hypot(x - center_x, y - center_y))
+    excess = max(radial_offset - offset, 0.0)
+    return CENTER_CONSTRAINT_PENALTY * excess**2
+
+
+def _constrain_center_to_radius(
+    x: float,
+    y: float,
+    center_x: float,
+    center_y: float,
+    config: PeakLocConfig,
+) -> tuple[float, float]:
+    """Project numerical tolerance beyond the radial center limit back to it."""
+    offset = config.max_fit_center_offset_px
+    if offset is None:
+        return x, y
+    dx = x - center_x
+    dy = y - center_y
+    radial_offset = float(np.hypot(dx, dy))
+    if radial_offset <= offset or radial_offset == 0.0:
+        return x, y
+    scale = offset / radial_offset
+    return center_x + dx * scale, center_y + dy * scale
 
 
 def _mean_maps(

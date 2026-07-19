@@ -3,7 +3,11 @@ import pytest
 
 from localization_scripts.calibration import EventCalibration, NullCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
-from localization_scripts.poisson_fitting import _mean_maps, fit_joint_poisson_roi
+from localization_scripts.poisson_fitting import (
+    _center_constraint_penalty,
+    _mean_maps,
+    fit_joint_poisson_roi,
+)
 from localization_scripts.psf_model import pixel_integrated_gaussian
 
 
@@ -108,6 +112,33 @@ def test_joint_poisson_fit_marks_ill_conditioned_fit_unsuccessful():
     assert result.fit_cond > config.max_fit_cond
 
 
+def test_center_constraint_penalty_uses_radial_not_axis_aligned_offset():
+    config = PeakLocConfig(max_fit_center_offset_px=1.75)
+
+    assert _center_constraint_penalty(7.75, 6.0, 6.0, 6.0, config) == 0.0
+    assert _center_constraint_penalty(7.3, 7.3, 6.0, 6.0, config) > 0.0
+
+
+def test_joint_poisson_fit_rejects_corner_at_axis_aligned_center_limit():
+    sigma = 1.5
+    roi_pos = np.ones((13, 13), dtype=np.uint32)
+    roi_neg = np.ones((13, 13), dtype=np.uint32)
+    off_center_psf = pixel_integrated_gaussian((13, 13), 9.0, 9.0, sigma)
+    roi_pos += np.rint(3_000.0 * off_center_psf).astype(np.uint32)
+    roi_neg += np.rint(2_500.0 * off_center_psf).astype(np.uint32)
+    config = PeakLocConfig(
+        sigma_psf_px=sigma,
+        max_fit_center_offset_px=1.75,
+        max_fit_cond=1e18,
+    )
+
+    result = fit_joint_poisson_roi(
+        _roi_record(roi_pos, roi_neg), NullCalibration((13, 13)), config
+    )
+
+    assert np.hypot(result.x - 6.0, result.y - 6.0) <= 1.75
+
+
 def test_mean_maps_honor_background_mode():
     params = np.asarray(
         [0.0, 0.0, np.log(10.0), np.log(20.0), np.log(2.0), np.log(3.0)]
@@ -127,7 +158,7 @@ def test_mean_maps_honor_background_mode():
     assert np.all(pos_cal == 7.5)
     assert np.all(neg_cal == 12.0)
     assert np.all(pos_local == 4.5)
-    assert np.all(neg_local == 8.0)
+    assert np.allclose(neg_local, 8.0)
     assert np.all(pos_both == 9.5)
     assert np.all(neg_both == 15.0)
 
