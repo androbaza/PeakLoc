@@ -1720,6 +1720,7 @@ def save_processed_plots(
             figure_folder,
             optical_pixel_size_nm=config.optical_pixel_size_nm,
             timestamp=timestamp,
+            sensor_shape=config.sensor_shape,
         )
         if result is not None:
             artifacts.extend([result.png_path, result.tiff_path])

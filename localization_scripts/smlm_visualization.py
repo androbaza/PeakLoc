@@ -36,6 +36,7 @@ def save_smlm_visualization(
     output_dir: str | Path,
     optical_pixel_size_nm: float,
     timestamp: str,
+    sensor_shape: tuple[int, int] | None = None,
 ) -> SmlmRenderResult | None:
     coordinates = extract_localization_coordinates(localizations)
     if coordinates.size == 0:
@@ -45,7 +46,11 @@ def save_smlm_visualization(
     output_folder.mkdir(parents=True, exist_ok=True)
     source_path = Path(localizations_path)
     render_pixel_size_nm = optical_pixel_size_nm / RENDER_OVERSAMPLING
-    density = render_density_image(coordinates, RENDER_OVERSAMPLING)
+    density = render_density_image(
+        coordinates,
+        RENDER_OVERSAMPLING,
+        sensor_shape=sensor_shape,
+    )
 
     image_8bit = normalize_to_uint(density, bit_depth=8)
     image_12bit = normalize_to_uint(density, bit_depth=TIFF_BIT_DEPTH)
@@ -113,13 +118,25 @@ def coordinates_for_napari(
     return coordinates_yx * optical_pixel_size_nm
 
 
-def render_density_image(coordinates_xy: np.ndarray, oversampling: int) -> np.ndarray:
+def render_density_image(
+    coordinates_xy: np.ndarray,
+    oversampling: int,
+    *,
+    sensor_shape: tuple[int, int] | None = None,
+) -> np.ndarray:
     if coordinates_xy.size == 0:
         return np.zeros((1, 1), dtype=np.float32)
 
     scaled = coordinates_xy * oversampling
-    width = max(1, int(np.ceil((coordinates_xy[:, 0].max() + 1) * oversampling)))
-    height = max(1, int(np.ceil((coordinates_xy[:, 1].max() + 1) * oversampling)))
+    if sensor_shape is None:
+        height = max(1, int(np.ceil((coordinates_xy[:, 1].max() + 1) * oversampling)))
+        width = max(1, int(np.ceil((coordinates_xy[:, 0].max() + 1) * oversampling)))
+    else:
+        sensor_height, sensor_width = sensor_shape
+        if sensor_height <= 0 or sensor_width <= 0:
+            raise ValueError("sensor_shape dimensions must be positive")
+        height = sensor_height * oversampling
+        width = sensor_width * oversampling
     image = np.zeros((height, width), dtype=np.float32)
 
     x_indices = np.clip(np.floor(scaled[:, 0]).astype(np.int64), 0, width - 1)

@@ -50,6 +50,7 @@ def main() -> None:
         output_dir,
         optical_pixel_size_nm=config.optical_pixel_size_nm,
         timestamp=timestamp,
+        sensor_shape=config.sensor_shape,
     )
     if result is None:
         logger.info("No localizations to render in {}", localizations_path)
