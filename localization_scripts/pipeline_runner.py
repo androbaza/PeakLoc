@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import errno
 import gc
-import fcntl
+import os
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 import json
 import pickle
 import signal
-import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -18,6 +21,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TextIO
+
+try:
+    import resource
+except ModuleNotFoundError:
+    resource = None
 
 import matplotlib
 import numpy as np
@@ -366,6 +374,14 @@ def _read_slice_worker_result(result_path: Path) -> SliceResult | None:
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
+    if os.name == "nt":
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=5)
@@ -586,14 +602,37 @@ def _acquire_parallel_stage(path: Path | None) -> TextIO | None:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = path.open("a+", encoding="utf-8")
-    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    if os.name == "nt":
+        lock_file.seek(0)
+        if not lock_file.read(1):
+            lock_file.write("\0")
+            lock_file.flush()
+        lock_file.seek(0)
+        while True:
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as error:
+                if error.errno != errno.EACCES and getattr(error, "winerror", None) not in {
+                    32,
+                    33,
+                }:
+                    lock_file.close()
+                    raise
+                time.sleep(0.1)
+    else:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
     return lock_file
 
 
 def _release_parallel_stage(lock_file: TextIO | None) -> None:
     if lock_file is None:
         return
-    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    if os.name == "nt":
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     lock_file.close()
 
 
@@ -1579,6 +1618,8 @@ def _release_and_measure(metrics: SliceStageMetrics) -> None:
 
 
 def _peak_rss_bytes() -> int:
+    if resource is None:
+        return 0
     usage = resource.getrusage(resource.RUSAGE_SELF)
     scale = 1024 if sys.platform.startswith("linux") else 1
     return int(usage.ru_maxrss * scale)
