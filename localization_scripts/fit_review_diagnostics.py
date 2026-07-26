@@ -178,7 +178,7 @@ def _save_fit_montage(
             va="center",
             transform=axes.ravel()[0].transAxes,
         )
-    for axis, index in zip(axes.ravel(), indices, strict=False):
+    for axis, index in zip(axes.ravel(), indices):
         row = localizations[int(index)]
         _draw_fit_tile(
             axis,

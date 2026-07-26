@@ -11,6 +11,7 @@ from numba.typed import Dict, List
 
 from localization_scripts.event_array_processing import EVENT_DTYPE
 from localization_scripts.roi_generation import get_times_polarities, roi_record_dtype
+from localization_scripts.python_compat import strict_zip
 from localization_scripts.temporal_segmentation import (
     BlinkInterval,
     SegmentationResult,
@@ -277,7 +278,7 @@ def _build_event_index(events_t_p_dict: dict) -> _NumbaEventIndex:
     numba_times = List.empty_list(types.uint64[::1])
     numba_polarities = List.empty_list(types.int8[::1])
     for index, (coord, pixel_times, pixel_polarities) in enumerate(
-        zip(event_coords, times, polarities, strict=True)
+        strict_zip(event_coords, times, polarities)
     ):
         dict_indices[(int(coord[0]), int(coord[1]))] = index
         numba_times.append(np.asarray(pixel_times, dtype=np.uint64))

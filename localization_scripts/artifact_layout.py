@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
 
 
 @dataclass(frozen=True)
@@ -29,7 +28,7 @@ class ArtifactLayout:
     temp_files_dir: Path
 
     @classmethod
-    def from_run_directory(cls, run_directory: str | Path) -> Self:
+    def from_run_directory(cls, run_directory: str | Path) -> ArtifactLayout:
         """Build the standard layout without creating any directories."""
         root = Path(run_directory)
         share_dir = root / "share"

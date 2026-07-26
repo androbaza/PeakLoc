@@ -21,6 +21,7 @@ from localization_scripts.plot_style import (
     PLOT_COLORS,
     PUBLICATION_DPI,
 )
+from localization_scripts.python_compat import strict_zip
 
 
 DEBUG_MARKER = ".peakloc_debug_artifacts"
@@ -532,7 +533,7 @@ def save_polarity_density_figure(
         ("Total events", total, "magma", None),
     ]
     fig, axes = plt.subplots(2, 2, figsize=(9.0, 8.0), constrained_layout=True)
-    for ax, (title, image, cmap, limits) in zip(axes.flat, panels, strict=True):
+    for ax, (title, image, cmap, limits) in strict_zip(axes.flat, panels):
         kwargs = {}
         if limits is not None:
             kwargs.update({"vmin": limits[0], "vmax": limits[1]})
@@ -1325,7 +1326,7 @@ def _signed_limits(image: np.ndarray) -> tuple[float, float]:
 def _deduplicate_legend(ax) -> None:
     handles, labels = ax.get_legend_handles_labels()
     unique = {}
-    for handle, label in zip(handles, labels, strict=True):
+    for handle, label in strict_zip(handles, labels):
         unique.setdefault(label, handle)
     if unique:
         ax.legend(unique.values(), unique.keys(), loc="best", fontsize=8)

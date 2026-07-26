@@ -29,6 +29,7 @@ from localization_scripts.peak_finding import (
     prepare_interpolation_axis,
 )
 from localization_scripts.plot_style import PLOT_COLORS, PUBLICATION_DPI
+from localization_scripts.python_compat import strict_zip
 from localization_scripts.temporal_segmentation import (
     SegmentationResult,
     TemporalSegmentationSettings,
@@ -1040,7 +1041,7 @@ def _write_segmentation_context_events(
             roi_radius = blink.sample.roi_positive.shape[0] // 2
             roi_width = roi_radius * 2 + 1
             for context_index, (regional_index, event) in enumerate(
-                zip(regional_indices, events, strict=True)
+                strict_zip(regional_indices, events)
             ):
                 pixel_index = (
                     (int(event["y"]) - (blink.sample.peak_y - roi_radius)) * roi_width
@@ -1670,7 +1671,7 @@ def _temporal_activity_rows(blink: AnalyzedBlink) -> list[dict[str, Any]]:
     edges = np.arange(start_us, stop_us + settings.bin_us, settings.bin_us)
     rows = []
     for bin_index, (bin_start, bin_stop) in enumerate(
-        zip(edges[:-1], edges[1:], strict=True)
+        strict_zip(edges[:-1], edges[1:])
     ):
         within = (events["t"] >= bin_start) & (events["t"] < bin_stop)
         core = within & (radius <= settings.core_radius_px)
@@ -2242,7 +2243,7 @@ def _plot_nearby_seed_intervals(
                 if len(sample_rows) > 1
                 else np.zeros(1)
             )
-            for row, offset in zip(sample_rows, offsets, strict=True):
+            for row, offset in strict_zip(sample_rows, offsets):
                 y = sample_index + float(offset)
                 seed_ms = float(row["seed_relative_to_sample_peak_ms"])
                 if row["accepted"]:

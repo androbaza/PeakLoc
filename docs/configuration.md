@@ -81,6 +81,19 @@ Examples:
 60000000  = start at 60 seconds
 ```
 
+### `slice_end`
+
+Optional exclusive end time of the processed range, in microseconds. Leave it `null` to
+process the rest of the recording. When the range from `slice_start` to `slice_end` is shorter
+than `slice_duration`, PeakLoc processes that range as one shorter final slice.
+
+```json
+{
+  "slice_start": 10000000,
+  "slice_end": 25000000
+}
+```
+
 ### `slice_duration`
 
 Duration of the processed slice, in microseconds.

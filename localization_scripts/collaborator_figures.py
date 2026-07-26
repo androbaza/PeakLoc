@@ -18,6 +18,7 @@ from localization_scripts.plot_style import (
     save_publication_figure,
     style_publication_axis,
 )
+from localization_scripts.python_compat import strict_zip
 
 
 def save_detection_and_fit_summary(
@@ -38,7 +39,7 @@ def save_detection_and_fit_summary(
     _plot_uncertainty_distribution(axes[0, 1], localization_qc, config)
     _plot_cropped_density(axes[1, 0], accepted_localizations, config)
     _plot_hot_pixel_distribution(axes[1, 1], attempted_localizations)
-    for label, axis in zip("ABCD", axes.ravel(), strict=True):
+    for label, axis in strict_zip("ABCD", axes.ravel()):
         axis.text(
             -0.18,
             1.08,

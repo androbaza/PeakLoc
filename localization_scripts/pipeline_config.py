@@ -5,7 +5,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
-from typing import Any, Mapping, Self
+from typing import Any, Mapping
 
 
 DEFAULT_INPUT_FOLDER = "data"
@@ -24,11 +24,12 @@ ENVIRONMENT_OVERRIDES = {
 }
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class PeakLocConfig:
     input_folder: str = DEFAULT_INPUT_FOLDER
     recursive_input: bool = False
     slice_start: int = 0
+    slice_end: int | None = None
     slice_duration: int = DEFAULT_SLICE_DURATION
     slice_count: int | None = None
     num_cores: int = multiprocessing.cpu_count()
@@ -117,7 +118,7 @@ class PeakLocConfig:
     qc_keep_intermediates: bool = False
 
     @classmethod
-    def from_json(cls, path: str | Path) -> Self:
+    def from_json(cls, path: str | Path) -> PeakLocConfig:
         config_path = Path(path)
         with config_path.open(encoding="utf-8") as file:
             payload = json.load(file)
@@ -126,7 +127,7 @@ class PeakLocConfig:
         return cls.from_mapping(payload)
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> Self:
+    def from_mapping(cls, payload: Mapping[str, Any]) -> PeakLocConfig:
         if "spatial_mask_min_events" in payload:
             raise ValueError(
                 "spatial_mask_min_events was replaced by "
@@ -155,7 +156,7 @@ class PeakLocConfig:
 
     def with_environment_overrides(
         self, environ: Mapping[str, str] | None = None
-    ) -> Self:
+    ) -> PeakLocConfig:
         source = os.environ if environ is None else environ
         overrides: dict[str, Any] = {}
         for env_name, field_name in ENVIRONMENT_OVERRIDES.items():
@@ -172,6 +173,10 @@ class PeakLocConfig:
 
     def validate(self) -> None:
         _require_non_negative("slice_start", self.slice_start)
+        if self.slice_end is not None:
+            _require_non_negative("slice_end", self.slice_end)
+            if self.slice_end <= self.slice_start:
+                raise ValueError("slice_end must be greater than slice_start")
         _require_positive("slice_duration", self.slice_duration)
         if self.slice_count is not None:
             _require_positive("slice_count", self.slice_count)

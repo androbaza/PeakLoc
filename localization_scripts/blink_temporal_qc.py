@@ -13,6 +13,7 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from localization_scripts.pipeline_config import PeakLocConfig
+from localization_scripts.python_compat import strict_zip
 from localization_scripts.smlm_visualization import RENDER_OVERSAMPLING
 
 
@@ -379,7 +380,7 @@ def _group_medians(
     return np.fromiter(
         (
             float(np.median(values[int(start) : int(start + count)]))
-            for start, count in zip(starts, counts, strict=True)
+            for start, count in strict_zip(starts, counts)
         ),
         dtype=np.float64,
         count=int(starts.size),
@@ -726,7 +727,7 @@ def _save_plotly_dynamics_over_time_3d(
     ]
     traces = []
     for index, (count, values) in enumerate(
-        zip(INTERACTIVE_TIME_BIN_COUNTS, binned, strict=True)
+        strict_zip(INTERACTIVE_TIME_BIN_COUNTS, binned)
     ):
         cmin, cmax = _value_range(values.peak_to_last_ms, padding=0.0)
         traces.append(
@@ -1040,7 +1041,7 @@ def _time_bin_menu(binned: list[TemporalDynamicsBins]) -> dict[str, Any]:
                 ],
             }
             for index, (bin_count, values) in enumerate(
-                zip(INTERACTIVE_TIME_BIN_COUNTS, binned, strict=True)
+                strict_zip(INTERACTIVE_TIME_BIN_COUNTS, binned)
             )
         ],
         "direction": "down",
