@@ -39,10 +39,11 @@ Build on a 64-bit Windows PC with Metavision installed in the default location. 
 needed only on this build PC.
 
 1. Open **PowerShell** in the cloned PeakLoc repository and create the Windows
-   environment:
+   environment. Add PyInstaller to the build environment once:
 
    ```powershell
    pixi install
+   pixi add --feature dev pyinstaller
    pixi run check-openeb
    ```
 
@@ -57,17 +58,7 @@ needed only on this build PC.
 3. Build a console, one-folder application. Run this command from the repository root:
 
    ```powershell
-   pixi run --with pyinstaller pyinstaller `
-     --noconfirm `
-     --clean `
-     --onedir `
-     --console `
-     --name PeakLoc `
-     --runtime-hook scripts\pyinstaller_metavision_runtime_hook.py `
-     --collect-submodules localization_scripts `
-     --collect-all numba `
-     --collect-all plotly `
-     PeakLoc.py
+   pixi run -e dev pyinstaller --noconfirm --clean --onedir --console --name PeakLoc --runtime-hook scripts\pyinstaller_metavision_runtime_hook.py --collect-submodules localization_scripts --collect-all numba --collect-all plotly PeakLoc.py
    ```
 
    Keep `--console`: `--windowed` or `--noconsole` suppresses the terminal and hides the
