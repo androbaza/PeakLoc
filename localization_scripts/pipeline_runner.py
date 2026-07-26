@@ -5,6 +5,7 @@ import ctypes
 import errno
 import gc
 import os
+
 if os.name == "nt":
     import msvcrt
 else:
@@ -227,7 +228,9 @@ def build_time_slices(config: PeakLocConfig, time_max: int) -> list[TimeSlice]:
 
     stop = min(config.slice_end, time_max + 1)
     if config.slice_count is not None:
-        stop = min(stop, config.slice_start + config.slice_duration * config.slice_count)
+        stop = min(
+            stop, config.slice_start + config.slice_duration * config.slice_count
+        )
     return [
         TimeSlice(start, min(start + config.slice_duration, stop))
         for start in range(config.slice_start, stop, config.slice_duration)
@@ -639,7 +642,9 @@ def _acquire_parallel_stage(path: Path | None) -> TextIO | None:
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
                 break
             except OSError as error:
-                if error.errno != errno.EACCES and getattr(error, "winerror", None) not in {
+                if error.errno != errno.EACCES and getattr(
+                    error, "winerror", None
+                ) not in {
                     32,
                     33,
                 }:
@@ -823,7 +828,9 @@ def process_time_slice(
             max_x=config.sensor_width - 1,
             max_y=config.sensor_height - 1,
             slice_start_us=(
-                time_slice - config.slice_duration if slice_start is None else slice_start
+                time_slice - config.slice_duration
+                if slice_start is None
+                else slice_start
             ),
             slice_stop_us=time_slice,
             settings=temporal_settings_from_config(config),
@@ -1334,6 +1341,8 @@ def open_event_store(
                 filename,
                 cache_path,
                 max_events=config.max_raw_events,
+                start_time_us=config.slice_start,
+                stop_time_us=_raw_decode_stop_time(config),
             ),
             cache_path=cache_path,
             timestamps_monotonic=True,
@@ -1345,6 +1354,14 @@ def open_event_store(
             timestamps_monotonic=timestamps_are_monotonic(events),
         )
     raise ValueError(f"Unsupported input file: {filename}")
+
+
+def _raw_decode_stop_time(config: PeakLocConfig) -> int | None:
+    if config.slice_end is not None:
+        return config.slice_end
+    if config.slice_count is not None:
+        return config.slice_start + config.slice_duration * config.slice_count
+    return None
 
 
 def close_event_store(event_store: EventStore, *, remove_cache: bool) -> None:
@@ -1545,7 +1562,9 @@ def iter_event_slices(
         )
     for time_slice in time_slices:
         if timestamps_monotonic:
-            start_index = int(np.searchsorted(timestamps, time_slice.start, side="left"))
+            start_index = int(
+                np.searchsorted(timestamps, time_slice.start, side="left")
+            )
             stop_index = int(np.searchsorted(timestamps, time_slice.stop, side="left"))
             yield time_slice, np.asarray(events[start_index:stop_index])
         else:

@@ -95,14 +95,20 @@ def materialize_raw_events(
     filename: str | Path,
     output_path: str | Path,
     max_events: int = 1_000_000,
+    start_time_us: int = 0,
+    stop_time_us: int | None = None,
 ) -> np.ndarray:
-    """Decode a RAW recording into a disk-backed normalized event array.
+    """Decode a bounded RAW interval into a disk-backed normalized event array.
 
     RAW readers produce many chunks, but concatenating them keeps both the chunks and
     the final array alive at once. Writing each normalized chunk directly to disk keeps
     the peak allocation bounded by one reader chunk; the returned memory map is then
     consumed one processing slice at a time.
     """
+    if start_time_us < 0:
+        raise ValueError("start_time_us must be non-negative")
+    if stop_time_us is not None and stop_time_us <= start_time_us:
+        raise ValueError("stop_time_us must be greater than start_time_us")
     source_path = str(filename)
     cache_path = Path(output_path)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,8 +118,12 @@ def materialize_raw_events(
     with temporary_openeb_system_site_packages():
         RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
         record_raw = RawReader(source_path, max_events=max_events)
+        if start_time_us:
+            record_raw.seek_time(start_time_us)
         with cache_path.open("wb") as output_file:
-            while not record_raw.is_done():
+            while not record_raw.is_done() and (
+                stop_time_us is None or record_raw.current_time < stop_time_us
+            ):
                 try:
                     events = record_raw.load_delta_t(RAW_READ_DURATION_US)
                 except ValueError as error:
@@ -126,6 +136,13 @@ def materialize_raw_events(
                 if events.size == 0:
                     continue
                 normalized_events = np.asarray(events, dtype=EVENT_DTYPE)
+                within_interval = normalized_events["t"] >= start_time_us
+                if stop_time_us is not None:
+                    within_interval &= normalized_events["t"] < stop_time_us
+                if not np.all(within_interval):
+                    normalized_events = normalized_events[within_interval]
+                if normalized_events.size == 0:
+                    continue
                 normalized_events.tofile(output_file)
                 event_count += int(normalized_events.size)
 
