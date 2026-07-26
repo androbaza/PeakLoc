@@ -79,11 +79,13 @@ used by setting `PEAKLOC_METAVISION_ROOT` before running Pixi, or by setting
 
 ```powershell
 $env:PEAKLOC_METAVISION_ROOT = "D:\Prophesee"
-pixi run import-test
+pixi run check-openeb
 pixi run peakloc
 ```
 
-Metavision's bindings must support the Pixi Python version (currently Python 3.12).
+Metavision's bindings must support the Pixi Python version: Python 3.12 on Linux and
+Python 3.9 on Windows. The Windows target matches the CPython 3.9 bindings supplied
+with the currently installed Prophesee SDK.
 
 
 

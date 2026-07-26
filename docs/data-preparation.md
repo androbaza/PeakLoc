@@ -41,11 +41,12 @@ Install the OpenEB / Metavision packages outside Pixi first. Then use Pixi for t
 Check whether the bindings are visible:
 
 ```bash
-pixi run python -c "from localization_scripts.event_array_processing import add_openeb_system_site_packages; add_openeb_system_site_packages(); from metavision_core.event_io.raw_reader import RawReader; from metavision_sdk_base import EventCD; print('OpenEB OK')"
+pixi run check-openeb
 ```
 
-If this fails, verify that the installed Metavision bindings support Pixi's Python 3.12,
-then fix the OpenEB installation before running PeakLoc.
+If this fails, verify that the installed Metavision bindings support Pixi's Python 3.12
+on Linux or Python 3.9 on Windows, then fix the OpenEB installation before running
+PeakLoc.
 
 ## Expected sensor geometry
 

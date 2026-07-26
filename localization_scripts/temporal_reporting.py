@@ -20,6 +20,7 @@ from localization_scripts.plot_style import (
     save_publication_figure,
     style_publication_axis,
 )
+from localization_scripts.python_compat import strict_zip
 
 
 MAX_SPATIAL_BINS = 24
@@ -394,7 +395,7 @@ def _save_spatial_map_figure(
         ("median_turn_off_s", "Median turn-off time", "s", "cividis"),
     )
     eligible = spatial_bins[spatial_bins["eligible_for_summary"]]
-    for axis, (field, title, unit, cmap_name) in zip(axes, specifications, strict=True):
+    for axis, (field, title, unit, cmap_name) in strict_zip(axes, specifications):
         image = np.full((bins_y, bins_x), np.nan, dtype=np.float64)
         if eligible.size:
             image[eligible["bin_y"], eligible["bin_x"]] = eligible[field]

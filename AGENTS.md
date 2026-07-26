@@ -35,7 +35,7 @@ pixi run -e all ty check
 `PeakLoc.py` runs the full pipeline using root `config.json` by default; set `PEAKLOC_INPUT_FOLDER`, `PEAKLOC_SLICE_START`, or `PEAKLOC_SLICE_DURATION` when needed. Review `input_dir` before using `scripts/clean_temp_files.py`; it deletes generated arrays.
 
 ## Coding Policies & Style
-Target Python 3.12. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
+Target Python 3.12 on Linux and Python 3.9 on Windows. Type every function signature and use modern generics such as `list[int]`. Prefer pure functions; isolate plotting, file writes, and other side effects. If a function returns multiple values, create a dataclass, Pydantic `BaseModel`, or other named type instead of returning large tuples.
 
 Use 4-space indentation and keep `.py` lines at 100 characters or less. Use `snake_case` for functions and variables, `UPPER_CASE` for constants, and clear names: prefer `coefficients` over `coeffs`. Sort imports with ruff/isort. Comments should explain why, not what. Preserve event fields `x`, `y`, `p`, and `t` unless all consumers are updated together.
 

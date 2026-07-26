@@ -23,23 +23,36 @@ scipy = "*"
 tifffile = "*"
 loguru = ">=0.7.3,<0.8"
 plotly = ">=6.8.0,<7"
-python-kaleido = ">=1.3.0,<2"
 imageio-ffmpeg = ">=0.6.0,<0.7"
-ipywidgets = ">=8.1.8,<9"
-jupyterlab = ">=4.6.1,<5"
-pixi-kernel = ">=0.7.1,<0.8"
 kiwisolver = ">=1.5.0,<2"
 
 [activation.env]
 PYTHONNOUSERSITE = "1"
 
+[target.win-64.dependencies]
+# The installed Prophesee bindings are compiled for CPython 3.9.
+python = "3.9.*"
+# Plotly 6 requires Python 3.10; the dashboard uses APIs available in Plotly 5.
+plotly = ">=5,<6"
+# Kiwisolver 1.5 builds start at Python 3.10.
+kiwisolver = ">=1.4,<1.5"
+
+[target.linux-64.dependencies]
+ipywidgets = ">=8.1.8,<9"
+jupyterlab = ">=4.6.1,<5"
+pixi-kernel = ">=0.7.1,<0.8"
+python-kaleido = ">=1.3.0,<2"
+ty = "*"
+
 [target.win-64.activation]
 scripts = ["scripts/activate_metavision.bat"]
+
+[target.win-64.activation.env]
+PATH = "%CONDA_PREFIX%\\Library\\bin;%CONDA_PREFIX%;%CONDA_PREFIX%\\Scripts;%PATH%"
 
 [feature.dev.dependencies]
 pytest = "*"
 ruff = "*"
-ty = "*"
 
 [feature.dev.tasks]
 test = "pytest"
@@ -54,6 +67,7 @@ all = { features = ["dev"], solve-group = "default" }
 
 [tasks]
 clean-temp = "python -m scripts.clean_temp_files"
+check-openeb = "python -m scripts.check_openeb"
 import-test = "python -m scripts.import_test"
 peakloc = "python PeakLoc.py"
 build-event-calibration = "python -m calibration_scripts.build_event_calibration"

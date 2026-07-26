@@ -148,7 +148,7 @@ def test_peakloc_config_validates_event_model_settings():
 
 
 def test_peakloc_config_partitions_global_cpu_budget(monkeypatch):
-    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(12)))
+    monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(12)), raising=False)
     config = PeakLocConfig(
         num_cores=30,
         max_parallel_workers=30,

@@ -5,12 +5,14 @@ import math
 
 import numpy as np
 
+from localization_scripts.python_compat import strict_zip
+
 
 POSITIVE_POLARITY = 1
 NEGATIVE_POLARITY = 0
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class TemporalSegmentationSettings:
     context_pre_us: int = 250_000
     context_post_us: int = 250_000
@@ -406,7 +408,7 @@ def detect_transition_trains(
         available_bounds,
     )
     trains = []
-    for start, stop in zip(boundaries[:-1], boundaries[1:], strict=True):
+    for start, stop in strict_zip(boundaries[:-1], boundaries[1:]):
         indices = core_indices[start:stop]
         if indices.size < min_events:
             continue
