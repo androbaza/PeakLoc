@@ -492,15 +492,41 @@ def _resources_allow_submission(
 
 
 def _available_memory_bytes() -> int:
+    if os.name == "nt":
+        return _windows_available_memory_bytes()
     try:
         for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
             if line.startswith("MemAvailable:"):
                 return int(line.split()[1]) * 1024
     except (FileNotFoundError, OSError, ValueError):
         pass
-    page_size = os.sysconf("SC_PAGE_SIZE")
-    available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        available_pages = os.sysconf("SC_AVPHYS_PAGES")
+    except (AttributeError, OSError, ValueError):
+        return 0
     return int(page_size * available_pages)
+
+
+def _windows_available_memory_bytes() -> int:
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(status)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return int(status.ullAvailPhys)
 
 
 def _resource_failure_message(task: SliceTask, context: SliceExecutionConfig) -> str:
@@ -2169,6 +2195,6 @@ def _find_artifact(recording: RecordingResult, filename: str) -> Path | None:
 def _format_json_float(value: object) -> str:
     if value is None:
         return "n/a"
-    if isinstance(value, int | float):
+    if isinstance(value, (int, float)):
         return f"{value:.3g}"
     return str(value)

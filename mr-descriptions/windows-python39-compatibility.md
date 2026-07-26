@@ -25,7 +25,7 @@ The previous Windows Pixi environment used Python 3.12, so importing
 On Windows with the regenerated Pixi environments:
 
 - `pixi run check-openeb` imports `RawReader` and `EventCD` successfully on
-  Python 3.9.
+  Python 3.9 and reports available Windows RAM through `GlobalMemoryStatusEx`.
 - `pixi run peakloc --help` imports the application entry point successfully.
 - Focused compatibility tests pass: `21 passed`.
 - `ruff check` and `ruff format --check` pass for the new helpers, and
