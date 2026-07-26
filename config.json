@@ -2,6 +2,7 @@
   "input_folder": "/media/angelina/data1/andrey/peakloc_data/2026_07_17_Microtubule_and_Clathrin/Clathrin",
   "recursive_input": true,
   "slice_start": 0,
+  "slice_end": null,
   "slice_duration": 50000000,
   "slice_count": null,
   "num_cores": 30,

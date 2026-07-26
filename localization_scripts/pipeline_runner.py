@@ -153,6 +153,7 @@ class RecordingResult:
 
 @dataclass(frozen=True)
 class SliceTask:
+    slice_start: int
     time_slice: int
     start_index: int
     stop_index: int
@@ -192,19 +193,62 @@ class SliceResourceError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class TimeSlice:
+    start: int
+    stop: int
+
+
+def build_time_slices(config: PeakLocConfig, time_max: int) -> list[TimeSlice]:
+    """Build contiguous processing windows, including a bounded final window."""
+    if config.slice_end is None:
+        stop = time_max + config.slice_duration + 1
+        if config.slice_count is not None:
+            stop = min(
+                stop,
+                config.slice_start + config.slice_duration * (config.slice_count + 1),
+            )
+        return [
+            TimeSlice(time_slice - config.slice_duration, time_slice)
+            for time_slice in range(
+                config.slice_start + config.slice_duration,
+                stop,
+                config.slice_duration,
+            )
+        ]
+
+    stop = min(config.slice_end, time_max + 1)
+    if config.slice_count is not None:
+        stop = min(stop, config.slice_start + config.slice_duration * config.slice_count)
+    return [
+        TimeSlice(start, min(start + config.slice_duration, stop))
+        for start in range(config.slice_start, stop, config.slice_duration)
+    ]
+
+
 def build_slice_tasks(
-    events: np.ndarray, time_slices: range, *, slice_duration: int
+    events: np.ndarray,
+    time_slices: Iterable[TimeSlice | int],
+    *,
+    slice_duration: int | None = None,
 ) -> list[SliceTask]:
+    """Build parallel tasks for explicit windows or legacy slice end times."""
     timestamps = events["t"]
     itemsize = int(events.dtype.itemsize)
     tasks = []
     for time_slice in time_slices:
-        slice_start = time_slice - slice_duration
-        start_index = int(np.searchsorted(timestamps, slice_start, side="left"))
-        stop_index = int(np.searchsorted(timestamps, time_slice, side="left"))
+        if isinstance(time_slice, TimeSlice):
+            window = time_slice
+        else:
+            if slice_duration is None:
+                raise ValueError("slice_duration is required for integer time slices")
+            window = TimeSlice(time_slice - slice_duration, time_slice)
+        start_index = int(np.searchsorted(timestamps, window.start, side="left"))
+        stop_index = int(np.searchsorted(timestamps, window.stop, side="left"))
         tasks.append(
             SliceTask(
-                time_slice=time_slice,
+                slice_start=window.start,
+                time_slice=window.stop,
                 start_index=start_index,
                 stop_index=stop_index,
                 event_bytes=max(stop_index - start_index, 0) * itemsize,
@@ -362,6 +406,7 @@ def _run_slice_task(task: SliceTask) -> SliceResult | None:
             spatial_mask=context.spatial_mask,
             diffuse_flash_intervals=context.diffuse_flash_intervals,
             parallel_stage_lock_path=context.parallel_stage_lock_path,
+            slice_start=task.slice_start,
         )
         if result is not None:
             _write_slice_manifest(result, context.output_folder)
@@ -562,6 +607,7 @@ def process_time_slice(
     spatial_mask: SpatialMask | None = None,
     diffuse_flash_intervals: tuple[TimeInterval, ...] = (),
     parallel_stage_lock_path: Path | None = None,
+    slice_start: int | None = None,
 ) -> SliceResult | None:
     events, diffuse_flash_excluded_event_count = exclude_time_intervals(
         event_slice, diffuse_flash_intervals
@@ -711,7 +757,9 @@ def process_time_slice(
             min_y=0,
             max_x=config.sensor_width - 1,
             max_y=config.sensor_height - 1,
-            slice_start_us=time_slice - config.slice_duration,
+            slice_start_us=(
+                time_slice - config.slice_duration if slice_start is None else slice_start
+            ),
             slice_stop_us=time_slice,
             settings=temporal_settings_from_config(config),
         )
@@ -910,17 +958,7 @@ def process_recording(
                 len(flash_detection.intervals),
                 flash_detection.excluded_event_count,
             )
-        time_slice_stop = time_max + config.slice_duration + 1
-        if config.slice_count is not None:
-            time_slice_stop = min(
-                time_slice_stop,
-                config.slice_start + config.slice_duration * (config.slice_count + 1),
-            )
-        time_slices = range(
-            config.slice_start + config.slice_duration,
-            time_slice_stop,
-            config.slice_duration,
-        )
+        time_slices = build_time_slices(config, time_max)
         if len(time_slices) == 0:
             logger.info("No time slices to process for {}", filename)
             recording.elapsed_seconds = time.time() - recording_start
@@ -980,9 +1018,7 @@ def process_recording(
             )
             if event_path is None:
                 raise RuntimeError("Parallel RAW processing requires an event cache")
-            tasks = build_slice_tasks(
-                events, time_slices, slice_duration=config.slice_duration
-            )
+            tasks = build_slice_tasks(events, time_slices)
             execution_context = SliceExecutionConfig(
                 filename=filename,
                 event_path=event_path,
@@ -1012,30 +1048,36 @@ def process_recording(
             for time_slice, event_slice in iter_event_slices(
                 events,
                 time_slices,
-                slice_duration=config.slice_duration,
                 timestamps_monotonic=event_store.timestamps_monotonic,
             ):
                 try:
+                    slice_bounds = (
+                        {"slice_start": time_slice.start}
+                        if config.slice_end is not None
+                        else {}
+                    )
                     if flash_detection.intervals:
                         slice_result = process_time_slice(
                             event_slice,
-                            time_slice,
+                            time_slice.stop,
                             filename,
                             config,
                             calibration,
                             layout.debug_dir,
                             active_spatial_mask,
                             flash_detection.intervals,
+                            **slice_bounds,
                         )
                     else:
                         slice_result = process_time_slice(
                             event_slice,
-                            time_slice,
+                            time_slice.stop,
                             filename,
                             config,
                             calibration,
                             layout.debug_dir,
                             active_spatial_mask,
+                            **slice_bounds,
                         )
                 finally:
                     del event_slice
@@ -1426,11 +1468,10 @@ def timestamps_are_monotonic(
 
 def iter_event_slices(
     events: np.ndarray,
-    time_slices: range,
+    time_slices: Iterable[TimeSlice],
     *,
-    slice_duration: int,
     timestamps_monotonic: bool,
-) -> Iterator[tuple[int, np.ndarray]]:
+) -> Iterator[tuple[TimeSlice, np.ndarray]]:
     """Yield one time slice at a time, avoiding repeated full-array boolean copies."""
     timestamps = events["t"]
     if not timestamps_monotonic:
@@ -1438,13 +1479,12 @@ def iter_event_slices(
             "Timestamps are not monotonic; using a bounded-copy slice fallback"
         )
     for time_slice in time_slices:
-        slice_start = time_slice - slice_duration
         if timestamps_monotonic:
-            start_index = int(np.searchsorted(timestamps, slice_start, side="left"))
-            stop_index = int(np.searchsorted(timestamps, time_slice, side="left"))
+            start_index = int(np.searchsorted(timestamps, time_slice.start, side="left"))
+            stop_index = int(np.searchsorted(timestamps, time_slice.stop, side="left"))
             yield time_slice, np.asarray(events[start_index:stop_index])
         else:
-            mask = (timestamps >= slice_start) & (timestamps < time_slice)
+            mask = (timestamps >= time_slice.start) & (timestamps < time_slice.stop)
             yield time_slice, np.asarray(events[mask])
 
 

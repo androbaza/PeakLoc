@@ -29,6 +29,7 @@ class PeakLocConfig:
     input_folder: str = DEFAULT_INPUT_FOLDER
     recursive_input: bool = False
     slice_start: int = 0
+    slice_end: int | None = None
     slice_duration: int = DEFAULT_SLICE_DURATION
     slice_count: int | None = None
     num_cores: int = multiprocessing.cpu_count()
@@ -172,6 +173,10 @@ class PeakLocConfig:
 
     def validate(self) -> None:
         _require_non_negative("slice_start", self.slice_start)
+        if self.slice_end is not None:
+            _require_non_negative("slice_end", self.slice_end)
+            if self.slice_end <= self.slice_start:
+                raise ValueError("slice_end must be greater than slice_start")
         _require_positive("slice_duration", self.slice_duration)
         if self.slice_count is not None:
             _require_positive("slice_count", self.slice_count)
