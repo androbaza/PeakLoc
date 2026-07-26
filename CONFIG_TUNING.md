@@ -83,6 +83,23 @@ not accepted counts alone.
 - Keep `sigma_psf_px` tied to bead calibration. Do not tune it merely to increase
   acceptance.
 
+### 50 Hz dead-time calibration
+
+The 1–5 s interval of the 2026-07-23 pulsed-bead reference contains 200 cycles
+with a 20 ms period. Use `peak_time_threshold: 10000` and `peak_neighbors: 9`
+for that calibration so successive cycles remain separate while each bead PSF
+produces one candidate per cycle. Keep the simpler legacy extraction workflow
+for routine localization; enable transition-train segmentation when physical
+ON/OFF boundaries are the measurement of interest.
+
+Maximum dead time (`bias_refr: -20`) is the recommended starting camera setting.
+It retained all 1,600 expected legacy bead-cycles with the lowest event load and
+the closest transition-train estimate to the nominal 10 ms bright interval.
+Confirm Maximum against Default on a short representative fluorophore slice,
+because bright beads do not measure dim-emitter sensitivity. Avoid Setting 127
+and Minimum unless a separate sensitivity experiment justifies their 8.4-fold
+and 30-fold event-load penalties.
+
 `min_events_pos`, `min_events_neg`, `min_valid_pixels`,
 `max_localization_uncertainty_nm`, `max_fit_cond`, and
 `max_fit_center_offset_px` are quality-policy gates. The current 10-15 s diagnostic

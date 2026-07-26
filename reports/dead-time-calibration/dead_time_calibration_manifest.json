@@ -1,0 +1,64 @@
+{
+  "ground_truth": {
+    "frequency_hz": 50,
+    "duty_cycle_percent": 50,
+    "period_us": 20000,
+    "bright_duration_us": 10000,
+    "slice_start_us": 1000000,
+    "slice_stop_us": 5000000,
+    "cycles_per_recording": 200
+  },
+  "calibrated_peak_time_threshold_us": 10000.0,
+  "calibrated_peak_neighbors_px": 9,
+  "bead_assignment_radius_px": 10.0,
+  "bead_centers_yx_px": [
+    [
+      109.5,
+      693.5
+    ],
+    [
+      167.5,
+      366.5
+    ],
+    [
+      171.5,
+      472.0
+    ],
+    [
+      379.5,
+      451.5
+    ],
+    [
+      398.5,
+      741.5
+    ],
+    [
+      459.3333333333333,
+      608.3333333333334
+    ],
+    [
+      576.0,
+      782.6666666666666
+    ],
+    [
+      592.5,
+      530.5
+    ]
+  ],
+  "reference_phase_us": {
+    "Maximum": 5225.899241952377,
+    "Default": 1486.0039554527884,
+    "Setting 127": 17349.845716064807,
+    "Minimum": 19668.249051353265
+  },
+  "runs": {
+    "Default/legacy": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Default/recording_2026-07-24_10-18-39/20260727_001039_369522",
+    "Default/transition_train": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Default/recording_2026-07-24_10-18-39/20260727_001346_641617",
+    "Maximum/legacy": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Maximum/recording_2026-07-24_10-20-24/20260727_001039_369522",
+    "Maximum/transition_train": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Maximum/recording_2026-07-24_10-20-24/20260727_001419_812125",
+    "Minimum/legacy": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Minimum/recording_2026-07-24_10-23-03/20260727_001039_369522",
+    "Minimum/transition_train": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Minimum/recording_2026-07-24_10-23-03/20260727_001501_412816",
+    "Setting 127/legacy": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Setting_127/recording_2026-07-24_10-21-47/20260727_001039_369522",
+    "Setting 127/transition_train": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Setting_127/recording_2026-07-24_10-21-47/20260727_001636_433665"
+  }
+}
