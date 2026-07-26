@@ -379,7 +379,8 @@ Very low values are permissive. Higher values suppress weak event traces.
 
 ### `peak_time_threshold`
 
-Maximum temporal separation used when merging nearby peak candidates.
+Maximum temporal separation used for strongest-first suppression of nearby peak
+candidates.
 
 Example:
 
@@ -391,11 +392,20 @@ Example:
 
 Unit: microseconds.
 
-This means candidates close in space and within about 40 ms can be considered the same event group.
+This means a retained candidate suppresses weaker candidates that are close in space
+and within about 40 ms. Suppression is direct rather than transitive: a long chain of
+successive peaks is not collapsed into one event merely because every adjacent pair is
+within the threshold.
+
+Choose a value shorter than the minimum blink-to-blink interval that must remain
+resolvable. The 50 Hz dead-time calibration uses `10000` µs with `peak_neighbors: 9`
+to keep successive 20 ms laser cycles separate while suppressing candidates across
+each bead PSF. Those calibration-specific values should not replace the 40 ms baseline
+for slower fluorophore recordings without a representative validation slice.
 
 ### `peak_neighbors`
 
-Spatial neighborhood radius used when merging local peak candidates.
+Spatial neighborhood radius used when suppressing local peak candidates.
 
 Example:
 

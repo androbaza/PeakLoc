@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, insort
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -248,54 +248,53 @@ def find_local_max_peak(
     coords_dict: dict, threshold: float = 50e3, neighbors: int = 5
 ) -> dict:
     """
-    Select deterministic local maxima from candidate peaks.
+    Select deterministic local maxima with strongest-first local suppression.
 
     Parameters
     ----------
     coords_dict : dict
         A dictionary with coordinates as keys and candidate peak tuples as values.
     threshold : int or float
-        Maximum temporal separation for candidates to be considered one peak.
+        Maximum temporal separation for one retained candidate to suppress another.
     neighbors : int, optional
         Spatial radius for candidates to be considered one peak. Default: 4.
 
     Returns
     -------
     dict
-        A new dictionary containing one winner per spatial/time peak group.
+        A new dictionary containing locally strongest spatial/time peaks.
     """
     candidates = _collect_peak_candidates(coords_dict)
     if not candidates:
         return {}
 
-    parent = list(range(len(candidates)))
-    coord_index = _index_candidates_by_coordinate(candidates)
-
-    for candidate_id, candidate in enumerate(candidates):
+    retained = []
+    retained_times: dict[tuple[int, int], list[float]] = defaultdict(list)
+    for candidate in sorted(candidates, key=_candidate_rank, reverse=True):
         y, x = candidate.coord
         min_time = candidate.peak_time - threshold
         max_time = candidate.peak_time + threshold
+        suppressed = False
         for neighbor_y in range(y - neighbors, y + neighbors + 1):
             for neighbor_x in range(x - neighbors, x + neighbors + 1):
-                neighbor_items = coord_index.get((neighbor_y, neighbor_x))
-                if neighbor_items is None:
+                neighbor_times = retained_times.get((neighbor_y, neighbor_x))
+                if not neighbor_times:
                     continue
-                neighbor_times, neighbor_ids = neighbor_items
                 start = bisect_left(neighbor_times, min_time)
-                stop = bisect_right(neighbor_times, max_time)
-                for neighbor_id in neighbor_ids[start:stop]:
-                    if neighbor_id > candidate_id:
-                        _union(parent, candidate_id, neighbor_id)
-
-    groups = defaultdict(list)
-    for candidate_id, candidate in enumerate(candidates):
-        groups[_find(parent, candidate_id)].append(candidate)
-
-    winners = [max(group, key=_candidate_rank) for group in groups.values()]
-    winners.sort(key=lambda candidate: (candidate.coord, candidate.peak_time))
+                if start < len(neighbor_times) and neighbor_times[start] <= max_time:
+                    suppressed = True
+                    break
+            if suppressed:
+                break
+        if suppressed:
+            continue
+        retained.append(candidate)
+        insort(retained_times[candidate.coord], candidate.peak_time)
 
     output = defaultdict(list)
-    for winner in winners:
+    for winner in sorted(
+        retained, key=lambda candidate: (candidate.coord, candidate.peak_time)
+    ):
         output[winner.coord].append(winner.payload)
     return dict(output)
 
@@ -334,21 +333,6 @@ def _coordinate_sort_key(coord) -> tuple[int, int, int, str]:
     return (0, y, x, "")
 
 
-def _index_candidates_by_coordinate(
-    candidates: list[PeakCandidate],
-) -> dict[tuple[int, int], tuple[list[float], list[int]]]:
-    coord_index = defaultdict(list)
-    for candidate_id, candidate in enumerate(candidates):
-        coord_index[candidate.coord].append((candidate.peak_time, candidate_id))
-    for coord, items in list(coord_index.items()):
-        items.sort()
-        coord_index[coord] = (
-            [item[0] for item in items],
-            [item[1] for item in items],
-        )
-    return coord_index
-
-
 def _peak_event_count(peak_data: tuple) -> float:
     if len(peak_data) < 4:
         return 0.0
@@ -367,20 +351,6 @@ def _candidate_rank(
         -candidate.peak_time,
         -candidate.peak_index,
     )
-
-
-def _find(parent: list[int], item: int) -> int:
-    while parent[item] != item:
-        parent[item] = parent[parent[item]]
-        item = parent[item]
-    return item
-
-
-def _union(parent: list[int], first: int, second: int) -> None:
-    first_root = _find(parent, first)
-    second_root = _find(parent, second)
-    if first_root != second_root:
-        parent[second_root] = first_root
 
 
 def prepare_interpolation_axis(times, cumsum):
