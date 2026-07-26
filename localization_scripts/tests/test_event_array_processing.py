@@ -128,3 +128,16 @@ def test_raw_reader_system_path_does_not_leak_to_loky_workers(
         delayed(_worker_has_sys_path)(str(openeb_site)) for _ in range(2)
     )
     assert worker_paths == [False, False]
+
+
+def test_openeb_site_packages_uses_windows_activation_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    openeb_site = tmp_path / "metavision_site"
+    openeb_site.mkdir()
+
+    monkeypatch.setenv(
+        event_array_processing.OPENEB_SITE_PACKAGES_ENV_VAR, str(openeb_site)
+    )
+
+    assert event_array_processing.openeb_site_packages() == [openeb_site]

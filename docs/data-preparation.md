@@ -25,15 +25,27 @@ On Ubuntu, the repository expects OpenEB / Metavision Python packages under:
 
 PeakLoc adds this path at runtime if it exists.
 
+On Windows, the Metavision installer deploys the bindings to:
+
+```text
+C:\Program Files\Prophesee\lib\python3\site-packages
+```
+
+The Windows Pixi activation script exposes this location only while PeakLoc is decoding
+RAW data and adds the corresponding Metavision DLL directories to `PATH`. For a custom
+Metavision installation, set `PEAKLOC_METAVISION_ROOT` before running Pixi. To point at
+only the binding directory, set `PEAKLOC_OPENEB_SITE_PACKAGES` instead.
+
 Install the OpenEB / Metavision packages outside Pixi first. Then use Pixi for the PeakLoc Python environment.
 
 Check whether the bindings are visible:
 
 ```bash
-pixi run python -c "from metavision_core.event_io.raw_reader import RawReader; from metavision_sdk_base import EventCD; print('OpenEB OK')"
+pixi run python -c "from localization_scripts.event_array_processing import add_openeb_system_site_packages; add_openeb_system_site_packages(); from metavision_core.event_io.raw_reader import RawReader; from metavision_sdk_base import EventCD; print('OpenEB OK')"
 ```
 
-If this fails, fix the OpenEB installation before running PeakLoc.
+If this fails, verify that the installed Metavision bindings support Pixi's Python 3.12,
+then fix the OpenEB installation before running PeakLoc.
 
 ## Expected sensor geometry
 

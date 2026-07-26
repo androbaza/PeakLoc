@@ -2,6 +2,7 @@ import gc
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import import_module
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -20,16 +21,40 @@ else:
 
 
 OPENEB_SYSTEM_SITE_PACKAGES = Path("/usr/lib/python3/dist-packages")
+OPENEB_WINDOWS_SITE_PACKAGES = Path(
+    r"C:\Program Files\Prophesee\lib\python3\site-packages"
+)
+OPENEB_SITE_PACKAGES_ENV_VAR = "PEAKLOC_OPENEB_SITE_PACKAGES"
 EVENT_DTYPE = np.dtype(
     [("x", np.uint16), ("y", np.uint16), ("p", np.int8), ("t", np.uint64)]
 )
 RAW_READ_DURATION_US = 50_000
 
 
-def add_openeb_system_site_packages() -> None:
-    openeb_path = str(OPENEB_SYSTEM_SITE_PACKAGES)
-    if OPENEB_SYSTEM_SITE_PACKAGES.is_dir() and openeb_path not in sys.path:
-        sys.path.append(openeb_path)
+def openeb_site_packages() -> list[Path]:
+    """Return existing locations containing the installed OpenEB Python bindings."""
+    configured_path = os.environ.get(OPENEB_SITE_PACKAGES_ENV_VAR)
+    candidates = (
+        [Path(configured_path)]
+        if configured_path
+        else [
+            OPENEB_WINDOWS_SITE_PACKAGES
+            if sys.platform == "win32"
+            else OPENEB_SYSTEM_SITE_PACKAGES
+        ]
+    )
+    return [path for path in candidates if path.is_dir()]
+
+
+def add_openeb_system_site_packages() -> list[str]:
+    """Temporarily expose external OpenEB bindings to the active Pixi interpreter."""
+    added_paths = []
+    for site_packages_path in openeb_site_packages():
+        openeb_path = str(site_packages_path)
+        if openeb_path not in sys.path:
+            sys.path.append(openeb_path)
+            added_paths.append(openeb_path)
+    return added_paths
 
 
 @contextmanager
@@ -39,14 +64,13 @@ def temporary_openeb_system_site_packages() -> Iterator[None]:
     Loky copies the parent's import path into workers. Leaving the system OpenEB
     path in place lets system-only packages override Pixi dependencies there.
     """
-    openeb_path = str(OPENEB_SYSTEM_SITE_PACKAGES)
-    was_present = openeb_path in sys.path
-    add_openeb_system_site_packages()
+    added_paths = add_openeb_system_site_packages()
     try:
         yield
     finally:
-        if not was_present and openeb_path in sys.path:
-            sys.path.remove(openeb_path)
+        for openeb_path in added_paths:
+            if openeb_path in sys.path:
+                sys.path.remove(openeb_path)
 
 
 def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:

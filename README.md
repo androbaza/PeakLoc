@@ -69,7 +69,21 @@ On Ubuntu, the bindings are expected under:
 ```
 
 Installation steps: [docs.prophesee.ai](https://docs.prophesee.ai/stable/installation/linux_openeb_with_packages.html)
-The repository currently bridges this system path into the Pixi Python 3.12 environment.
+The repository bridges this system path into the Pixi Python 3.12 environment.
+
+On Windows, install Metavision Studio / SDK first. `pixi run` automatically uses its
+default binding location, `C:\Program Files\Prophesee\lib\python3\site-packages`, and
+adds the Metavision DLL directories for the process. A non-default installation can be
+used by setting `PEAKLOC_METAVISION_ROOT` before running Pixi, or by setting
+`PEAKLOC_OPENEB_SITE_PACKAGES` to the binding directory directly:
+
+```powershell
+$env:PEAKLOC_METAVISION_ROOT = "D:\Prophesee"
+pixi run import-test
+pixi run peakloc
+```
+
+Metavision's bindings must support the Pixi Python version (currently Python 3.12).
 
 
 
