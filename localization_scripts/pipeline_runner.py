@@ -1848,7 +1848,7 @@ def save_processed_plots(
             timestamp=timestamp,
             sensor_shape=config.sensor_shape,
             output_stem="smlm_reconstruction",
-            crop_to_data=True,
+            crop_to_data=False,
         )
         if result is not None:
             artifacts.extend([result.png_path, result.tiff_path])
