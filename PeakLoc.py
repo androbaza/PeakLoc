@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+import multiprocessing
 import os
 from pathlib import Path
 import sys
@@ -92,17 +93,35 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def configure_frozen_application_directory() -> Path | None:
+    """Use the executable directory for portable Windows distributions."""
+    if not getattr(sys, "frozen", False):
+        return None
+
+    executable_directory = Path(sys.executable).resolve().parent
+    os.chdir(executable_directory)
+    config_path = executable_directory / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            "The packaged PeakLoc application requires config.json beside the "
+            f"executable: {config_path}"
+        )
+    return config_path
+
+
 def main() -> None:
     configure_worker_environment()
+    bundled_config_path = configure_frozen_application_directory()
     args = parse_args()
     if args.slice_worker is not None:
         run_serialized_slice_worker(args.slice_worker)
         return
-    config = load_peakloc_config(args.config)
+    config_path = args.config if args.config is not None else bundled_config_path
+    config = load_peakloc_config(config_path)
     if args.preflight or args.strict_preflight or args.preflight_only:
         report = run_preflight(
             config,
-            config_path=args.config,
+            config_path=config_path,
             strict_mode=args.strict_preflight,
         )
         report_path = (
@@ -125,4 +144,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()
