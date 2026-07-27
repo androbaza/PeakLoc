@@ -1,0 +1,77 @@
+{
+  "ground_truth": {
+    "frequency_hz": 50,
+    "duty_cycle_percent": 50,
+    "period_us": 20000,
+    "bright_duration_us": 10000,
+    "recording_start_us": 0,
+    "recording_stop_us": 60000000,
+    "cycles_per_recording": 3000,
+    "inferred_bead_count": 8,
+    "expected_bead_cycles": 24000
+  },
+  "analysis": {
+    "method": "legacy",
+    "peak_time_threshold_us": 10000.0,
+    "peak_neighbors_px": 9,
+    "bead_assignment_radius_px": 10.0,
+    "trace_sample_size_per_setting": 5,
+    "trace_random_seed_default": 50647,
+    "trace_random_seed_maximum": 50648,
+    "trace_sampling_population": "all non-edge legacy ROIs with nonzero positive and negative counts"
+  },
+  "bead_centers_yx_px": [
+    [
+      109.5,
+      693.5
+    ],
+    [
+      167.5,
+      366.5
+    ],
+    [
+      171.33333333333334,
+      472.3333333333333
+    ],
+    [
+      379.5,
+      451.5
+    ],
+    [
+      398.5,
+      741.5
+    ],
+    [
+      459.5,
+      608.5
+    ],
+    [
+      576.3333333333334,
+      783.3333333333334
+    ],
+    [
+      592.5,
+      530.5
+    ]
+  ],
+  "runs": {
+    "Default": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Default/recording_2026-07-24_10-18-39/20260727_172512_999624",
+    "Maximum": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration/Maximum/recording_2026-07-24_10-20-24/20260727_173346_448947"
+  },
+  "trace_roi_indices": {
+    "Default": [
+      15436,
+      13733,
+      17460,
+      11593,
+      19445
+    ],
+    "Maximum": [
+      17779,
+      6781,
+      20782,
+      20134,
+      9441
+    ]
+  }
+}
