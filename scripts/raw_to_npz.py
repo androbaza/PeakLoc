@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
-from loguru import logger
 import numpy as np
+from loguru import logger
 
 from scripts.raw_to_video import (
     DEFAULT_MAX_EVENTS_BUFFER,
@@ -15,7 +15,6 @@ from scripts.raw_to_video import (
     discover_raw_paths,
     open_raw_reader,
 )
-
 
 DEFAULT_READ_WINDOW_US = 10_000_000
 ARRAY_FORMAT_VERSION = 1

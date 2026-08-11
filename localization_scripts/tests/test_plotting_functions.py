@@ -9,7 +9,6 @@ def test_plot_single_fit_plots_image_coordinates_as_xy(monkeypatch):
 
     def record_scatter(x, y, *args, **kwargs):
         scatter_calls.append((x, y))
-        return None
 
     def old_fit_callable(*args):
         raise AssertionError("plot_single_fit should build an explicit xx, yy grid")

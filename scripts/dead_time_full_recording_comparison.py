@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass, replace
 import json
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,6 @@ from scripts.dead_time_calibration import (
     infer_bead_centers,
     wrapped_residual,
 )
-
 
 PERIOD_US = 20_000
 BRIGHT_DURATION_US = 10_000

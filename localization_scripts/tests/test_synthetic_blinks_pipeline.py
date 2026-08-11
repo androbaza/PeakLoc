@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import replace
 import os
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from loguru import logger
 import numpy as np
 import pytest
+from loguru import logger
 from scipy.special import erf
 
 from localization_scripts.debug_visualization import (

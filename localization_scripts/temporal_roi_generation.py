@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-import time
 from typing import Any
 
 import numpy as np
@@ -10,8 +10,8 @@ from numba import njit, types
 from numba.typed import Dict, List
 
 from localization_scripts.event_array_processing import EVENT_DTYPE
-from localization_scripts.roi_generation import get_times_polarities, roi_record_dtype
 from localization_scripts.python_compat import strict_zip
+from localization_scripts.roi_generation import get_times_polarities, roi_record_dtype
 from localization_scripts.temporal_segmentation import (
     BlinkInterval,
     SegmentationResult,
@@ -386,8 +386,7 @@ def _materialize_segmented_roi(
                 total_positive += 1
                 if first_pixel_event == 0 or timestamp < first_pixel_event:
                     first_pixel_event = timestamp
-                if timestamp > last_pixel_event:
-                    last_pixel_event = timestamp
+                last_pixel_event = max(last_pixel_event, timestamp)
             off_start = np.searchsorted(times[row], off_start_us)
             off_stop = np.searchsorted(times[row], off_stop_us)
             for event_index in range(off_start, off_stop):
@@ -401,8 +400,7 @@ def _materialize_segmented_roi(
                 total_negative += 1
                 if first_pixel_event == 0 or timestamp < first_pixel_event:
                     first_pixel_event = timestamp
-                if timestamp > last_pixel_event:
-                    last_pixel_event = timestamp
+                last_pixel_event = max(last_pixel_event, timestamp)
             roi_y = y - center_y + roi_radius
             roi_x = x - center_x + roi_radius
             roi_event_times[0, roi_y, roi_x] = first_pixel_event
@@ -411,8 +409,7 @@ def _materialize_segmented_roi(
                 first_event == 0 or first_pixel_event < first_event
             ):
                 first_event = first_pixel_event
-            if last_pixel_event > last_event:
-                last_event = last_pixel_event
+            last_event = max(last_event, last_pixel_event)
     return (
         roi_positive,
         roi_negative,

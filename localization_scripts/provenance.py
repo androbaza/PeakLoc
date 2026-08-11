@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import importlib.metadata
 import json
-from pathlib import Path
 import platform
 import subprocess
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np

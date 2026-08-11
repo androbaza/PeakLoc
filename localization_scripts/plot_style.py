@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Final
+
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 

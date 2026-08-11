@@ -1,9 +1,9 @@
-from matplotlib_scalebar.scalebar import ScaleBar
 import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
 from csaps import CubicSmoothingSpline
+from matplotlib_scalebar.scalebar import ScaleBar
 from numba import njit
 from scipy.ndimage import center_of_mass
 from scipy.signal import find_peaks
@@ -386,7 +386,7 @@ def plot_peak_ON_OFF_detection(
     length = 10000
     counter2 = 0
     max_x = 0
-    for i in range(0, len(times)):
+    for i in range(len(times)):
         if len(times[i]) < cutoff_event_count:
             continue
         if counter2 == num_of_plots:
@@ -435,8 +435,7 @@ def plot_peak_ON_OFF_detection(
         )
         up += 100
         counter2 += 1
-        if (tnew)[:length].max() > max_x:
-            max_x = (tnew)[:length].max()
+        max_x = max(max_x, (tnew)[:length].max())
         plt.legend(
             [maxes, ons, offs],
             ["Detected fluorophore excitation", "First ON event", "Last OFF event"],

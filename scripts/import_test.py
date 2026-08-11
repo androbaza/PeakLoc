@@ -5,7 +5,6 @@ from loguru import logger
 
 from localization_scripts.event_array_processing import add_openeb_system_site_packages
 
-
 RAW_FILE = Path("data/AF647_coverslip.raw")
 EVENT_COUNT = 10
 MAX_EVENTS = 1_000_000

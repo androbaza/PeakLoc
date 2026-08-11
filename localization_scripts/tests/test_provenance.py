@@ -6,8 +6,8 @@ import numpy as np
 from localization_scripts.localization_fitting import localization_qc_dtype
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import RecordingResult
-from localization_scripts.provenance import save_portable_outputs
 from localization_scripts.preflight import effective_config_hash
+from localization_scripts.provenance import save_portable_outputs
 
 
 def test_portable_outputs_write_metadata_and_csv_row_counts(tmp_path):

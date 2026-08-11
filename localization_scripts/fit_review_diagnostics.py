@@ -15,12 +15,11 @@ from matplotlib import pyplot as plt
 from localization_scripts.localization_fitting import localization_uncertainty_px
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plot_style import (
-    PUBLICATION_DPI,
     PLOT_COLORS,
+    PUBLICATION_DPI,
     save_publication_figure,
     style_publication_axis,
 )
-
 
 QUANTILE_FILENAME = "fit_uncertainty_quantile_montage.png"
 HOT_PIXEL_FILENAME = "fit_hot_pixel_dominated_rois.png"

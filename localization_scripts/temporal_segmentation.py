@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from localization_scripts.python_compat import strict_zip
-
 
 POSITIVE_POLARITY = 1
 NEGATIVE_POLARITY = 0
@@ -84,46 +83,28 @@ class TemporalSegmentationSettings:
 def temporal_settings_from_config(config: object) -> TemporalSegmentationSettings:
     """Build internal temporal settings from a flat PeakLoc configuration."""
     return TemporalSegmentationSettings(
-        context_pre_us=int(getattr(config, "temporal_context_pre_us")),
-        context_post_us=int(getattr(config, "temporal_context_post_us")),
-        discovery_core_radius_px=float(
-            getattr(config, "temporal_discovery_core_radius_px")
-        ),
-        core_radius_px=float(getattr(config, "temporal_core_radius_px")),
-        bin_us=int(getattr(config, "temporal_bin_us")),
-        max_on_interevent_gap_us=int(
-            getattr(config, "temporal_max_on_interevent_gap_us")
-        ),
-        max_off_interevent_gap_us=int(
-            getattr(config, "temporal_max_off_interevent_gap_us")
-        ),
-        min_on_events=int(getattr(config, "temporal_min_on_events")),
-        min_off_events=int(getattr(config, "temporal_min_off_events")),
-        min_on_active_pixels=int(getattr(config, "temporal_min_on_active_pixels")),
-        min_off_active_pixels=int(getattr(config, "temporal_min_off_active_pixels")),
-        min_polarity_purity=float(getattr(config, "temporal_min_polarity_purity")),
-        max_train_duration_us=int(getattr(config, "temporal_max_train_duration_us")),
-        min_core_density_ratio=float(
-            getattr(config, "temporal_min_core_density_ratio")
-        ),
-        min_interval_deviance=float(getattr(config, "temporal_min_interval_deviance")),
-        max_endpoint_overlap_us=int(
-            getattr(config, "temporal_max_endpoint_overlap_us")
-        ),
-        max_cycle_span_us=int(getattr(config, "temporal_max_cycle_span_us")),
-        max_centroid_distance_px=float(
-            getattr(config, "temporal_max_centroid_distance_px")
-        ),
-        max_on_end_after_seed_us=int(
-            getattr(config, "temporal_max_on_end_after_seed_us")
-        ),
-        max_off_start_before_seed_us=int(
-            getattr(config, "temporal_max_off_start_before_seed_us")
-        ),
-        ambiguity_margin_us=int(getattr(config, "temporal_ambiguity_margin_us")),
-        background_pseudocount=float(
-            getattr(config, "temporal_background_pseudocount")
-        ),
+        context_pre_us=int(config.temporal_context_pre_us),
+        context_post_us=int(config.temporal_context_post_us),
+        discovery_core_radius_px=float(config.temporal_discovery_core_radius_px),
+        core_radius_px=float(config.temporal_core_radius_px),
+        bin_us=int(config.temporal_bin_us),
+        max_on_interevent_gap_us=int(config.temporal_max_on_interevent_gap_us),
+        max_off_interevent_gap_us=int(config.temporal_max_off_interevent_gap_us),
+        min_on_events=int(config.temporal_min_on_events),
+        min_off_events=int(config.temporal_min_off_events),
+        min_on_active_pixels=int(config.temporal_min_on_active_pixels),
+        min_off_active_pixels=int(config.temporal_min_off_active_pixels),
+        min_polarity_purity=float(config.temporal_min_polarity_purity),
+        max_train_duration_us=int(config.temporal_max_train_duration_us),
+        min_core_density_ratio=float(config.temporal_min_core_density_ratio),
+        min_interval_deviance=float(config.temporal_min_interval_deviance),
+        max_endpoint_overlap_us=int(config.temporal_max_endpoint_overlap_us),
+        max_cycle_span_us=int(config.temporal_max_cycle_span_us),
+        max_centroid_distance_px=float(config.temporal_max_centroid_distance_px),
+        max_on_end_after_seed_us=int(config.temporal_max_on_end_after_seed_us),
+        max_off_start_before_seed_us=int(config.temporal_max_off_start_before_seed_us),
+        ambiguity_margin_us=int(config.temporal_ambiguity_margin_us),
+        background_pseudocount=float(config.temporal_background_pseudocount),
     )
 
 

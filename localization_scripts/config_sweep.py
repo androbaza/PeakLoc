@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, fields
 import csv
 import itertools
 import json
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,6 @@ from localization_scripts.localization_fitting import localization_qc_dtype
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.plot_style import PLOT_COLORS, PREVIEW_DPI, SEQUENTIAL_CMAP
 from localization_scripts.preflight import run_preflight, write_preflight_report
-
 
 Runner = Callable[[PeakLocConfig], list[Any]]
 

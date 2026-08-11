@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import matplotlib.pyplot as plt
 import numpy as np
+
 # from numba import njit, prange, set_num_threads
 
 EVENT_TYPE = np.dtype([("t", "u8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align=True)
@@ -9,12 +10,10 @@ EVENT_TYPE = np.dtype([("t", "u8"), ("x", "u2"), ("y", "u2"), ("p", "b")], align
 TOL = 0.08
 
 CONFIG = SimpleNamespace(
-    **{
-        "contrast_thresholds": (0.01, 0.01),
-        "sigma_contrast_thresholds": (0.0, 0.0),
-        "refractory_period_ns": 1000,
-        "max_events_per_frame": 600000,
-    }
+    contrast_thresholds=(0.01, 0.01),
+    sigma_contrast_thresholds=(0.0, 0.0),
+    refractory_period_ns=1000,
+    max_events_per_frame=600000,
 )
 
 
@@ -157,7 +156,7 @@ def esim(
         if spike_nums > 0:
             spikes[x] = polarity
 
-        spike_nums = max_spikes if spike_nums > max_spikes else spike_nums
+        spike_nums = min(spike_nums, max_spikes)
 
         current_time = last_time
         for i in range(spike_nums):
@@ -206,7 +205,7 @@ class EventSimulator:
             (self.config.max_events_per_frame), dtype=EVENT_TYPE
         )
         self.event_count = 0
-        self.spikes = np.zeros((self.npix))
+        self.spikes = np.zeros(self.npix)
 
     def convert_event_img_rgb(self, image):
         image = image.reshape(self.H, self.W)
@@ -241,7 +240,7 @@ class EventSimulator:
         self.output_events = np.zeros(
             (self.config.max_events_per_frame), dtype=EVENT_TYPE
         )
-        self.spikes = np.zeros((self.npix))
+        self.spikes = np.zeros(self.npix)
 
         self.crossings = self.last_image.copy()
         self.event_count = esim(

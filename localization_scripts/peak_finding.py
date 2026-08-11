@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import os
+import warnings
 from bisect import bisect_left, insort
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-import warnings
-
-import os
 
 import numpy as np
 from csaps import CubicSmoothingSpline
@@ -220,8 +219,7 @@ def find_on_off(p, der_2, tnew, ynew):
             negative, positive = peak - 40, peak + 50
             if negative < 0:
                 negative = 2
-            if positive > len(der_2) - 2:
-                positive = len(der_2) - 2
+            positive = min(positive, len(der_2) - 2)
         on_off.append((tnew[negative], tnew[positive]))
     return on_off
 

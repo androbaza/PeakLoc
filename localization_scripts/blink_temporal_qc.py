@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,6 @@ from matplotlib import pyplot as plt
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.python_compat import strict_zip
 from localization_scripts.smlm_visualization import RENDER_OVERSAMPLING
-
 
 TEMPORAL_FIELDS = frozenset({"x", "y", "t_1st", "t_peak", "t_last"})
 SEGMENTED_TEMPORAL_FIELDS = frozenset(

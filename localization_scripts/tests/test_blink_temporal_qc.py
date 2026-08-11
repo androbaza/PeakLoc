@@ -4,7 +4,6 @@ import numpy as np
 
 from localization_scripts.blink_temporal_qc import _temporal_data
 
-
 BASE_DTYPE = [
     ("x", np.float64),
     ("y", np.float64),

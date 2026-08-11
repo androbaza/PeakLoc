@@ -1,9 +1,9 @@
-from types import SimpleNamespace
 import sys
+from types import SimpleNamespace
 
-from joblib import Parallel, delayed
 import numpy as np
 import pytest
+from joblib import Parallel, delayed
 
 from localization_scripts import event_array_processing
 from localization_scripts.event_array_processing import array_to_time_map

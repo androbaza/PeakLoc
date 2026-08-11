@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import multiprocessing
 import os
-from pathlib import Path
 import sys
 import sysconfig
+from datetime import datetime
+from pathlib import Path
 
 
 def _remove_sys_path_entry(entry: str) -> None:
@@ -38,13 +38,13 @@ def configure_worker_environment() -> None:
 
 configure_worker_environment()
 
-from localization_scripts.config_sweep import run_config_sweep  # noqa: E402
-from localization_scripts.pipeline_config import load_peakloc_config  # noqa: E402
-from localization_scripts.pipeline_runner import (  # noqa: E402
+from localization_scripts.config_sweep import run_config_sweep
+from localization_scripts.pipeline_config import load_peakloc_config
+from localization_scripts.pipeline_runner import (
     run_batch,
     run_serialized_slice_worker,
 )
-from localization_scripts.preflight import (  # noqa: E402
+from localization_scripts.preflight import (
     run_preflight,
     write_preflight_report,
 )

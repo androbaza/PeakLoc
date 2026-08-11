@@ -132,8 +132,7 @@ def find_on_off_plot(p, der_2, tnew, ynew):
             negative, positive = peak - 40, peak + 50
             if negative < 0:
                 negative = 2
-            if positive > len(der_2) - 2:
-                positive = len(der_2) - 2
+            positive = min(positive, len(der_2) - 2)
         on_off.append((tnew[negative], tnew[positive]))
         on_off_t.append((negative, positive))
     return on_off, on_off_t

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
 import csv
 import json
 import shutil
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import matplotlib
@@ -22,7 +22,6 @@ from localization_scripts.plot_style import (
     PUBLICATION_DPI,
 )
 from localization_scripts.python_compat import strict_zip
-
 
 DEBUG_MARKER = ".peakloc_debug_artifacts"
 DEBUG_COLORS = {
@@ -289,9 +288,9 @@ def prepare_debug_output_dir(output_dir: Path, *, overwrite: bool) -> None:
 def truth_points_from_blinks(blinks: Sequence[object]) -> list[TruthPoint]:
     return [
         TruthPoint(
-            x_px=float(getattr(blink, "x_px")),
-            y_px=float(getattr(blink, "y_px")),
-            peak_us=int(getattr(blink, "peak_us")),
+            x_px=float(blink.x_px),
+            y_px=float(blink.y_px),
+            peak_us=int(blink.peak_us),
             label=f"truth_{idx}",
             n_pos=_optional_int(getattr(blink, "n_pos", None)),
             n_neg=_optional_int(getattr(blink, "n_neg", None)),

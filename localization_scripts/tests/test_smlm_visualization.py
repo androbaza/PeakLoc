@@ -7,7 +7,6 @@ from localization_scripts.smlm_visualization import (
     save_smlm_visualization,
 )
 
-
 LOCALIZATION_DTYPE = [
     ("x", np.float64),
     ("y", np.float64),

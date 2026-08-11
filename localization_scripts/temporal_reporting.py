@@ -22,7 +22,6 @@ from localization_scripts.plot_style import (
 )
 from localization_scripts.python_compat import strict_zip
 
-
 MAX_SPATIAL_BINS = 24
 MIN_LOCALIZATIONS_PER_SPATIAL_BIN = 5
 TIMING_DISPLAY_MAX_MS = 1_000.0

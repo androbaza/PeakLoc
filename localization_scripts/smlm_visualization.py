@@ -5,13 +5,12 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+import tifffile
 from matplotlib_scalebar.scalebar import ScaleBar
 from scipy.ndimage import gaussian_filter
-import tifffile
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
-
 
 RENDER_OVERSAMPLING = 5
 GAUSSIAN_SIGMA_RENDER_PIXELS = 1.0

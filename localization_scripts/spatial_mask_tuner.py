@@ -9,9 +9,9 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Button, Slider, TextBox
-import numpy as np
 
 from localization_scripts.event_array_processing import (
     RAW_READ_DURATION_US,
@@ -23,7 +23,6 @@ from localization_scripts.spatial_mask import (
     accumulate_event_density_in_time_window,
     preview_spatial_mask,
 )
-
 
 RAW_SUFFIX = ".raw"
 NPY_SUFFIX = ".npy"

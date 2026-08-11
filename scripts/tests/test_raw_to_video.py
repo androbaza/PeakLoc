@@ -16,7 +16,6 @@ from scripts.raw_to_video import (
     video_path,
 )
 
-
 EVENT_DTYPE = [("x", "uint16"), ("y", "uint16"), ("p", "byte"), ("t", "uint64")]
 
 

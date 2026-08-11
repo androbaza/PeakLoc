@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Protocol
 
 import imageio.v2 as imageio
-from loguru import logger
 import numpy as np
+from loguru import logger
 
 from localization_scripts.event_array_processing import add_openeb_system_site_packages
-
 
 DEFAULT_INTEGRATION_TIME_MS = 50.0
 DEFAULT_VIDEO_FPS = 30.0

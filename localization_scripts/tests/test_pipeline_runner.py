@@ -6,14 +6,14 @@ from localization_scripts import pipeline_runner
 from localization_scripts.calibration import NullCalibration
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.pipeline_runner import (
-    build_slice_tasks,
     RecordingResult,
+    build_slice_tasks,
     calibration_to_metadata,
     save_processed_plots,
     summarize_fit_qc,
-    write_structured_array_csv,
-    write_run_report,
     write_effective_run_settings,
+    write_run_report,
+    write_structured_array_csv,
 )
 
 
@@ -137,7 +137,6 @@ def test_process_recording_offsets_slice_localization_ids_without_duplicates(
             temp_folder / f"rois_time_slice_{time_slice}.npy",
             np.zeros(1, dtype=roi_dtype),
         )
-        return None
 
     monkeypatch.setattr(
         pipeline_runner,

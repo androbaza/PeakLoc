@@ -4,9 +4,9 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from loguru import logger
 import numpy as np
 import tifffile
+from loguru import logger
 
 from scripts.raw_to_video import (
     DEFAULT_INTEGRATION_TIME_MS,

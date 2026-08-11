@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,6 @@ from localization_scripts.plot_style import (
     save_publication_figure,
     style_publication_axis,
 )
-
 
 PERIOD_US = 20_000
 BRIGHT_DURATION_US = 10_000

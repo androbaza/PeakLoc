@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import gc
-from collections.abc import Iterator
-from contextlib import contextmanager
-from importlib import import_module
 import os
 import pickle
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -182,10 +182,8 @@ def array_to_polarity_map(arr, coords):
         if key not in dict_out:
             continue
         dict_out[key][arr[id]["p"]].append(arr[id]["t"])
-        if len(dict_out[key][1]) > max_len:
-            max_len = len(dict_out[key][1])
-        if len(dict_out[key][0]) > max_len:
-            max_len = len(dict_out[key][0])
+        max_len = max(max_len, len(dict_out[key][1]))
+        max_len = max(max_len, len(dict_out[key][0]))
     return dict_out, max_len
 
 

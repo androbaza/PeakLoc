@@ -16,7 +16,6 @@ from localization_scripts.debug_visualization import (
     save_xy_summary_figure,
 )
 
-
 EVENT_DTYPE = np.dtype(
     [
         ("x", np.uint16),

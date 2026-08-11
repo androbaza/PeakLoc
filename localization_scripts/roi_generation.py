@@ -1,5 +1,5 @@
-from collections.abc import Mapping
 import warnings
+from collections.abc import Mapping
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -187,14 +187,11 @@ def slice_t_p_dict(
     peak_plus_gate = t_peak + polarity_time_gate_us
 
     count_lower = time_back
-    if peak_minus_gate < count_lower:
-        count_lower = peak_minus_gate
-    if count_lower < 0:
-        count_lower = 0
+    count_lower = min(count_lower, peak_minus_gate)
+    count_lower = max(count_lower, 0)
 
     count_upper = time_advance
-    if peak_plus_gate > count_upper:
-        count_upper = peak_plus_gate
+    count_upper = max(count_upper, peak_plus_gate)
 
     for id in range(len(coord_lists)):
         y, x = coord_lists[id]
@@ -224,17 +221,14 @@ def slice_t_p_dict(
         total_events_roi_n += negatives
         if t_1st > 0 and (t_first_roi == 0 or t_1st < t_first_roi):
             t_first_roi = t_1st
-        if t_last > t_last_roi:
-            t_last_roi = t_last
+        t_last_roi = max(t_last_roi, t_last)
     roi_y0 = center_coord[0] - roi_rad
     roi_x0 = center_coord[1] - roi_rad
     pos_end = count_upper
-    if peak_plus_gate < pos_end:
-        pos_end = peak_plus_gate
+    pos_end = min(pos_end, peak_plus_gate)
 
     neg_start = count_lower
-    if peak_minus_gate > neg_start:
-        neg_start = peak_minus_gate
+    neg_start = max(neg_start, peak_minus_gate)
 
     dt_pos_s = max(pos_end - count_lower, 0)
     dt_neg_s = max(count_upper - neg_start, 0)

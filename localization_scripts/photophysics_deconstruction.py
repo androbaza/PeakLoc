@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
 import json
 import math
+import warnings
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-import warnings
 
-from csaps import CubicSmoothingSpline
 import matplotlib
 import numpy as np
+from csaps import CubicSmoothingSpline
 from scipy.signal import find_peaks
 from scipy.sparse import SparseEfficiencyWarning
 
@@ -37,7 +37,6 @@ from localization_scripts.temporal_segmentation import (
     segment_candidate_events,
 )
 from scripts.raw_to_video import open_raw_reader
-
 
 DEFAULT_SAMPLE_SIZE = 5
 DEFAULT_RANDOM_SEED = 647
