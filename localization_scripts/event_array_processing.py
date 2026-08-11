@@ -66,6 +66,9 @@ def temporary_openeb_system_site_packages() -> Iterator[None]:
     Loky copies the parent's import path into workers. Leaving the system OpenEB
     path in place lets system-only packages override Pixi dependencies there.
     """
+    # Metavision loads its bundled older hdf5.dll. Load h5py first so it uses
+    # Pixi's compatible HDF5 DLL before any Metavision native module is imported.
+    import_module("h5py")
     added_paths = add_openeb_system_site_packages()
     try:
         yield
