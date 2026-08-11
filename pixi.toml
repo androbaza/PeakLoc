@@ -53,6 +53,7 @@ PATH = "%CONDA_PREFIX%\\Library\\bin;%CONDA_PREFIX%;%CONDA_PREFIX%\\Scripts;%PAT
 [feature.dev.dependencies]
 pytest = "*"
 ruff = "*"
+pyinstaller = ">=6.15.0,<7"
 
 [feature.dev.tasks]
 test = "pytest"
