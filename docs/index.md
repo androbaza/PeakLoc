@@ -48,21 +48,24 @@ The most important fields are:
 
 For a new user, follow this order:
 
-1. Read [Data preparation](data-preparation.md).
-2. Prepare one short `.raw` recording in `data/`.
-3. Run preflight-only mode.
-4. Run a short smoke test.
-5. Inspect the output report and QC figures.
-6. Only then run a full batch.
-7. Use parameter sweeps when tuning `prominence`, `roi_radius`, or uncertainty filters.
+1. Open the [desktop application guide](desktop-app.md).
+2. Read [Data preparation](data-preparation.md).
+3. Select one short recording in the desktop application.
+4. Run **Check setup**.
+5. Run a short smoke test.
+6. Inspect the output report and QC figures.
+7. Only then run a full batch.
+8. Use parameter sweeps for systematic scientific tuning.
 
 ## Documentation files
 
+- [Desktop application](desktop-app.md): guided recording, calibration, settings, and run workflow.
 - [Data preparation](data-preparation.md): how to arrange `.raw`, `.bias`, calibration, and folder layout.
 - [Configuration guide](configuration.md): explanation of important `config.json` fields.
 - [Run modes](run-modes.md): smoke run, preflight, strict preflight, full batch, and parameter sweep.
 - [Output interpretation](output-interpretation.md): how to read `.npy`, QC, figures, reports, and rendered images.
 - [Use cases and limitations](use-cases-and-limitations.md): what the pipeline is suitable for and where it is currently limited.
+- [Windows desktop packaging](windows-portable-exe.md): build and deliver the GUI application.
 
 ## Minimal command summary
 

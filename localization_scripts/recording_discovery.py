@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 RECORDING_SUFFIXES = frozenset({".raw", ".npy"})
 
 
@@ -13,7 +12,7 @@ def find_recording_files(input_folder: Path, *, recursive: bool) -> list[Path]:
         return [
             path
             for path in input_folder.iterdir()
-            if path.is_file() and path.suffix in RECORDING_SUFFIXES
+            if path.is_file() and path.suffix.lower() in RECORDING_SUFFIXES
         ]
 
     recordings: list[Path] = []
@@ -22,7 +21,7 @@ def find_recording_files(input_folder: Path, *, recursive: bool) -> list[Path]:
         root_recordings = [
             root_path / file_name
             for file_name in file_names
-            if Path(file_name).suffix in RECORDING_SUFFIXES
+            if Path(file_name).suffix.lower() in RECORDING_SUFFIXES
         ]
         recordings.extend(root_recordings)
 

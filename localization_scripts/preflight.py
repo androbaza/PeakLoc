@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import shutil
+from dataclasses import dataclass
+from importlib import import_module
 from math import ceil
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,9 @@ from typing import Literal
 import numpy as np
 
 from localization_scripts.calibration import load_calibration
+from localization_scripts.event_array_processing import (
+    temporary_openeb_system_site_packages,
+)
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.recording_discovery import find_recording_files
 
@@ -50,11 +54,41 @@ def run_preflight(
     strict_mode: bool = False,
     sample_events_per_file: int = 100_000,
 ) -> PreflightReport:
-    input_folder = Path(config.input_folder)
+    selected_file = Path(config.input_file) if config.input_file is not None else None
+    input_folder = (
+        selected_file.parent if selected_file is not None else Path(config.input_folder)
+    )
     issues: list[PreflightIssue] = []
     event_files: tuple[Path, ...] = ()
 
-    if not input_folder.is_dir():
+    if selected_file is not None:
+        if not selected_file.is_file():
+            issues.append(
+                PreflightIssue(
+                    severity="error",
+                    code="missing_input_file",
+                    field="input_file",
+                    message=f"Input recording does not exist: {selected_file}",
+                    suggestion="Choose an existing .raw or .npy recording.",
+                )
+            )
+            return _report(
+                config, config_path, input_folder, event_files, issues, strict_mode
+            )
+        if selected_file.suffix.lower() not in {".raw", ".npy"}:
+            issues.append(
+                PreflightIssue(
+                    severity="error",
+                    code="unsupported_input_file",
+                    field="input_file",
+                    message=f"Input recording must be .raw or .npy: {selected_file}",
+                )
+            )
+            return _report(
+                config, config_path, input_folder, event_files, issues, strict_mode
+            )
+        event_files = (selected_file,)
+    elif not input_folder.is_dir():
         issues.append(
             PreflightIssue(
                 severity="error",
@@ -68,7 +102,8 @@ def run_preflight(
             config, config_path, input_folder, event_files, issues, strict_mode
         )
 
-    event_files = _recording_files(input_folder, recursive=config.recursive_input)
+    if selected_file is None:
+        event_files = _recording_files(input_folder, recursive=config.recursive_input)
     if not event_files:
         issues.append(
             PreflightIssue(
@@ -181,8 +216,12 @@ def _check_event_files(
     sample_events_per_file: int,
     issues: list[PreflightIssue],
 ) -> None:
+    raw_reader_checked = False
     for path in event_files:
-        if path.suffix == ".raw":
+        if path.suffix.lower() == ".raw":
+            if not raw_reader_checked:
+                _check_raw_reader(issues)
+                raw_reader_checked = True
             issues.append(
                 PreflightIssue(
                     severity="info",
@@ -195,6 +234,35 @@ def _check_event_files(
         _check_npy_event_file(config, path, sample_events_per_file, issues)
 
 
+def _check_raw_reader(issues: list[PreflightIssue]) -> None:
+    try:
+        with temporary_openeb_system_site_packages():
+            import_module("metavision_core.event_io.raw_reader")
+            import_module("metavision_sdk_base")
+    except (ImportError, OSError) as error:
+        issues.append(
+            PreflightIssue(
+                severity="error",
+                code="missing_raw_reader",
+                field="input_file",
+                message=f"Metavision/OpenEB cannot decode .raw recordings: {error}",
+                suggestion=(
+                    "Install the matching Metavision Studio / SDK in its default location, "
+                    "then restart PeakLoc."
+                ),
+            )
+        )
+        return
+    issues.append(
+        PreflightIssue(
+            severity="info",
+            code="raw_reader_available",
+            field="input_file",
+            message="Metavision/OpenEB is available for .raw decoding.",
+        )
+    )
+
+
 def _check_npy_event_file(
     config: PeakLocConfig,
     path: Path,
@@ -203,7 +271,7 @@ def _check_npy_event_file(
 ) -> None:
     try:
         events = np.load(path, mmap_mode="r", allow_pickle=False)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - preflight reports all unreadable inputs
         issues.append(
             PreflightIssue(
                 severity="error",
@@ -247,7 +315,7 @@ def _check_polarity(
     path: Path, sample: np.ndarray, issues: list[PreflightIssue]
 ) -> None:
     unique_polarities = set(np.unique(sample["p"]).tolist())
-    if unique_polarities.issubset({0, 1, False, True}):
+    if unique_polarities.issubset({0, 1}):
         return
     if unique_polarities.issubset({-1, 1}):
         issues.append(
@@ -519,7 +587,7 @@ def _check_calibration(
             config.sensor_shape,
             allow_uncalibrated=config.allow_uncalibrated,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - preflight reports all invalid calibrations
         issues.append(
             PreflightIssue(
                 severity="error",

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields
 import json
 import multiprocessing
 import os
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Mapping
-
+from typing import Any
 
 DEFAULT_INPUT_FOLDER = "data"
 DEFAULT_SLICE_DURATION = int(100e6)
@@ -14,6 +14,7 @@ DEFAULT_CONFIG_PATH = Path("config.json")
 
 ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_INPUT_FOLDER": "input_folder",
+    "PEAKLOC_INPUT_FILE": "input_file",
     "PEAKLOC_SLICE_START": "slice_start",
     "PEAKLOC_SLICE_DURATION": "slice_duration",
     "PEAKLOC_SLICE_COUNT": "slice_count",
@@ -27,6 +28,7 @@ ENVIRONMENT_OVERRIDES = {
 @dataclass(frozen=True)
 class PeakLocConfig:
     input_folder: str = DEFAULT_INPUT_FOLDER
+    input_file: str | None = None
     recursive_input: bool = False
     slice_start: int = 0
     slice_end: int | None = None
@@ -123,7 +125,9 @@ class PeakLocConfig:
         with config_path.open(encoding="utf-8") as file:
             payload = json.load(file)
         if not isinstance(payload, dict):
-            raise ValueError(f"PeakLoc config must be a JSON object: {config_path}")
+            raise ValueError(  # noqa: TRY004 - configuration errors share one API type
+                f"PeakLoc config must be a JSON object: {config_path}"
+            )
         return cls.from_mapping(payload)
 
     @classmethod
@@ -172,6 +176,11 @@ class PeakLocConfig:
         return config
 
     def validate(self) -> None:
+        if self.input_file is not None and Path(self.input_file).suffix.lower() not in {
+            ".raw",
+            ".npy",
+        }:
+            raise ValueError("input_file must be a .raw or .npy recording")
         _require_non_negative("slice_start", self.slice_start)
         if self.slice_end is not None:
             _require_non_negative("slice_end", self.slice_end)
@@ -453,16 +462,18 @@ def _coerce_environment_value(value: str, current_value: Any) -> Any:
     return value
 
 
-def _require_positive(name: str, value: int | float) -> None:
+def _require_positive(name: str, value: float) -> None:
     if value <= 0:
         raise ValueError(f"{name} must be positive")
 
 
-def _require_non_negative(name: str, value: int | float) -> None:
+def _require_non_negative(name: str, value: float) -> None:
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
 
 
 def _require_bool(name: str, value: bool) -> None:
     if not isinstance(value, bool):
-        raise ValueError(f"{name} must be true or false")
+        raise ValueError(  # noqa: TRY004 - configuration errors share one API type
+            f"{name} must be true or false"
+        )

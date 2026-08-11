@@ -70,6 +70,57 @@ def write_event_calibration(
     )
 
 
+def build_event_calibration(
+    dark_path: Path,
+    blank_path: Path,
+    output_path: Path,
+    *,
+    pixel_size_nm: float,
+    sensor_model: str,
+    calibration_id: str,
+    height: int | None = None,
+    width: int | None = None,
+    max_events: int = 1_000_000_000,
+) -> Path:
+    """Build calibration maps from dark and laser-on blank recordings."""
+    if not dark_path.is_file():
+        raise FileNotFoundError(f"Dark recording does not exist: {dark_path}")
+    if not blank_path.is_file():
+        raise FileNotFoundError(f"Blank recording does not exist: {blank_path}")
+    if (height is None) != (width is None):
+        raise ValueError(
+            "Sensor height and width must both be provided or both omitted"
+        )
+
+    print(f"Reading dark recording: {dark_path}", flush=True)
+    dark_events = raw_events_to_array(str(dark_path), max_events=max_events)
+    print(f"Read {dark_events.size:,} dark events", flush=True)
+    print(f"Reading laser-on blank recording: {blank_path}", flush=True)
+    blank_events = raw_events_to_array(str(blank_path), max_events=max_events)
+    print(f"Read {blank_events.size:,} blank events", flush=True)
+    sensor_shape = resolve_sensor_shape(
+        dark_events,
+        blank_events,
+        height=height,
+        width=width,
+    )
+    print(
+        f"Building {sensor_shape[1]} x {sensor_shape[0]} calibration maps", flush=True
+    )
+    dark_maps = build_rate_maps(dark_events, sensor_shape)
+    blank_maps = build_rate_maps(blank_events, sensor_shape)
+    write_event_calibration(
+        output_path,
+        dark_maps=dark_maps,
+        blank_maps=blank_maps,
+        pixel_size_nm=pixel_size_nm,
+        sensor_model=sensor_model,
+        calibration_id=calibration_id,
+    )
+    print(f"Wrote calibration to {output_path}", flush=True)
+    return output_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build PeakLoc dark and laser-on blank calibration maps."
@@ -89,28 +140,20 @@ def main() -> None:
     blank_path = Path(
         input("Laser-on blank .raw recording path: ").strip()
     ).expanduser()
-    dark_events = raw_events_to_array(str(dark_path), max_events=args.max_events)
-    blank_events = raw_events_to_array(str(blank_path), max_events=args.max_events)
-    sensor_shape = _resolve_sensor_shape(
-        dark_events,
-        blank_events,
-        height=args.height,
-        width=args.width,
-    )
-    dark_maps = build_rate_maps(dark_events, sensor_shape)
-    blank_maps = build_rate_maps(blank_events, sensor_shape)
-    write_event_calibration(
+    build_event_calibration(
+        dark_path,
+        blank_path,
         args.output,
-        dark_maps=dark_maps,
-        blank_maps=blank_maps,
         pixel_size_nm=args.pixel_size_nm,
         sensor_model=args.sensor_model,
         calibration_id=args.calibration_id,
+        height=args.height,
+        width=args.width,
+        max_events=args.max_events,
     )
-    print(f"Wrote calibration to {args.output}")
 
 
-def _resolve_sensor_shape(
+def resolve_sensor_shape(
     dark_events: np.ndarray,
     blank_events: np.ndarray,
     *,

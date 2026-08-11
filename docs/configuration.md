@@ -59,6 +59,21 @@ Example:
 
 PeakLoc processes recordings in this folder and creates timestamped run folders next to them.
 
+### input_file
+
+Optional path to exactly one RAW or NumPy event recording. When this is set, PeakLoc processes
+only that file and ignores input_folder for discovery. The desktop application's **One
+recording** option manages this field automatically.
+
+Leave input_file null to process input_folder:
+
+    {
+      "input_file": null,
+      "input_folder": "data"
+    }
+
+The environment override is PEAKLOC_INPUT_FILE.
+
 ### `slice_start`
 
 Start time of the processed slice, in microseconds.

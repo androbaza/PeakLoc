@@ -1,106 +1,60 @@
-# Build a portable Windows PeakLoc application
+# Build and deliver the Windows desktop application
 
-This guide creates a `PeakLoc.exe` distribution for another Windows PC. The user only
-needs to install Metavision Studio / SDK in its default location. They do not need Pixi,
-Python, this repository, or any environment variables.
+The supported end-user artifact is a PyInstaller one-folder distribution:
 
-The released folder must keep these items together:
+    PeakLoc/
+    ├── PeakLoc.exe
+    ├── config.json
+    ├── PeakLoc User Guide.md
+    └── _internal/
 
-```text
-PeakLoc/
-├── PeakLoc.exe
-├── config.json
-└── _internal/                 # created by PyInstaller; do not change or remove
-```
+The recipient needs neither Python, Pixi, nor this repository. The entire folder is required;
+PeakLoc.exe is not a standalone file.
 
-`PeakLoc.exe` is a console application. Double-clicking it opens a terminal window and
-prints the same PeakLoc logs that `pixi run peakloc` prints during a source run. It uses
-the `config.json` in the same folder as the executable, regardless of the directory
-from which it was started. Relative paths in that configuration, such as
-`"input_folder": "data"`, are also relative to the application folder.
+## Build-PC requirements
 
-## Target-PC requirement
+- 64-bit Windows
+- Pixi
+- Metavision Studio / SDK in C:\Program Files\Prophesee
+- CPython 3.9-compatible Metavision bindings
 
-Install the Windows Metavision Studio / SDK on the target computer before copying the
-PeakLoc folder. Accept the installer default location:
+From PowerShell in the repository root:
 
-```text
-C:\Program Files\Prophesee
-```
+    pixi install
+    pixi run check-openeb
+    pixi run -e dev build-gui
 
-The bundled application loads the Metavision Python bindings and DLLs from that
-location. No Pixi, Python, or `PEAKLOC_METAVISION_ROOT` setting is needed on the target
-PC. The installed SDK must supply CPython 3.9 bindings, matching PeakLoc's Windows
-runtime.
+The build task creates a windowed dist\PeakLoc\PeakLoc.exe, copies the portable starter config
+beside it, includes the user guide, and bundles the Python scientific runtime in _internal.
+The one-folder layout is deliberate: native scientific dependencies are more reliable and easier
+to audit in this layout than in a self-extracting one-file build.
 
-## Build the distribution on Windows
+## Release validation
 
-Build on a 64-bit Windows PC with Metavision installed in the default location. Pixi is
-needed only on this build PC.
+Test the release folder rather than the source checkout:
 
-1. Open **PowerShell** in the cloned PeakLoc repository and create the Windows
-   environment. Add PyInstaller to the build environment once:
+1. Double-click dist\PeakLoc\PeakLoc.exe.
+2. Select a small RAW or NumPy event recording.
+3. Select **Check setup** and confirm that expected prerequisites pass.
+4. Build a calibration from small representative dark and blank recordings.
+5. Run one short slice and inspect its output folder.
+6. Cancel a disposable run and confirm the interface returns to Ready state.
+7. Save and reopen a config.
 
-   ```powershell
-   pixi install
-   pixi add --feature dev pyinstaller
-   pixi run check-openeb
-   ```
+For a clean target-PC test, copy dist\PeakLoc to another Windows machine that has the matching
+Metavision SDK. Do not test only from the build checkout.
 
-   `check-openeb` must report that `RawReader` and `EventCD` load successfully. Resolve
-   that problem before building; otherwise the executable cannot decode `.raw` files.
+## Target-PC startup
 
-2. Set `config.json` to the configuration to deliver. Keep portable paths relative to
-   the release folder. For example, use `"input_folder": "data"` and later create a
-   `data` folder next to `PeakLoc.exe` for the recipient's `.raw` recordings. Do not use
-   a build-PC-specific absolute path.
-
-3. Build a console, one-folder application. Run this command from the repository root:
-
-   ```powershell
-   pixi run -e dev pyinstaller --noconfirm --clean --onedir --console --name PeakLoc --runtime-hook scripts\pyinstaller_metavision_runtime_hook.py --collect-submodules localization_scripts --collect-all numba --collect-all plotly PeakLoc.py
-   ```
-
-   Keep `--console`: `--windowed` or `--noconsole` suppresses the terminal and hides the
-   logs. `--onedir` is deliberate: scientific packages are more reliable in this layout
-   than as a single self-extracting executable, and `config.json` remains visibly beside
-   the executable.
-
-4. Copy the chosen configuration beside the executable:
-
-   ```powershell
-   Copy-Item config.json dist\PeakLoc\config.json -Force
-   ```
-
-5. Test the release folder itself, not the source checkout:
-
-   ```powershell
-   Set-Location dist\PeakLoc
-   .\PeakLoc.exe --preflight-only
-   ```
-
-   This must open a console, identify the configuration beside `PeakLoc.exe`, and either
-   finish preflight or report expected data/configuration issues. An error about a missing
-   Metavision installation means the default SDK installation is absent or incomplete.
-
-## Deliver and run on another PC
-
-Copy the entire `dist\PeakLoc` folder to the target PC; do not copy only
-`PeakLoc.exe`. Keep `_internal` and `config.json` next to it. If the delivered
-configuration uses the portable `data` path, place recordings in:
-
-```text
-PeakLoc\data\
-```
-
-Then double-click `PeakLoc.exe`. The console remains visible for the duration of the
-run and contains PeakLoc's logs and any error message. Do not move `config.json` away
-from the executable or rename `_internal`.
+The user double-clicks PeakLoc.exe and follows PeakLoc User Guide.md. The application discovers
+config.json beside the executable. A missing Metavision installation does not prevent the GUI
+from opening; **Check setup** reports that RAW decoding is unavailable. NumPy event recordings
+remain usable without Metavision.
 
 ## Rebuild checklist
 
-- Build with the Windows Pixi environment, which uses Python 3.9.
-- Confirm `pixi run check-openeb` before packaging.
-- Use the supplied runtime hook so the frozen process finds the default Metavision SDK.
-- Copy `config.json` beside `PeakLoc.exe` after every clean build.
-- Copy the whole `dist\PeakLoc` directory to the target computer.
+- Build with the Windows Pixi environment (Python 3.9).
+- Confirm pixi run check-openeb before packaging RAW support.
+- Use the supplied runtime hook.
+- Deliver PeakLoc.exe, config.json, the user guide, and _internal together.
+- Repeat calibration, preflight, short-run, cancellation, and config round-trip checks.

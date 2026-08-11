@@ -1,5 +1,6 @@
 {
   "input_folder": "/media/angelina/data1/andrey/peakloc_data/2026_07_23_Dead_Time_Calibration",
+  "input_file": null,
   "recursive_input": true,
   "slice_start": 1000000,
   "slice_end": 5000000,

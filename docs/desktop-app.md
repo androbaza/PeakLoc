@@ -1,0 +1,89 @@
+# PeakLoc desktop application
+
+The PeakLoc desktop application is the recommended route for users who do not work from a
+terminal. It exposes the same validated configuration and scientific pipeline as the command-line
+workflow while keeping JSON, Python, and Pixi out of the normal acquisition-to-processing path.
+
+## Before the first run
+
+For Prophesee RAW recordings, install Metavision Studio / SDK using its default location:
+
+    C:\Program Files\Prophesee
+
+The SDK must provide bindings for the Python version used by the application (currently CPython
+3.9 for the Windows build). NumPy event arrays do not require the RAW decoder. **Check setup**
+reports a clear error if the decoder is unavailable.
+
+Keep the complete delivered folder together. Do not move only PeakLoc.exe away from _internal.
+
+## Guided workflow
+
+### 1. Data
+
+Choose **One recording** to test a single RAW or NumPy event file. Choose **A folder of
+recordings** for a batch, and enable subfolders only when the hierarchy is intentional. PeakLoc
+writes timestamped results beside each source recording, so ensure that location is writable.
+
+### 2. Calibration
+
+For calibrated processing:
+
+1. Record a dark acquisition with the same camera settings as the experiment.
+2. Record a laser-on blank acquisition without emitters.
+3. Choose both RAW files and an output NPZ location.
+4. Confirm optical pixel size and sensor dimensions in Settings.
+5. Select **Build calibration** and follow progress in the Run log.
+
+The new calibration becomes the selected processing calibration automatically. Existing NPZ
+calibrations can be selected directly. Uncalibrated mode is for exploratory tuning and is not a
+substitute for calibration in publication-oriented work.
+
+### 3. Basic settings
+
+Start with a short processing range. A 10,000,000 microsecond slice is 10 seconds. Basic settings
+expose the controls most often changed between datasets: processing range, CPU use, spatial
+masking, peak prominence, PSF width, ROI radius, optical scale, fit uncertainty, and outputs.
+
+Every control displays its unit and a plain-language explanation. Defaults are starting points,
+not universal microscope settings.
+
+### 4. Advanced settings
+
+Advanced contains every remaining supported PeakLoc configuration field, grouped by purpose.
+Keep these defaults until QC output or a documented acquisition change motivates adjustment.
+
+### 5. Run
+
+Select **Check setup** before processing. This checks the recording selection, RAW decoder,
+calibration arrays, optical and sensor consistency, scientific parameter relationships, RAM, and
+disk headroom. Errors must be corrected before processing; warnings deserve review.
+
+Select **Start processing** after the check passes. The application stays responsive and streams
+pipeline output into the log. **Cancel** stops the process tree; partial output may remain.
+
+## Saving repeatable settings
+
+Use **Save config** to write a JSON configuration for later reuse. **Open config** loads a saved
+configuration into all workflow and settings pages. PeakLoc also writes effective settings into
+each run's debug metadata.
+
+## Running from source
+
+On Windows or Linux with Pixi installed:
+
+    pixi install
+    pixi run gui
+
+The interface uses standard-library Tk/ttk and the same application code on both platforms.
+Executable builds must be created on their target platform.
+
+## Building the Windows application
+
+On the Windows build PC, install the matching Metavision SDK, then run:
+
+    pixi install
+    pixi run check-openeb
+    pixi run -e dev build-gui
+
+The release is written to dist\PeakLoc. Test PeakLoc.exe, **Check setup**, calibration with small
+real recordings, and a short processing run from that folder before delivery.

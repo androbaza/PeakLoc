@@ -89,7 +89,24 @@ with the currently installed Prophesee SDK.
 
 
 
-## Quick start
+## Desktop application
+
+The cross-platform desktop interface is the recommended starting point for new users:
+
+    pixi run gui
+
+It guides recording selection, dark/blank calibration, basic and advanced settings, setup
+validation, processing, cancellation, and config saving without terminal interaction. See the
+[desktop application guide](docs/desktop-app.md).
+
+Build the deliverable Windows folder with:
+
+    pixi run -e dev build-gui
+
+See [Windows desktop packaging](docs/windows-portable-exe.md) for prerequisites and release
+validation.
+
+## Command-line quick start
 
 Edit `config.json` so that `input_folder` points to the folder containing your `.raw` files.
 

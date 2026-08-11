@@ -1,3 +1,4 @@
+# ruff: noqa: ISC004
 from __future__ import annotations
 
 import csv
@@ -10,16 +11,16 @@ if os.name == "nt":
     import msvcrt
 else:
     import fcntl
-from collections.abc import Iterable, Iterator
-from dataclasses import asdict, dataclass, field
 import json
 import pickle
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import time
-from datetime import datetime
+from collections.abc import Iterable, Iterator
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -38,15 +39,6 @@ from matplotlib import pyplot as plt
 
 from localization_scripts.artifact_layout import ArtifactLayout
 from localization_scripts.calibration import EventCalibration, load_calibration
-from localization_scripts.event_array_processing import (
-    array_to_polarity_map,
-    array_to_time_map,
-    array_to_time_map_for_coords,
-    create_convolved_signals,
-    EVENT_DTYPE,
-    materialize_raw_events,
-    save_dict,
-)
 from localization_scripts.diffuse_flash import (
     DiffuseFlashDetection,
     TimeInterval,
@@ -54,10 +46,19 @@ from localization_scripts.diffuse_flash import (
     exclude_time_intervals,
     iter_retained_event_spans,
 )
+from localization_scripts.event_array_processing import (
+    EVENT_DTYPE,
+    array_to_polarity_map,
+    array_to_time_map,
+    array_to_time_map_for_coords,
+    create_convolved_signals,
+    materialize_raw_events,
+    save_dict,
+)
 from localization_scripts.fit_review_diagnostics import save_fit_review_diagnostics
 from localization_scripts.localization_fitting import (
-    localization_uncertainty_px,
     localization_qc_dtype,
+    localization_uncertainty_px,
     localize_rois_with_attempts,
 )
 from localization_scripts.peak_finding import (
@@ -87,7 +88,6 @@ from localization_scripts.temporal_roi_generation import (
     generate_temporally_segmented_rois,
 )
 from localization_scripts.temporal_segmentation import temporal_settings_from_config
-
 
 SLICE_TEMP_ARTIFACT_PREFIXES = (
     "attempted_localizations",
@@ -346,9 +346,15 @@ def _start_slice_process(
     )
     entrypoint = Path(__file__).resolve().parents[1] / "PeakLoc.py"
     environment = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--slice-worker", str(request_path)]
+        working_directory = Path(sys.executable).resolve().parent
+    else:
+        command = [sys.executable, str(entrypoint), "--slice-worker", str(request_path)]
+        working_directory = entrypoint.parent
     process = subprocess.Popen(
-        [sys.executable, str(entrypoint), "--slice-worker", str(request_path)],
-        cwd=entrypoint.parent,
+        command,
+        cwd=working_directory,
         env=environment,
         start_new_session=True,
     )
@@ -573,16 +579,24 @@ def _validate_slice_result(result: SliceResult) -> None:
 
 
 def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    folder = Path(config.input_folder)
-    if not folder.is_dir():
-        raise FileNotFoundError(
-            f"Input folder does not exist: {folder}. Set PEAKLOC_INPUT_FOLDER "
-            "or provide input_folder in the JSON config."
-        )
+    run_timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    if config.input_file is not None:
+        selected_file = Path(config.input_file)
+        if not selected_file.is_file():
+            raise FileNotFoundError(f"Input recording does not exist: {selected_file}")
+        if selected_file.suffix.lower() not in {".raw", ".npy"}:
+            raise ValueError(f"Unsupported input recording: {selected_file}")
+        input_files = [selected_file]
+    else:
+        folder = Path(config.input_folder)
+        if not folder.is_dir():
+            raise FileNotFoundError(
+                f"Input folder does not exist: {folder}. Set PEAKLOC_INPUT_FOLDER "
+                "or provide input_folder in the JSON config."
+            )
+        input_files = find_recording_files(folder, recursive=config.recursive_input)
 
     results = []
-    input_files = find_recording_files(folder, recursive=config.recursive_input)
     for filename in natsorted(input_files):
         logger.info("Processing {}", filename)
         recording = process_recording(filename, config, run_timestamp)
