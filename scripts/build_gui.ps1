@@ -14,6 +14,9 @@ $pyinstallerArguments = @(
     "--collect-submodules", "localization_scripts",
     "--collect-submodules", "calibration_scripts",
     "--collect-all", "numba",
+    # The RAW decoder imports h5py before loading Metavision. GUI worker imports are lazy,
+    # so explicitly bundle h5py and its native HDF5 dependencies in the frozen app.
+    "--collect-all", "h5py",
     "--exclude-module", "localization_scripts.tests",
     "--exclude-module", "calibration_scripts.test_estimate_bead_sigma",
     "--exclude-module", "numba.tests",

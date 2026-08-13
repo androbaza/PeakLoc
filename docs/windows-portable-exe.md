@@ -26,6 +26,9 @@ From PowerShell in the repository root:
 
 The build task creates a windowed dist\PeakLoc\PeakLoc.exe, copies the portable starter config
 beside it, includes the user guide, and bundles the Python scientific runtime in _internal.
+It explicitly collects h5py and its native HDF5 libraries. When a RAW file is opened, PeakLoc
+loads bundled h5py first and adds the Metavision DLL directories only for the decoder context;
+this load order prevents the SDK's older HDF5 DLL from shadowing the bundled one.
 The one-folder layout is deliberate: native scientific dependencies are more reliable and easier
 to audit in this layout than in a self-extracting one-file build.
 

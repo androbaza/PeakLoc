@@ -59,6 +59,24 @@ def add_openeb_system_site_packages() -> list[str]:
     return added_paths
 
 
+def openeb_dll_directories() -> list[Path]:
+    """Return native OpenEB DLL directories that exist on this machine."""
+    if sys.platform != "win32":
+        return []
+    configured_root = os.environ.get(
+        "PEAKLOC_METAVISION_ROOT", r"C:\Program Files\Prophesee"
+    )
+    metavision_root = Path(configured_root)
+    return [
+        path
+        for path in (
+            metavision_root / "bin",
+            metavision_root / "third_party" / "bin",
+        )
+        if path.is_dir()
+    ]
+
+
 @contextmanager
 def temporary_openeb_system_site_packages() -> Iterator[None]:
     """Expose OpenEB only while decoding RAW events.
@@ -66,13 +84,29 @@ def temporary_openeb_system_site_packages() -> Iterator[None]:
     Loky copies the parent's import path into workers. Leaving the system OpenEB
     path in place lets system-only packages override Pixi dependencies there.
     """
-    # Metavision loads its bundled older hdf5.dll. Load h5py first so it uses
-    # Pixi's compatible HDF5 DLL before any Metavision native module is imported.
-    import_module("h5py")
     added_paths = add_openeb_system_site_packages()
+    # Metavision loads its bundled older hdf5.dll. Load h5py before any native
+    # Metavision module is imported so it binds to Pixi's compatible HDF5 DLL.
+    import h5py  # noqa: F401  # load bundled HDF5 before Metavision native modules
+
+    dll_directories = openeb_dll_directories()
+    previous_path = os.environ.get("PATH")
+    dll_handles = []
+    if dll_directories:
+        os.environ["PATH"] = os.pathsep.join(
+            [*(str(path) for path in dll_directories), previous_path or ""]
+        )
+        if hasattr(os, "add_dll_directory"):
+            dll_handles = [os.add_dll_directory(str(path)) for path in dll_directories]
     try:
         yield
     finally:
+        for handle in dll_handles:
+            handle.close()
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
         for openeb_path in added_paths:
             if openeb_path in sys.path:
                 sys.path.remove(openeb_path)

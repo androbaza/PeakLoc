@@ -85,5 +85,7 @@ On the Windows build PC, install the matching Metavision SDK, then run:
     pixi run check-openeb
     pixi run -e dev build-gui
 
-The release is written to dist\PeakLoc. Test PeakLoc.exe, **Check setup**, calibration with small
-real recordings, and a short processing run from that folder before delivery.
+The release is written to dist\PeakLoc. The build explicitly bundles h5py and its native HDF5
+dependencies because RAW decoding imports h5py before Metavision. Test PeakLoc.exe, **Check
+setup**, calibration with small real recordings, and a short processing run from that folder
+before delivery.
