@@ -54,6 +54,10 @@ def test_load_peakloc_config_uses_root_config_by_default(tmp_path, monkeypatch):
     assert config.num_cores == 1
 
 
+def test_peakloc_config_enables_spatial_masking_by_default():
+    assert PeakLocConfig().spatial_mask_enabled is True
+
+
 def test_peakloc_config_rejects_unknown_settings():
     with pytest.raises(ValueError, match="Unknown PeakLoc config setting"):
         PeakLocConfig.from_mapping({"not_a_setting": 1})
