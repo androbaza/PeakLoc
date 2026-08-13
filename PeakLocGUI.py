@@ -3,10 +3,40 @@ from __future__ import annotations
 import argparse
 import multiprocessing
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 
-def parse_worker_args() -> argparse.Namespace:
+def _loky_command_from_argv(argv: Sequence[str]) -> str | None:
+    """Return a loky ``-c`` payload without treating it as GUI arguments."""
+    try:
+        command_index = argv.index("-c")
+    except ValueError:
+        return None
+    if command_index + 1 >= len(argv):
+        return None
+    command = argv[command_index + 1]
+    if command.startswith("from joblib.externals.loky"):
+        return command
+    return None
+
+
+def _run_loky_worker_if_requested() -> bool:
+    """Handle loky's alternate frozen-worker command lines before PyInstaller."""
+    loky_command = _loky_command_from_argv(sys.argv)
+    if loky_command is not None:
+        exec(loky_command, {"__name__": "__main__"})  # noqa: S102
+        return True
+
+    if len(sys.argv) >= 3 and sys.argv[1] == "--multiprocessing-fork":
+        from joblib.externals.loky.backend.popen_loky_win32 import main
+
+        main(int(sys.argv[2]))
+        return True
+    return False
+
+
+def parse_worker_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PeakLoc desktop application")
     worker_group = parser.add_mutually_exclusive_group()
     worker_group.add_argument("--pipeline-worker", action="store_true")
@@ -14,10 +44,12 @@ def parse_worker_args() -> argparse.Namespace:
     worker_group.add_argument("--slice-worker", type=Path)
     parser.add_argument("--config", type=Path)
     parser.add_argument("--preflight-only", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> None:
+    if _run_loky_worker_if_requested():
+        return
     multiprocessing.freeze_support()
     args = parse_worker_args()
     if (
