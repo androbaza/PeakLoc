@@ -50,6 +50,10 @@ def parse_worker_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     if _run_loky_worker_if_requested():
         return
+    from interface.operations import configure_logging
+
+    configure_logging()
+
     multiprocessing.freeze_support()
     args = parse_worker_args()
     if (

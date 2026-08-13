@@ -38,6 +38,7 @@ def configure_worker_environment() -> None:
 
 configure_worker_environment()
 
+from interface.operations import configure_logging
 from localization_scripts.config_sweep import run_config_sweep
 from localization_scripts.pipeline_config import load_peakloc_config
 from localization_scripts.pipeline_runner import (
@@ -112,6 +113,7 @@ def configure_frozen_application_directory() -> Path | None:
 
 
 def main() -> None:
+    configure_logging()
     configure_worker_environment()
     bundled_config_path = configure_frozen_application_directory()
     args = parse_args()

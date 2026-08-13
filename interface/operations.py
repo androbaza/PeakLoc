@@ -5,6 +5,8 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+_LOGGING_SINK_ID: int | None = None
+
 
 @dataclass(frozen=True)
 class CalibrationRequest:
@@ -38,6 +40,42 @@ def application_directory() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[1]
+
+
+def application_log_path() -> Path:
+    """Return the preferred log location for frozen and source runs."""
+    return application_directory() / "PeakLoc.log"
+
+
+def configure_logging() -> Path:
+    """Add a Loguru file sink beside the executable or source checkout."""
+    global _LOGGING_SINK_ID
+    from loguru import logger
+
+    if _LOGGING_SINK_ID is not None:
+        logger.remove(_LOGGING_SINK_ID)
+
+    preferred_path = application_log_path()
+    candidate_paths = [preferred_path]
+    fallback_path = Path.cwd() / preferred_path.name
+    if fallback_path != preferred_path:
+        candidate_paths.append(fallback_path)
+
+    for path in candidate_paths:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _LOGGING_SINK_ID = logger.add(
+                path,
+                level="DEBUG",
+                enqueue=True,
+                backtrace=True,
+                diagnose=False,
+            )
+            return path
+        except OSError:
+            continue
+
+    raise OSError(f"Could not create a PeakLoc log file at {candidate_paths}")
 
 
 def startup_config_path() -> Path:
