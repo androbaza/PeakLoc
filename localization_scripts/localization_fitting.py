@@ -9,6 +9,7 @@ from joblib import Parallel, delayed
 
 from localization_scripts.calibration import EventCalibration
 from localization_scripts.event_array_processing import slice_data
+from localization_scripts.parallel_backend import resolve_joblib_backend
 from localization_scripts.pipeline_config import PeakLocConfig
 from localization_scripts.poisson_fitting import fit_joint_poisson_roi
 from localization_scripts.temporal_roi_generation import DETECTION_REPLAY_TIME_BIN_COUNT
@@ -94,7 +95,7 @@ def perform_joint_poisson_localization_parallel(
             return np.array([])
         return np.empty(0, dtype=_joint_poisson_localization_dtype(roi_rad))
     rois_split = slice_data(rois, config.parallel_workers)
-    backend = "loky"
+    backend = resolve_joblib_backend("loky")
     results = Parallel(
         n_jobs=config.parallel_workers,
         backend=backend,

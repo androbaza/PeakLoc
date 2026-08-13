@@ -16,6 +16,8 @@ from numba import njit
 from scipy.signal import find_peaks
 from scipy.sparse import SparseEfficiencyWarning
 
+from localization_scripts.parallel_backend import resolve_joblib_backend
+
 
 @dataclass(frozen=True)
 class PeakCandidate:
@@ -70,6 +72,7 @@ def find_peaks_parallel(
     list of arrays
         Array of prominences of the peaks.
     """
+    backend = resolve_joblib_backend(backend)
     parallel = Parallel(
         n_jobs=num_cores,
         backend=backend,

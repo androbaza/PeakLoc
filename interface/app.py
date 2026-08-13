@@ -131,6 +131,7 @@ class PeakLocApp:
         self.task_kind: str | None = None
         self.task_temp_directory: Path | None = None
         self.pending_calibration_output: Path | None = None
+        self.log_path = application_directory() / "PeakLoc.log"
 
         self._build_layout()
         self._refresh_readiness()
@@ -950,6 +951,13 @@ class PeakLocApp:
             self.root.after(100, self._poll_process_queue)
 
     def _append_log(self, text: str) -> None:
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(text)
+        except OSError:
+            # Logging must not prevent the GUI from displaying or completing a run.
+            pass
         if not hasattr(self, "log_text"):
             return
         self.log_text.configure(state="normal")

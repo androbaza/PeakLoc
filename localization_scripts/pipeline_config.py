@@ -41,7 +41,7 @@ class PeakLocConfig:
     max_workers_per_slice: int | None = None
     memory_reserve_gib: float = 16.0
     disk_reserve_gib: float = 10.0
-    spatial_mask_enabled: bool = False
+    spatial_mask_enabled: bool = True
     spatial_mask_sample_duration_us: int = 60_000_000
     spatial_mask_min_density_quotient: float = 2.7
     spatial_mask_min_component_pixels: int = 20

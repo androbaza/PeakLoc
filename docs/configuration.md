@@ -269,8 +269,8 @@ the convolution and ROI neighbors needed for those targets.
 }
 ```
 
-The feature is off by default because it intentionally excludes locations that were
-not active during calibration. It falls back to full-sensor processing when no safe
+Spatial masking is enabled by default because it reduces work on inactive sensor regions.
+It intentionally excludes locations that were not active during calibration. It falls back to full-sensor processing when no safe
 components are found or the support region covers too much of the sensor. Each enabled
 run saves target/support masks and metadata in `debug/reports/` for auditability.
 

@@ -60,6 +60,7 @@ disk headroom. Errors must be corrected before processing; warnings deserve revi
 
 Select **Start processing** after the check passes. The application stays responsive and streams
 pipeline output into the log. **Cancel** stops the process tree; partial output may remain.
+The same streamed output is appended to `PeakLoc.log` beside `PeakLoc.exe` for troubleshooting.
 
 ## Saving repeatable settings
 
