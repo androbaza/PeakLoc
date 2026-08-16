@@ -27,5 +27,6 @@
   "sigma_psf_px": 1.703,
   "background_mode": "local_only",
   "max_localization_uncertainty_nm": 50.0,
-  "qc_enabled": true
+  "qc_enabled": true,
+  "qc_save_vector": false
 }

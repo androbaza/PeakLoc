@@ -410,7 +410,7 @@ def save_figure_bundle(
     extensions = []
     if config is None or config.save_png:
         extensions.append("png")
-    if config is None or config.save_svg:
+    if config is not None and config.save_svg:
         extensions.append("svg")
     for extension in extensions:
         output_path = output_stem.with_suffix(f".{extension}")

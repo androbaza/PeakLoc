@@ -2546,10 +2546,8 @@ def _panel_labels(axes: list[Any]) -> None:
 
 def _save_figure(figure: Any, stem: Path) -> list[Path]:
     png_path = stem.with_suffix(".png")
-    svg_path = stem.with_suffix(".svg")
     figure.savefig(png_path, dpi=PUBLICATION_DPI, bbox_inches="tight")
-    figure.savefig(svg_path, bbox_inches="tight")
-    return [png_path, svg_path]
+    return [png_path]
 
 
 def _metadata_artifact(run_directory: Path, filename: str) -> Path:

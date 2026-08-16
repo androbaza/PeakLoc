@@ -28,6 +28,7 @@ $pyinstallerArguments = @(
     "--exclude-module", "numba.cuda",
     "--exclude-module", "pytest",
     "--hidden-import", "tkinter",
+    "--hidden-import", "matplotlib.backends.backend_svg",
     "PeakLocGUI.py"
 )
 & pyinstaller @pyinstallerArguments

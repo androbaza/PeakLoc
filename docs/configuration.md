@@ -878,7 +878,7 @@ Example:
 
 ```json
 {
-  "qc_save_vector": true
+  "qc_save_vector": false
 }
 ```
 
@@ -1045,7 +1045,7 @@ arrays; it is removed with the other temporary outputs when this setting is true
   "max_fit_cond": 10000000000.0,
   "qc_enabled": true,
   "qc_static_dpi": 450,
-  "qc_save_vector": true,
+  "qc_save_vector": false,
   "qc_max_events_for_interactive": 50000,
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
@@ -1088,7 +1088,7 @@ arrays; it is removed with the other temporary outputs when this setting is true
   "max_fit_cond": 10000000000.0,
   "qc_enabled": true,
   "qc_static_dpi": 450,
-  "qc_save_vector": true,
+  "qc_save_vector": false,
   "qc_max_events_for_interactive": 50000,
   "qc_uncertainty_montage_n": 36,
   "qc_generate_html": true,
