@@ -3,6 +3,11 @@ $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repositoryRoot
 
+$pythonVersion = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+if ($LASTEXITCODE -ne 0 -or $pythonVersion.Trim() -ne "3.9") {
+    throw "The Windows GUI must be built with the Pixi CPython 3.9 environment required by Metavision. Run 'pixi run -e dev build-gui'."
+}
+
 $pyinstallerArguments = @(
     "--noconfirm",
     "--clean",

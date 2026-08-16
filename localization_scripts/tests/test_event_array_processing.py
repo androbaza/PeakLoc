@@ -111,8 +111,12 @@ def test_raw_reader_system_path_does_not_leak_to_loky_workers(
             return SimpleNamespace(EventCD=event_dtype)
         raise AssertionError(f"Unexpected import: {module_name}")
 
+    monkeypatch.delenv(event_array_processing.OPENEB_SITE_PACKAGES_ENV_VAR)
     monkeypatch.setattr(
         event_array_processing, "OPENEB_SYSTEM_SITE_PACKAGES", openeb_site
+    )
+    monkeypatch.setattr(
+        event_array_processing, "OPENEB_WINDOWS_SITE_PACKAGES", openeb_site
     )
     monkeypatch.setattr(event_array_processing, "import_module", import_module_stub)
 
