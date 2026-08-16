@@ -872,7 +872,7 @@ Example:
 
 ### `qc_save_vector`
 
-Save a PDF counterpart when a vector representation is meaningful.
+Save an SVG counterpart when a vector representation is meaningful.
 
 Example:
 

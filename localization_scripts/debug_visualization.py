@@ -69,7 +69,7 @@ class DebugVisualizationConfig:
     overwrite: bool = True
     save_png: bool = True
     save_svg: bool = False  # keep false by default
-    save_pdf: bool = False  # keep false by default
+    save_pdf: bool = False  # Deprecated; PDF output is no longer supported.
     save_tiff: bool = True
     save_interactive_html: bool = True
     show_residual_vectors: bool = False
@@ -412,8 +412,6 @@ def save_figure_bundle(
         extensions.append("png")
     if config is None or config.save_svg:
         extensions.append("svg")
-    if config is None or config.save_pdf:
-        extensions.append("pdf")
     for extension in extensions:
         output_path = output_stem.with_suffix(f".{extension}")
         save_kwargs: dict[str, object] = {"bbox_inches": "tight"}

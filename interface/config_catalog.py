@@ -525,7 +525,7 @@ _DETAILS: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
     ),
     "qc_save_vector": (
         "Save vector QC figures",
-        "Also save vector versions of applicable QC figures.",
+        "Also save SVG versions of applicable QC figures.",
         "",
         (),
     ),

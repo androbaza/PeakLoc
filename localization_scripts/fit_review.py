@@ -193,7 +193,7 @@ def _save_detection_replay_montage(
     paths = [output_path]
     figure.savefig(output_path, dpi=dpi, bbox_inches="tight")
     if save_vector:
-        for suffix in (".svg", ".pdf"):
+        for suffix in (".svg",):
             vector_path = output_path.with_suffix(suffix)
             figure.savefig(vector_path, bbox_inches="tight")
             paths.append(vector_path)
@@ -465,7 +465,7 @@ def _save_index_montage(
     paths = [output_path]
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
     if save_vector:
-        for suffix in (".svg", ".pdf"):
+        for suffix in (".svg",):
             vector_path = output_path.with_suffix(suffix)
             fig.savefig(vector_path, bbox_inches="tight")
             paths.append(vector_path)

@@ -59,12 +59,12 @@ def save_publication_figure(
     dpi: int,
     save_vector: bool,
 ) -> list[Path]:
-    """Persist a publication-ready raster and, when requested, a PDF companion."""
+    """Persist a publication-ready raster and, when requested, an SVG companion."""
     path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
     paths = [path]
     if save_vector:
-        vector_path = path.with_suffix(".pdf")
+        vector_path = path.with_suffix(".svg")
         figure.savefig(vector_path, bbox_inches="tight", facecolor="white")
         paths.append(vector_path)
     return paths
