@@ -62,6 +62,20 @@ Select **Start processing** after the check passes. The application stays respon
 pipeline output into the log. **Cancel** stops the process tree; partial output may remain.
 The same streamed output is appended to `PeakLoc.log` beside `PeakLoc.exe` for troubleshooting.
 
+### 6. Live measurement
+
+Starting a processing run opens **Live measurement** automatically. Its timeline shows the full
+recording, the selected processing interval, and pending, active, completed, skipped, or failed
+slices. The localization image is updated after each completed slice; use the Matplotlib toolbar
+to pan or zoom.
+
+PeakLoc also retains a bounded sample of extracted cumulative-sum peak traces and blink ROIs for
+interactive review. Choose samples from the dropdowns, or click near a marked ROI in the
+localization image. Move **First event** and **Last event** to change the displayed ON/OFF emitter
+map and event-time histogram. These controls inspect copied diagnostic samples only: they do not
+alter the measurement, fitted localizations, or saved scientific output. If monitoring data is
+missing or malformed, the warning remains in this tab and processing continues independently.
+
 ## Saving repeatable settings
 
 Use **Save config** to write a JSON configuration for later reuse. **Open config** loads a saved

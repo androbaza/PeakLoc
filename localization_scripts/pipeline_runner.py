@@ -56,6 +56,16 @@ from localization_scripts.event_array_processing import (
     save_dict,
 )
 from localization_scripts.fit_review_diagnostics import save_fit_review_diagnostics
+from localization_scripts.live_progress import (
+    initialize_recording_progress,
+    publish_recording_state,
+    publish_slice_failed,
+    publish_slice_skipped,
+    publish_slice_snapshot,
+    publish_slice_started,
+    sample_peak_traces,
+    sample_roi_events,
+)
 from localization_scripts.localization_fitting import (
     localization_qc_dtype,
     localization_uncertainty_px,
@@ -271,6 +281,9 @@ def build_slice_tasks(
 def execute_slice_tasks(
     tasks: list[SliceTask], context: SliceExecutionConfig
 ) -> list[SliceResult]:
+    for task in tasks:
+        if task.stop_index <= task.start_index:
+            publish_slice_skipped(context.filename, task.slice_start, task.time_slice)
     non_empty_tasks = [task for task in tasks if task.stop_index > task.start_index]
     if not non_empty_tasks:
         return []
@@ -436,6 +449,11 @@ def _run_slice_task(task: SliceTask) -> SliceResult | None:
         if result is not None:
             _write_slice_manifest(result, context.output_folder)
         return result
+    except BaseException as error:
+        publish_slice_failed(
+            context.filename, task.slice_start, task.time_slice, str(error)
+        )
+        raise
     finally:
         _shutdown_loky_workers()
         _close_memory_map(events)
@@ -599,18 +617,23 @@ def run_batch(config: PeakLocConfig) -> list[RecordingResult]:
     results = []
     for filename in natsorted(input_files):
         logger.info("Processing {}", filename)
-        recording = process_recording(filename, config, run_timestamp)
-        layout = ArtifactLayout.from_run_directory(recording.output_folder)
-        layout.ensure_directories()
-        settings_path = (
-            layout.debug_reports_dir / f"peakloc_settings_{run_timestamp}.json"
-        )
-        write_effective_run_settings(
-            config, recording.calibration_metadata, settings_path
-        )
-        recording.artifacts.append(settings_path)
-        write_run_report(recording, config, run_timestamp)
-        results.append(recording)
+        try:
+            recording = process_recording(filename, config, run_timestamp)
+            layout = ArtifactLayout.from_run_directory(recording.output_folder)
+            layout.ensure_directories()
+            settings_path = (
+                layout.debug_reports_dir / f"peakloc_settings_{run_timestamp}.json"
+            )
+            write_effective_run_settings(
+                config, recording.calibration_metadata, settings_path
+            )
+            recording.artifacts.append(settings_path)
+            write_run_report(recording, config, run_timestamp)
+            results.append(recording)
+        except BaseException as error:
+            publish_recording_state(filename, "failed", error_message=str(error))
+            raise
+        publish_recording_state(filename, "completed")
     return results
 
 
@@ -693,10 +716,15 @@ def process_time_slice(
     parallel_stage_lock_path: Path | None = None,
     slice_start: int | None = None,
 ) -> SliceResult | None:
+    effective_slice_start = (
+        time_slice - config.slice_duration if slice_start is None else slice_start
+    )
+    publish_slice_started(filename, effective_slice_start, time_slice)
     events, diffuse_flash_excluded_event_count = exclude_time_intervals(
         event_slice, diffuse_flash_intervals
     )
     if events.size == 0:
+        publish_slice_skipped(filename, effective_slice_start, time_slice)
         logger.info(
             "No events found in time slice ending at {} for {}", time_slice, filename
         )
@@ -744,6 +772,7 @@ def process_time_slice(
     stage_start = time.perf_counter()
     dict_events, max_len = array_to_polarity_map(events, support_coords)
     if max_len == 0:
+        publish_slice_skipped(filename, effective_slice_start, time_slice)
         logger.info("No events fall inside the spatial support mask for this slice")
         del dict_events, max_len, target_coords, support_coords, events, event_slice
         _release_and_measure(stage_metrics)
@@ -796,7 +825,7 @@ def process_time_slice(
     )
     _release_parallel_stage(stage_lock)
     peaks, prominences, on_times, coordinates_peaks = create_peak_lists(peak_list)
-    del times, cumsum, coordinates, peak_list
+    del peak_list
     _release_and_measure(stage_metrics)
     peaks_dict = group_timestamps_by_coordinate(
         coordinates_peaks, peaks, prominences, on_times
@@ -823,6 +852,8 @@ def process_time_slice(
     )
     _atomic_save_dict(unique_peaks_path, unique_peaks)
     unique_peak_count = sum(len(values) for values in unique_peaks.values())
+    peak_samples = sample_peak_traces(unique_peaks, times, cumsum, coordinates)
+    del times, cumsum, coordinates
     stage_metrics.peak_filter_seconds = time.perf_counter() - stage_start
 
     logger.info(
@@ -864,6 +895,7 @@ def process_time_slice(
             polarity_time_gate_us=config.polarity_time_gate_us,
         )
     _release_parallel_stage(stage_lock)
+    roi_samples = sample_roi_events(rois, events_t_p_dict)
     del events_t_p_dict, unique_peaks
     _release_and_measure(stage_metrics)
     stage_metrics.roi_generation_seconds = time.perf_counter() - stage_start
@@ -929,6 +961,15 @@ def process_time_slice(
             temporal_segmentation_qc,
             temporal_segmentation_qc_csv_path,
         )
+    publish_slice_snapshot(
+        filename,
+        slice_start=effective_slice_start,
+        slice_stop=time_slice,
+        sensor_shape=config.sensor_shape,
+        localizations=localizations,
+        peak_samples=peak_samples,
+        roi_samples=roi_samples,
+    )
     stage_metrics.artifact_write_seconds = time.perf_counter() - stage_start
 
     fit_qc = summarize_fit_qc(
@@ -1045,6 +1086,13 @@ def process_recording(
                 flash_detection.excluded_event_count,
             )
         time_slices = build_time_slices(config, time_max)
+        initialize_recording_progress(
+            filename,
+            time_min=time_min,
+            time_max=time_max,
+            time_slices=time_slices,
+            sensor_shape=config.sensor_shape,
+        )
         if len(time_slices) == 0:
             logger.info("No time slices to process for {}", filename)
             recording.elapsed_seconds = time.time() - recording_start
@@ -1165,6 +1213,11 @@ def process_recording(
                             active_spatial_mask,
                             **slice_bounds,
                         )
+                except BaseException as error:
+                    publish_slice_failed(
+                        filename, time_slice.start, time_slice.stop, str(error)
+                    )
+                    raise
                 finally:
                     del event_slice
                     release_unused_memory()

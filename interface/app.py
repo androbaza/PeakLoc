@@ -8,12 +8,14 @@ import subprocess
 import tempfile
 import threading
 import tkinter as tk
+from collections.abc import Mapping
 from dataclasses import fields
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from interface.config_catalog import SettingSpec, settings_for_tier
+from interface.live_monitor import LiveProgressMonitor
 from interface.operations import (
     CalibrationRequest,
     application_directory,
@@ -21,6 +23,7 @@ from interface.operations import (
     startup_config_path,
     worker_command,
 )
+from localization_scripts.live_progress import LIVE_PROGRESS_ENV
 from localization_scripts.pipeline_config import PeakLocConfig, write_effective_config
 
 APP_TITLE = "PeakLoc"
@@ -132,6 +135,8 @@ class PeakLocApp:
         self.task_kind: str | None = None
         self.task_temp_directory: Path | None = None
         self.pending_calibration_output: Path | None = None
+        self.task_progress_directory: Path | None = None
+        self.retained_monitor_temp_directory: Path | None = None
         self.log_path = application_directory() / "PeakLoc.log"
 
         self._build_layout()
@@ -275,17 +280,21 @@ class PeakLocApp:
         self.basic_page = ttk.Frame(self.notebook, style="Page.TFrame")
         self.advanced_page = ttk.Frame(self.notebook, style="Page.TFrame")
         self.run_page = ttk.Frame(self.notebook, style="Page.TFrame")
+        self.monitor_page = ttk.Frame(self.notebook, style="Page.TFrame")
         self.notebook.add(self.data_page, text="1  Data")
         self.notebook.add(self.calibration_page, text="2  Calibration")
         self.notebook.add(self.basic_page, text="3  Basic settings")
         self.notebook.add(self.advanced_page, text="4  Advanced")
         self.notebook.add(self.run_page, text="5  Run")
+        self.notebook.add(self.monitor_page, text="6  Live measurement")
 
         self._build_data_page()
         self._build_calibration_page()
         self._build_settings_page(self.basic_page, "basic")
         self._build_settings_page(self.advanced_page, "advanced")
         self._build_run_page()
+        self.live_monitor = LiveProgressMonitor(self.monitor_page)
+        self.live_monitor.pack(fill="both", expand=True)
         self.notebook.bind(
             "<<NotebookTabChanged>>", lambda _event: self._refresh_readiness()
         )
@@ -880,6 +889,9 @@ class PeakLocApp:
             self.notebook.select(self.data_page)
             return
 
+        if not preflight_only and self.retained_monitor_temp_directory is not None:
+            shutil.rmtree(self.retained_monitor_temp_directory, ignore_errors=True)
+            self.retained_monitor_temp_directory = None
         temp_directory = Path(tempfile.mkdtemp(prefix="peakloc_gui_run_"))
         config_path = temp_directory / "peakloc_run_config.json"
         write_effective_config(config, config_path)
@@ -887,11 +899,22 @@ class PeakLocApp:
         if preflight_only:
             command.append("--preflight-only")
         self.config = config
+        progress_directory = None
+        environment_overrides = None
+        if not preflight_only:
+            progress_directory = temp_directory / "live_progress"
+            progress_directory.mkdir(parents=True, exist_ok=True)
+            environment_overrides = {LIVE_PROGRESS_ENV: str(progress_directory)}
+            self.live_monitor.watch(progress_directory)
         self._start_task(
             command,
             kind="preflight" if preflight_only else "pipeline",
             temp_directory=temp_directory,
+            environment_overrides=environment_overrides,
+            progress_directory=progress_directory,
         )
+        if not preflight_only:
+            self.notebook.select(self.monitor_page)
 
     def _start_task(
         self,
@@ -899,10 +922,14 @@ class PeakLocApp:
         *,
         kind: str,
         temp_directory: Path,
+        environment_overrides: Mapping[str, str] | None = None,
+        progress_directory: Path | None = None,
     ) -> None:
         self._append_log(f"\n[{kind.upper()}] Starting…\n")
         environment = os.environ.copy()
         environment["PYTHONUNBUFFERED"] = "1"
+        if environment_overrides is not None:
+            environment.update(environment_overrides)
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
         try:
             self.process = subprocess.Popen(
@@ -923,6 +950,7 @@ class PeakLocApp:
             raise
         self.task_kind = kind
         self.task_temp_directory = temp_directory
+        self.task_progress_directory = progress_directory
         self._set_busy(True)
         reader = threading.Thread(target=self._read_process_output, daemon=True)
         reader.start()
@@ -1004,10 +1032,16 @@ class PeakLocApp:
             self.status_text.set(f"{kind.capitalize()} failed — review the log")
 
         temp_directory = self.task_temp_directory
+        progress_directory = self.task_progress_directory
         self.process = None
         self.task_kind = None
         self.task_temp_directory = None
+        self.task_progress_directory = None
         self.pending_calibration_output = None
+        if kind == "pipeline" and progress_directory is not None:
+            self.live_monitor.mark_process_finished(succeeded)
+            self.retained_monitor_temp_directory = temp_directory
+            temp_directory = None
         if temp_directory is not None:
             shutil.rmtree(temp_directory, ignore_errors=True)
         self._set_busy(False)
@@ -1076,6 +1110,11 @@ class PeakLocApp:
             if not should_close:
                 return
             self._terminate_process_tree(self.process)
+        self.live_monitor.close()
+        if self.task_temp_directory is not None:
+            shutil.rmtree(self.task_temp_directory, ignore_errors=True)
+        if self.retained_monitor_temp_directory is not None:
+            shutil.rmtree(self.retained_monitor_temp_directory, ignore_errors=True)
         self.root.destroy()
 
 
