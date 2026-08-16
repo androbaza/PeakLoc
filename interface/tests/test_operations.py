@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from loguru import logger
 
 from interface import operations
@@ -18,3 +20,14 @@ def test_configure_logging_writes_a_source_run_log(tmp_path, monkeypatch):
 
     operations.configure_logging()
     logger.info("focused logging check")
+
+
+def test_format_captured_output_matches_loguru_datetime_style():
+    timestamp = datetime(2026, 8, 16, 13, 42, 17, 123456, tzinfo=timezone.utc)
+
+    formatted = operations.format_captured_output("first\nsecond\n", timestamp)
+
+    assert formatted == (
+        "2026-08-16 13:42:17.123 | OUTPUT   | first\n"
+        "2026-08-16 13:42:17.123 | OUTPUT   | second\n"
+    )

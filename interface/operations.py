@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 _LOGGING_SINK_ID: int | None = None
+LOGURU_FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}"
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,18 @@ def application_log_path() -> Path:
     return application_directory() / "PeakLoc.log"
 
 
+def format_captured_output(text: str, timestamp: datetime | None = None) -> str:
+    """Format GUI-captured worker output as timestamped log records."""
+    if not text:
+        return ""
+    record_time = timestamp or datetime.now(timezone.utc).astimezone()
+    timestamp_text = record_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return "".join(
+        "" if line in {"\n", "\r\n"} else f"{timestamp_text} | OUTPUT   | {line}"
+        for line in text.splitlines(keepends=True)
+    )
+
+
 def configure_logging() -> Path:
     """Add a Loguru file sink beside the executable or source checkout."""
     global _LOGGING_SINK_ID
@@ -67,6 +81,7 @@ def configure_logging() -> Path:
             _LOGGING_SINK_ID = logger.add(
                 path,
                 level="DEBUG",
+                format=LOGURU_FILE_FORMAT,
                 enqueue=True,
                 backtrace=True,
                 diagnose=False,
