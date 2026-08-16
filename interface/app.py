@@ -114,6 +114,8 @@ class PeakLocApp:
         self.config = self._load_startup_config()
         self.config_path = startup_config_path()
         self.config_vars = self._create_config_variables(self.config)
+        self.setting_controls: dict[str, ttk.Widget] = {}
+        self.config_vars["slice_end"].trace_add("write", self._on_slice_end_changed)
         self.input_mode = tk.StringVar(
             value="file" if self.config.input_file is not None else "folder"
         )
@@ -140,6 +142,7 @@ class PeakLocApp:
         self.log_path = application_directory() / "PeakLoc.log"
 
         self._build_layout()
+        self._sync_slice_count_state()
         self._refresh_readiness()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -636,6 +639,7 @@ class PeakLocApp:
         else:
             control = ttk.Entry(parent, textvariable=variable, width=28)
         control.grid(row=row, column=1, sticky="new", pady=6)
+        self.setting_controls[spec.name] = control
         ttk.Label(
             parent,
             text=spec.description,
@@ -643,6 +647,19 @@ class PeakLocApp:
             wraplength=430,
             justify="left",
         ).grid(row=row, column=2, sticky="nw", padx=(18, 0), pady=8)
+
+    def _on_slice_end_changed(self, *_: object) -> None:
+        self._sync_slice_count_state()
+        self._refresh_readiness()
+
+    def _sync_slice_count_state(self) -> None:
+        slice_count_control = self.setting_controls.get("slice_count")
+        if slice_count_control is None:
+            return
+        has_slice_end = bool(str(self.config_vars["slice_end"].get()).strip())
+        if has_slice_end:
+            self.config_vars["slice_count"].set("")
+        slice_count_control.configure(state="disabled" if has_slice_end else "normal")
 
     def _build_run_page(self) -> None:
         container = self._page_intro(
@@ -745,6 +762,8 @@ class PeakLocApp:
         else:
             payload["input_file"] = None
             payload["input_folder"] = selected_path
+        if payload["slice_end"] is not None:
+            payload["slice_count"] = None
         return PeakLocConfig.from_mapping(payload)
 
     def _apply_config(self, config: PeakLocConfig, path: Path) -> None:
@@ -767,6 +786,7 @@ class PeakLocApp:
         self.recursive_check.configure(
             state="normal" if self.input_mode.get() == "folder" else "disabled"
         )
+        self._sync_slice_count_state()
         self.status_text.set(f"Loaded {path.name}")
         self._refresh_readiness()
 

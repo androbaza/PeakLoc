@@ -186,6 +186,8 @@ class PeakLocConfig:
             _require_non_negative("slice_end", self.slice_end)
             if self.slice_end <= self.slice_start:
                 raise ValueError("slice_end must be greater than slice_start")
+            if self.slice_count is not None:
+                raise ValueError("slice_count cannot be used when slice_end is set")
         _require_positive("slice_duration", self.slice_duration)
         if self.slice_count is not None:
             _require_positive("slice_count", self.slice_count)

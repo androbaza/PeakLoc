@@ -69,7 +69,7 @@ _DETAILS: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
     ),
     "slice_count": (
         "Maximum slices",
-        "Optional number of chunks to process. Leave blank to process the selected range.",
+        "Optional number of chunks to process. Leave blank to process the selected range; it is unavailable when an end time is set.",
         "slices",
         (),
     ),

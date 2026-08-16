@@ -8,7 +8,7 @@
   "slice_count": null,
   "num_cores": 30,
   "max_parallel_workers": 30,
-  "max_concurrent_slices": 2,
+  "max_concurrent_slices": 1,
   "cpu_worker_budget": 16,
   "max_workers_per_slice": 15,
   "memory_reserve_gib": 16.0,
