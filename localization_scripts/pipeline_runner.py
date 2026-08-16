@@ -1458,15 +1458,24 @@ def detect_recording_diffuse_flashes(
             "leaving this recording unchanged"
         )
         return DiffuseFlashDetection((), 0, 0)
-    return detect_diffuse_flash_intervals(
-        events,
-        config.sensor_shape,
-        bin_duration_us=config.diffuse_flash_bin_duration_us,
-        min_events_per_polarity=config.diffuse_flash_min_events_per_polarity,
-        min_active_pixel_fraction=config.diffuse_flash_min_active_pixel_fraction,
-        max_gap_us=config.diffuse_flash_max_gap_us,
-        padding_us=config.diffuse_flash_padding_us,
-    )
+    try:
+        return detect_diffuse_flash_intervals(
+            events,
+            config.sensor_shape,
+            bin_duration_us=config.diffuse_flash_bin_duration_us,
+            min_events_per_polarity=config.diffuse_flash_min_events_per_polarity,
+            min_active_pixel_fraction=config.diffuse_flash_min_active_pixel_fraction,
+            max_gap_us=config.diffuse_flash_max_gap_us,
+            padding_us=config.diffuse_flash_padding_us,
+        )
+    except ValueError as error:
+        if "requires monotonic timestamps" not in str(error):
+            raise
+        logger.warning(
+            "Diffuse flash detection skipped: {}; leaving this recording unchanged",
+            error,
+        )
+        return DiffuseFlashDetection((), 0, 0)
 
 
 def save_diffuse_flash_intervals(
