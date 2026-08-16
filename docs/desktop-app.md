@@ -66,15 +66,22 @@ The same streamed output is appended to `PeakLoc.log` beside `PeakLoc.exe` for t
 
 Starting a processing run opens **Live measurement** automatically. Its timeline shows the full
 recording, the selected processing interval, and pending, active, completed, skipped, or failed
-slices. The localization image is updated after each completed slice; use the Matplotlib toolbar
-to pan or zoom.
+slices. The tab is divided into **Progress**, **Reconstruction**, and **Signals & ROI** pages so the
+timeline key and plots remain readable in smaller windows. **Progress** reports selected duration,
+slice completion, active/failed slices, and localization yield. **Reconstruction** shows occupied
+sensor pixels, peak density, and mean localizations per occupied pixel. These are descriptive live
+indicators, not scientific acceptance thresholds. Use the Matplotlib toolbar to pan or zoom.
 
 PeakLoc also retains a bounded sample of extracted cumulative-sum peak traces and blink ROIs for
 interactive review. Choose samples from the dropdowns, or click near a marked ROI in the
-localization image. Move **First event** and **Last event** to change the displayed ON/OFF emitter
-map and event-time histogram. These controls inspect copied diagnostic samples only: they do not
-alter the measurement, fitted localizations, or saved scientific output. If monitoring data is
-missing or malformed, the warning remains in this tab and processing continues independently.
+localization image. In **Signals & ROI**, the yellow peak-trace shading marks the
+algorithm-extracted ON-to-OFF blink interval and the red line marks the detected peak center.
+Select **Both**, **Only ON**, or **Only OFF** to filter the ROI map and event-time histogram. In
+**Both**, the emitter map is signed ON minus OFF counts; the single-polarity modes show nonnegative
+event counts. Move **First event** and **Last event** to inspect how the manual time window changes
+the sampled emitter. These controls inspect copied diagnostic samples only: they do not alter the
+measurement, fitted localizations, or saved scientific output. If monitoring data is missing or
+malformed, the warning remains in this tab and processing continues independently.
 
 ## Saving repeatable settings
 

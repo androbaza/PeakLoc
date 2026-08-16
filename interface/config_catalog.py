@@ -75,13 +75,13 @@ _DETAILS: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
     ),
     "num_cores": (
         "CPU cores",
-        "Upper CPU count PeakLoc may use. Leave resources for the operating system.",
+        "Upper CPU count PeakLoc may use. The default reserves one logical CPU.",
         "cores",
         (),
     ),
     "max_parallel_workers": (
         "Parallel workers",
-        "Maximum worker processes used inside one slice.",
+        "Maximum worker processes used inside one slice. The default reserves one logical CPU.",
         "workers",
         (),
     ),
@@ -93,7 +93,7 @@ _DETAILS: dict[str, tuple[str, str, str, tuple[str, ...]]] = {
     ),
     "cpu_worker_budget": (
         "Global CPU budget",
-        "Optional total worker budget shared by concurrent slices. Blank uses CPU cores.",
+        "Optional total worker budget shared by concurrent slices. Blank uses the CPU-core limit.",
         "workers",
         (),
     ),

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import multiprocessing
 import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
@@ -11,6 +10,7 @@ from typing import Any
 DEFAULT_INPUT_FOLDER = "data"
 DEFAULT_SLICE_DURATION = int(100e6)
 DEFAULT_CONFIG_PATH = Path("config.json")
+DEFAULT_WORKER_COUNT = max((os.cpu_count() or 1) - 1, 1)
 
 ENVIRONMENT_OVERRIDES = {
     "PEAKLOC_INPUT_FOLDER": "input_folder",
@@ -34,8 +34,8 @@ class PeakLocConfig:
     slice_end: int | None = None
     slice_duration: int = DEFAULT_SLICE_DURATION
     slice_count: int | None = None
-    num_cores: int = multiprocessing.cpu_count()
-    max_parallel_workers: int = 4
+    num_cores: int = DEFAULT_WORKER_COUNT
+    max_parallel_workers: int = DEFAULT_WORKER_COUNT
     max_concurrent_slices: int = 1
     cpu_worker_budget: int | None = None
     max_workers_per_slice: int | None = None
@@ -52,7 +52,7 @@ class PeakLocConfig:
     peak_time_threshold: float = 40e3
     polarity_time_gate_us: float = 5e3
     peak_neighbors: int = 9
-    roi_radius: int = 8
+    roi_radius: int = 5
     convolution_roi_radius: int = 1
     temporal_segmentation_enabled: bool = False
     temporal_context_pre_us: int = 250_000

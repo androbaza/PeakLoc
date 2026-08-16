@@ -23,10 +23,9 @@ PEAKLOC_SLICE_DURATION=10000000 pixi run peakloc
   "input_folder": "data",
   "slice_start": 0,
   "slice_duration": 100000000,
-  "num_cores": 4,
   "prominence": 12.0,
   "dataset_fwhm": 4.01,
-  "roi_radius": 8,
+  "roi_radius": 5,
   "optical_pixel_size": 67.0,
   "sensor_height": 720,
   "sensor_width": 1280,
@@ -166,7 +165,9 @@ total number of events that PeakLoc can process.
 
 ### `num_cores`
 
-Number of CPU cores used by parallel parts of the pipeline.
+Number of CPU cores used by parallel parts of the pipeline. When omitted, PeakLoc defaults to one
+fewer than the logical CPU count, with a minimum of one, to leave one CPU for the GUI and operating
+system.
 
 Example:
 
@@ -183,8 +184,8 @@ Use conservative values for first runs.
 ### `max_parallel_workers`
 
 Legacy upper bound for a memory-intensive parallel stage. PeakLoc also applies
-`max_workers_per_slice` and the resolved global CPU budget. The default is `4`, which
-avoids sending a large event slice to every logical CPU at once.
+`max_workers_per_slice` and the resolved global CPU budget. When omitted, its default matches
+`num_cores`, so the standard configuration reserves one logical CPU.
 
 ```json
 {
@@ -476,7 +477,7 @@ Example:
 
 ```json
 {
-  "roi_radius": 8
+  "roi_radius": 5
 }
 ```
 
@@ -486,10 +487,10 @@ The ROI side length is:
 2 × roi_radius + 1
 ```
 
-For `roi_radius = 8`, the ROI is:
+For the default `roi_radius = 5`, the ROI is:
 
 ```text
-17 × 17 pixels
+11 × 11 pixels
 ```
 
 Choose a radius large enough to include the PSF and local background, but not so large that neighboring emitters and background dominate.
@@ -1023,7 +1024,7 @@ arrays; it is removed with the other temporary outputs when this setting is true
   "num_cores": 4,
   "prominence": 12.0,
   "dataset_fwhm": 4.01,
-  "roi_radius": 8,
+  "roi_radius": 5,
   "optical_pixel_size": 67.0,
   "sensor_height": 720,
   "sensor_width": 1280,

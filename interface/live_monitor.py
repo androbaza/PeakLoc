@@ -13,7 +13,6 @@ from typing import Any
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
-from matplotlib.patches import Patch
 
 from localization_scripts.live_progress import LIVE_PROGRESS_SCHEMA_VERSION
 from localization_scripts.plot_style import (
@@ -31,6 +30,7 @@ STATE_COLORS = {
     "skipped": "#E5E7EB",
     "failed": PLOT_COLORS["vermillion"],
 }
+ROI_EVENT_MODES = ("Both", "Only ON", "Only OFF")
 REQUIRED_SNAPSHOT_KEYS = {
     "schema_version",
     "slice_start_us",
@@ -142,6 +142,10 @@ class LiveProgressMonitor(ttk.Frame):
         self.roi_start = tk.DoubleVar(value=0.0)
         self.roi_stop = tk.DoubleVar(value=1.0)
         self.roi_window_text = tk.StringVar(value="No sampled blink selected")
+        self.roi_event_mode = tk.StringVar(value="Both")
+        self.progress_summary = tk.StringVar(value="No measurement data yet")
+        self.localization_summary = tk.StringVar(value="No reconstruction data yet")
+        self.signal_summary = tk.StringVar(value="No sampled signal selected")
 
         self._build_layout()
         self._render_all()
@@ -161,67 +165,189 @@ class LiveProgressMonitor(ttk.Frame):
             justify="right",
         ).pack(side="right", padx=(16, 0))
 
-        controls = ttk.Frame(self, style="Surface.TFrame", padding=(12, 8))
-        controls.pack(fill="x", pady=(10, 6))
+        self.insight_notebook = ttk.Notebook(self)
+        self.insight_notebook.pack(fill="both", expand=True, pady=(10, 0))
+        self._build_progress_page()
+        self._build_reconstruction_page()
+        self._build_signal_page()
+
+    def _build_progress_page(self) -> None:
+        self.progress_page = ttk.Frame(
+            self.insight_notebook, style="Page.TFrame", padding=(10, 8)
+        )
+        self.insight_notebook.add(self.progress_page, text="Progress")
+        ttk.Label(
+            self.progress_page,
+            textvariable=self.progress_summary,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).pack(fill="x", pady=(0, 5))
+
+        legend = ttk.Frame(self.progress_page, style="Page.TFrame")
+        legend.pack(fill="x", pady=(0, 5))
+        legend_items = (
+            ("Selected range", "#DCEEF7"),
+            ("Pending", STATE_COLORS["pending"]),
+            ("Active", STATE_COLORS["active"]),
+            ("Completed", STATE_COLORS["completed"]),
+            ("Skipped", STATE_COLORS["skipped"]),
+            ("Failed", STATE_COLORS["failed"]),
+        )
+        for index, (label, color) in enumerate(legend_items):
+            item = ttk.Frame(legend, style="Page.TFrame")
+            item.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 18))
+            tk.Label(item, text="  ", background=color, width=2).pack(side="left")
+            ttk.Label(item, text=label, style="Muted.TLabel").pack(
+                side="left", padx=(5, 0)
+            )
+        for column in range(3):
+            legend.columnconfigure(column, weight=1)
+
+        figure_card = ttk.Frame(self.progress_page, style="Surface.TFrame", padding=6)
+        figure_card.pack(fill="both", expand=True)
+        self.progress_figure = Figure(
+            figsize=(9, 3.5), dpi=100, constrained_layout=True
+        )
+        self.timeline_axis = self.progress_figure.add_subplot(111)
+        self.progress_canvas = FigureCanvasTkAgg(
+            self.progress_figure, master=figure_card
+        )
+        self.progress_canvas.get_tk_widget().pack(fill="both", expand=True)
+        toolbar = NavigationToolbar2Tk(
+            self.progress_canvas, figure_card, pack_toolbar=False
+        )
+        toolbar.update()
+        toolbar.pack(fill="x")
+
+    def _build_reconstruction_page(self) -> None:
+        self.reconstruction_page = ttk.Frame(
+            self.insight_notebook, style="Page.TFrame", padding=(10, 8)
+        )
+        self.insight_notebook.add(self.reconstruction_page, text="Reconstruction")
+        ttk.Label(
+            self.reconstruction_page,
+            textvariable=self.localization_summary,
+            style="Muted.TLabel",
+            wraplength=900,
+            justify="left",
+        ).pack(fill="x", pady=(0, 5))
+        figure_card = ttk.Frame(
+            self.reconstruction_page, style="Surface.TFrame", padding=6
+        )
+        figure_card.pack(fill="both", expand=True)
+        self.localization_figure = Figure(
+            figsize=(8, 5), dpi=100, constrained_layout=True
+        )
+        self.localization_axis = self.localization_figure.add_subplot(111)
+        self.localization_canvas = FigureCanvasTkAgg(
+            self.localization_figure, master=figure_card
+        )
+        self.localization_canvas.get_tk_widget().pack(fill="both", expand=True)
+        toolbar = NavigationToolbar2Tk(
+            self.localization_canvas, figure_card, pack_toolbar=False
+        )
+        toolbar.update()
+        toolbar.pack(fill="x")
+        self.localization_canvas.mpl_connect(
+            "button_press_event", self._localization_clicked
+        )
+
+    def _build_signal_page(self) -> None:
+        self.signal_page = ttk.Frame(
+            self.insight_notebook, style="Page.TFrame", padding=(10, 8)
+        )
+        self.insight_notebook.add(self.signal_page, text="Signals & ROI")
+        controls = ttk.Frame(self.signal_page, style="Surface.TFrame", padding=(12, 8))
+        controls.pack(fill="x", pady=(0, 6))
         ttk.Label(controls, text="Peak trace", style="Card.TLabel").grid(
             row=0, column=0, sticky="w"
         )
         self.peak_selector = ttk.Combobox(
             controls, textvariable=self.peak_selection, state="readonly", width=33
         )
-        self.peak_selector.grid(row=0, column=1, sticky="ew", padx=(8, 18))
+        self.peak_selector.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         self.peak_selector.bind("<<ComboboxSelected>>", self._selection_changed)
+        ttk.Label(
+            controls,
+            text=(
+                "Yellow shading marks the algorithm-extracted ON-to-OFF blink interval; "
+                "the red line is the detected peak center."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=430,
+            justify="left",
+        ).grid(row=0, column=2, columnspan=2, sticky="w", padx=(16, 0))
+
         ttk.Label(controls, text="Blink ROI", style="Card.TLabel").grid(
-            row=0, column=2, sticky="w"
+            row=1, column=0, sticky="w", pady=(8, 0)
         )
         self.roi_selector = ttk.Combobox(
             controls, textvariable=self.roi_selection, state="readonly", width=33
         )
-        self.roi_selector.grid(row=0, column=3, sticky="ew", padx=(8, 0))
+        self.roi_selector.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(8, 0))
+        mode_frame = ttk.Frame(controls, style="Surface.TFrame")
+        mode_frame.grid(
+            row=1, column=2, columnspan=2, sticky="w", padx=(16, 0), pady=(8, 0)
+        )
+        ttk.Label(mode_frame, text="Show events:", style="Card.TLabel").pack(
+            side="left"
+        )
+        for mode in ROI_EVENT_MODES:
+            ttk.Radiobutton(
+                mode_frame,
+                text=mode,
+                value=mode,
+                variable=self.roi_event_mode,
+                command=self._roi_mode_changed,
+            ).pack(side="left", padx=(8, 0))
         self.roi_selector.bind("<<ComboboxSelected>>", self._roi_selection_changed)
 
         ttk.Label(controls, text="First event", style="Card.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(7, 0)
+            row=2, column=0, sticky="w", pady=(7, 0)
         )
         self.roi_start_slider = ttk.Scale(
             controls, variable=self.roi_start, command=self._roi_window_changed
         )
         self.roi_start_slider.grid(
-            row=1, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(7, 0)
+            row=2, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(7, 0)
         )
         ttk.Label(controls, text="Last event", style="Card.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(4, 0)
+            row=3, column=0, sticky="w", pady=(4, 0)
         )
         self.roi_stop_slider = ttk.Scale(
             controls, variable=self.roi_stop, command=self._roi_window_changed
         )
         self.roi_stop_slider.grid(
-            row=2, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(4, 0)
+            row=3, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(4, 0)
         )
         ttk.Label(
             controls, textvariable=self.roi_window_text, style="CardMuted.TLabel"
-        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(5, 0))
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        ttk.Label(
+            controls,
+            textvariable=self.signal_summary,
+            style="CardMuted.TLabel",
+            wraplength=500,
+            justify="right",
+        ).grid(row=4, column=2, columnspan=2, sticky="e", padx=(16, 0), pady=(5, 0))
         controls.columnconfigure(1, weight=1)
         controls.columnconfigure(3, weight=1)
 
-        figure_card = ttk.Frame(self, style="Surface.TFrame", padding=6)
+        figure_card = ttk.Frame(self.signal_page, style="Surface.TFrame", padding=6)
         figure_card.pack(fill="both", expand=True)
-        self.figure = Figure(figsize=(11, 5.0), dpi=100, constrained_layout=True)
-        grid = self.figure.add_gridspec(
-            2, 4, height_ratios=(0.8, 3.2), width_ratios=(1.35, 1.0, 1.0, 1.0)
+        self.signal_figure = Figure(figsize=(10, 4.7), dpi=100, constrained_layout=True)
+        grid = self.signal_figure.add_gridspec(1, 3, width_ratios=(1.2, 1.0, 1.0))
+        self.peak_axis = self.signal_figure.add_subplot(grid[0, 0])
+        self.roi_axis = self.signal_figure.add_subplot(grid[0, 1])
+        self.temporal_axis = self.signal_figure.add_subplot(grid[0, 2])
+        self.signal_canvas = FigureCanvasTkAgg(self.signal_figure, master=figure_card)
+        self.signal_canvas.get_tk_widget().pack(fill="both", expand=True)
+        toolbar = NavigationToolbar2Tk(
+            self.signal_canvas, figure_card, pack_toolbar=False
         )
-        self.timeline_axis = self.figure.add_subplot(grid[0, :])
-        self.localization_axis = self.figure.add_subplot(grid[1, 0])
-        self.peak_axis = self.figure.add_subplot(grid[1, 1])
-        self.roi_axis = self.figure.add_subplot(grid[1, 2])
-        self.temporal_axis = self.figure.add_subplot(grid[1, 3])
-        self.canvas = FigureCanvasTkAgg(self.figure, master=figure_card)
-        self.canvas.draw_idle()
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
-        toolbar = NavigationToolbar2Tk(self.canvas, figure_card, pack_toolbar=False)
         toolbar.update()
         toolbar.pack(fill="x")
-        self.canvas.mpl_connect("button_press_event", self._localization_clicked)
 
     def watch(self, progress_directory: Path) -> None:
         """Start observing a new unique directory and discard the previous view."""
@@ -239,7 +365,7 @@ class LiveProgressMonitor(ttk.Frame):
         self.process_succeeded = succeeded
         self._update_status()
         self._render_timeline()
-        self.canvas.draw_idle()
+        self.progress_canvas.draw_idle()
 
     def close(self) -> None:
         if self._poll_after_id is not None:
@@ -471,6 +597,48 @@ class LiveProgressMonitor(ttk.Frame):
         if self.monitor_warning:
             status += f". {self.monitor_warning}; processing is unaffected"
         self.status_text.set(status)
+        self._update_insight_summaries()
+
+    def _update_insight_summaries(self) -> None:
+        manifest = self.manifest
+        if manifest is None:
+            self.progress_summary.set("No measurement data yet")
+        else:
+            total = len(manifest.slices)
+            completed = sum(
+                state in {"completed", "skipped"}
+                for state in self.slice_states.values()
+            )
+            active = sum(state == "active" for state in self.slice_states.values())
+            failed = sum(state == "failed" for state in self.slice_states.values())
+            selected_s = (
+                max(manifest.selected_stop_us - manifest.selected_start_us, 0) * 1e-6
+            )
+            recording_s = (
+                max(manifest.recording_stop_us - manifest.recording_start_us, 0) * 1e-6
+            )
+            percent = 100.0 * completed / total if total else 0.0
+            self.progress_summary.set(
+                f"Selected {selected_s:.3f} s of {recording_s:.3f} s | "
+                f"{completed}/{total} slices resolved ({percent:.1f}%) | "
+                f"{active} active | {failed} failed | "
+                f"{self.localization_count:,} localizations"
+            )
+
+        if self.localization_image is None or not self.localization_count:
+            self.localization_summary.set(
+                "No reconstructed localizations yet. The image updates after each slice."
+            )
+            return
+        occupied = int(np.count_nonzero(self.localization_image))
+        peak_density = int(np.max(self.localization_image))
+        mean_occupied = self.localization_count / max(occupied, 1)
+        self.localization_summary.set(
+            f"{self.localization_count:,} localizations across {occupied:,} occupied "
+            f"sensor pixels | peak density {peak_density:,} | "
+            f"mean {mean_occupied:.2f} per occupied pixel. "
+            "Use pan/zoom to inspect clustering; open Signals & ROI for sampled events."
+        )
 
     def _update_selectors(self) -> None:
         peak_values = [
@@ -489,7 +657,8 @@ class LiveProgressMonitor(ttk.Frame):
         sample = self.peak_samples[index]
         return (
             f"{index + 1}: x={sample['x']}, y={sample['y']}, "
-            f"t={sample['peak_time'] * 1e-6:.3f} s"
+            f"t={sample['peak_time'] * 1e-6:.3f} s, "
+            f"prom={sample['prominence']:.1f}"
         )
 
     def _roi_label(self, index: int) -> str:
@@ -509,14 +678,19 @@ class LiveProgressMonitor(ttk.Frame):
 
     def _selection_changed(self, _event: tk.Event[Any] | None = None) -> None:
         self._render_peak()
-        self.canvas.draw_idle()
+        self._render_roi()
+        self.signal_canvas.draw_idle()
 
     def _roi_selection_changed(self, _event: tk.Event[Any] | None = None) -> None:
         index = self._selected_index(self.roi_selection.get())
         if index is not None and 0 <= index < len(self.roi_samples):
             self._configure_roi_sliders(index)
         self._render_roi()
-        self.canvas.draw_idle()
+        self.signal_canvas.draw_idle()
+
+    def _roi_mode_changed(self) -> None:
+        self._render_roi()
+        self.signal_canvas.draw_idle()
 
     def _configure_roi_sliders(self, index: int) -> None:
         sample = self.roi_samples[index]
@@ -539,7 +713,7 @@ class LiveProgressMonitor(ttk.Frame):
         if index is not None and 0 <= index < len(self.roi_samples):
             self._update_roi_window_text(self.roi_samples[index])
         self._render_roi()
-        self.canvas.draw_idle()
+        self.signal_canvas.draw_idle()
 
     def _update_roi_window_text(self, sample: dict[str, Any]) -> None:
         peak_time = float(sample["peak_time"])
@@ -563,14 +737,18 @@ class LiveProgressMonitor(ttk.Frame):
         self.roi_selection.set(self._roi_label(index))
         self._configure_roi_sliders(index)
         self._render_roi()
-        self.canvas.draw_idle()
+        self.insight_notebook.select(self.signal_page)
+        self.signal_canvas.draw_idle()
 
     def _render_all(self) -> None:
         self._render_timeline()
         self._render_localizations()
         self._render_peak()
         self._render_roi()
-        self.canvas.draw_idle()
+        self._update_insight_summaries()
+        self.progress_canvas.draw_idle()
+        self.localization_canvas.draw_idle()
+        self.signal_canvas.draw_idle()
 
     def _render_timeline(self) -> None:
         axis = self.timeline_axis
@@ -621,19 +799,7 @@ class LiveProgressMonitor(ttk.Frame):
         axis.set_ylim(0, 1)
         axis.set_yticks([])
         axis.set_xlabel("Recording time (s)")
-        axis.set_title("Measurement slices")
-        legend_states = ("pending", "active", "completed", "skipped", "failed")
-        axis.legend(
-            handles=[
-                Patch(facecolor=STATE_COLORS[state], label=state.capitalize())
-                for state in legend_states
-            ],
-            loc="upper center",
-            bbox_to_anchor=(0.5, 1.4),
-            ncol=len(legend_states),
-            frameon=False,
-            fontsize=7,
-        )
+        axis.set_title("Measurement slices across the full recording")
         style_publication_axis(axis)
 
     def _render_localizations(self) -> None:
@@ -705,6 +871,17 @@ class LiveProgressMonitor(ttk.Frame):
         axis.set_title("Extracted peak-center trace")
         style_publication_axis(axis)
 
+    def _selected_peak_summary(self) -> str:
+        index = self._selected_index(self.peak_selection.get())
+        if index is None or not 0 <= index < len(self.peak_samples):
+            return "No peak trace sampled"
+        sample = self.peak_samples[index]
+        interval_ms = (sample["off_time"] - sample["on_time"]) / 1000.0
+        return (
+            f"Peak prominence {sample['prominence']:.1f}; "
+            f"extracted interval {interval_ms:.3f} ms"
+        )
+
     def _render_roi(self) -> None:
         self.roi_axis.clear()
         self.temporal_axis.clear()
@@ -720,6 +897,7 @@ class LiveProgressMonitor(ttk.Frame):
                 style_publication_axis(axis)
             self.roi_axis.set_title("Manually windowed emitter")
             self.temporal_axis.set_title("ROI event timing")
+            self.signal_summary.set(self._selected_peak_summary())
             return
         sample = self.roi_samples[index]
         event_t = np.asarray(sample["event_t"], dtype=np.float64)
@@ -746,22 +924,35 @@ class LiveProgressMonitor(ttk.Frame):
         off = ~on
         np.add.at(positive, (relative_y[within][on], relative_x[within][on]), 1)
         np.add.at(negative, (relative_y[within][off], relative_x[within][off]), 1)
-        signed = positive - negative
-        limit = max(int(np.max(np.abs(signed))) if signed.size else 0, 1)
+        mode = self.roi_event_mode.get()
+        if mode == "Only ON":
+            displayed = positive
+            maximum = max(int(np.max(displayed)) if displayed.size else 0, 1)
+            image_options = {"cmap": "Greens", "vmin": 0, "vmax": maximum}
+        elif mode == "Only OFF":
+            displayed = negative
+            maximum = max(int(np.max(displayed)) if displayed.size else 0, 1)
+            image_options = {"cmap": "Oranges", "vmin": 0, "vmax": maximum}
+        else:
+            displayed = positive - negative
+            maximum = max(int(np.max(np.abs(displayed))) if displayed.size else 0, 1)
+            image_options = {
+                "cmap": "coolwarm",
+                "vmin": -maximum,
+                "vmax": maximum,
+            }
         self.roi_axis.imshow(
-            signed,
+            displayed,
             origin="upper",
-            cmap="coolwarm",
-            vmin=-limit,
-            vmax=limit,
             interpolation="nearest",
+            **image_options,
         )
         self.roi_axis.scatter(radius_x, radius_y, marker="+", s=35, color="black")
         self.roi_axis.set_xlabel("ROI x (px)")
         self.roi_axis.set_ylabel("ROI y (px)")
-        self.roi_axis.set_title(
-            f"Emitter: ON {int(positive.sum())}, OFF {int(negative.sum())}"
-        )
+        on_count = int(positive.sum())
+        off_count = int(negative.sum())
+        self.roi_axis.set_title(f"{mode}: ON {on_count}, OFF {off_count}")
         style_publication_axis(self.roi_axis)
 
         if event_t.size:
@@ -772,20 +963,22 @@ class LiveProgressMonitor(ttk.Frame):
             )
             if np.allclose(bins[0], bins[-1]):
                 bins = np.linspace(bins[0] - 0.5, bins[0] + 0.5, bin_count + 1)
-            self.temporal_axis.hist(
-                relative_time_ms[event_p == 1],
-                bins=bins,
-                histtype="step",
-                color=PLOT_COLORS["green"],
-                label="ON",
-            )
-            self.temporal_axis.hist(
-                relative_time_ms[event_p != 1],
-                bins=bins,
-                histtype="step",
-                color=PLOT_COLORS["vermillion"],
-                label="OFF",
-            )
+            if mode in {"Both", "Only ON"}:
+                self.temporal_axis.hist(
+                    relative_time_ms[event_p == 1],
+                    bins=bins,
+                    histtype="step",
+                    color=PLOT_COLORS["green"],
+                    label="ON",
+                )
+            if mode in {"Both", "Only OFF"}:
+                self.temporal_axis.hist(
+                    relative_time_ms[event_p != 1],
+                    bins=bins,
+                    histtype="step",
+                    color=PLOT_COLORS["vermillion"],
+                    label="OFF",
+                )
             self.temporal_axis.axvspan(
                 (first_time - sample["peak_time"]) / 1000.0,
                 (last_time - sample["peak_time"]) / 1000.0,
@@ -797,3 +990,10 @@ class LiveProgressMonitor(ttk.Frame):
         self.temporal_axis.set_ylabel("Events per bin")
         self.temporal_axis.set_title("ROI event timing")
         style_publication_axis(self.temporal_axis)
+        window_ms = (last_time - first_time) / 1000.0
+        total = on_count + off_count
+        on_fraction = 100.0 * on_count / total if total else 0.0
+        self.signal_summary.set(
+            f"{self._selected_peak_summary()} | manual window {window_ms:.3f} ms | "
+            f"{total} events ({on_fraction:.1f}% ON)"
+        )
