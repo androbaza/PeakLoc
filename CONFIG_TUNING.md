@@ -142,10 +142,10 @@ inspect `debug/reports/diffuse_flash_intervals_*.json` for the exact removed ran
   used for memory-intensive peak, ROI, and fit stages. Start with four workers even on
   larger machines, then raise the cap only after a full run is stable.
 - `max_raw_events` is the OpenEB RAW-reader rolling buffer size, not a processing cap.
-  It must exceed the peak decoder batch for the recording. This rapid-switching
-  recording requires 100,000,000; lower values make OpenEB abort before PeakLoc can
-  stream events to disk. The disk-backed event cache prevents that buffer from being
-  multiplied across slices or workers.
+  PeakLoc requests 5,000 µs decoder chunks by default to keep high-rate recordings
+  bounded. The buffer must still exceed the peak batch in one chunk; increase it or
+  reduce `RAW_READ_DURATION_US` if OpenEB reports that it is too small. The disk-backed
+  event cache prevents that buffer from being multiplied across slices or workers.
 - Set `plot_result` to `false` for parameter sweeps that do not need rendered outputs.
 - Set `qc_enabled` to `false` for fast iterations. Attempted, accepted, ROI, and QC
   arrays are still written.

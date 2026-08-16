@@ -6,7 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from localization_scripts.event_array_processing import raw_events_to_array
+from localization_scripts.event_array_processing import (
+    iter_raw_event_chunks,
+    raw_events_to_array,
+)
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,12 @@ class RateMaps:
     rate_neg: np.ndarray
     hot_pixel_mask: np.ndarray
     valid_pixel_mask: np.ndarray
+
+
+@dataclass(frozen=True)
+class RawRateMaps:
+    maps: RateMaps
+    event_count: int
 
 
 def build_rate_maps(
@@ -42,6 +51,63 @@ def build_rate_maps(
     hot_pixel_mask = total_rate > threshold
     valid_pixel_mask = np.ones(sensor_shape, dtype=bool)
     return RateMaps(rate_pos, rate_neg, hot_pixel_mask, valid_pixel_mask)
+
+
+def build_rate_maps_from_raw(
+    path: Path,
+    sensor_shape: tuple[int, int],
+    *,
+    max_events: int,
+    hot_pixel_quantile: float = 0.999,
+) -> RawRateMaps:
+    """Build maps from bounded RAW decoder chunks instead of one huge event array."""
+    counts_pos = np.zeros(sensor_shape, dtype=np.float64)
+    counts_neg = np.zeros(sensor_shape, dtype=np.float64)
+    event_count = 0
+    first_timestamp: int | None = None
+    last_timestamp: int | None = None
+    for events in iter_raw_event_chunks(path, max_events=max_events):
+        if events.size == 0:
+            continue
+        timestamps = events["t"]
+        first_chunk_timestamp = int(timestamps.min())
+        last_chunk_timestamp = int(timestamps.max())
+        first_timestamp = (
+            first_chunk_timestamp
+            if first_timestamp is None
+            else min(first_timestamp, first_chunk_timestamp)
+        )
+        last_timestamp = (
+            last_chunk_timestamp
+            if last_timestamp is None
+            else max(last_timestamp, last_chunk_timestamp)
+        )
+        positive = events["p"] > 0
+        negative = ~positive
+        np.add.at(counts_pos, (events["y"][positive], events["x"][positive]), 1)
+        np.add.at(counts_neg, (events["y"][negative], events["x"][negative]), 1)
+        event_count += int(events.size)
+
+    if first_timestamp is None or last_timestamp is None:
+        maps = RateMaps(
+            np.zeros(sensor_shape, dtype=np.float64),
+            np.zeros(sensor_shape, dtype=np.float64),
+            np.zeros(sensor_shape, dtype=bool),
+            np.ones(sensor_shape, dtype=bool),
+        )
+    else:
+        duration_s = max(last_timestamp - first_timestamp + 1, 1) * 1e-6
+        rate_pos = counts_pos / duration_s
+        rate_neg = counts_neg / duration_s
+        total_rate = rate_pos + rate_neg
+        threshold = np.quantile(total_rate, hot_pixel_quantile)
+        maps = RateMaps(
+            rate_pos,
+            rate_neg,
+            total_rate > threshold,
+            np.ones(sensor_shape, dtype=bool),
+        )
+    return RawRateMaps(maps=maps, event_count=event_count)
 
 
 def write_event_calibration(
@@ -93,22 +159,36 @@ def build_event_calibration(
         )
 
     print(f"Reading dark recording: {dark_path}", flush=True)
-    dark_events = raw_events_to_array(str(dark_path), max_events=max_events)
-    print(f"Read {dark_events.size:,} dark events", flush=True)
-    print(f"Reading laser-on blank recording: {blank_path}", flush=True)
-    blank_events = raw_events_to_array(str(blank_path), max_events=max_events)
-    print(f"Read {blank_events.size:,} blank events", flush=True)
-    sensor_shape = resolve_sensor_shape(
-        dark_events,
-        blank_events,
-        height=height,
-        width=width,
-    )
+    if height is not None and width is not None:
+        sensor_shape = (height, width)
+        dark_result = build_rate_maps_from_raw(
+            dark_path, sensor_shape, max_events=max_events
+        )
+        print(f"Read {dark_result.event_count:,} dark events", flush=True)
+        print(f"Reading laser-on blank recording: {blank_path}", flush=True)
+        blank_result = build_rate_maps_from_raw(
+            blank_path, sensor_shape, max_events=max_events
+        )
+        print(f"Read {blank_result.event_count:,} blank events", flush=True)
+        dark_maps = dark_result.maps
+        blank_maps = blank_result.maps
+    else:
+        dark_events = raw_events_to_array(str(dark_path), max_events=max_events)
+        print(f"Read {dark_events.size:,} dark events", flush=True)
+        print(f"Reading laser-on blank recording: {blank_path}", flush=True)
+        blank_events = raw_events_to_array(str(blank_path), max_events=max_events)
+        print(f"Read {blank_events.size:,} blank events", flush=True)
+        sensor_shape = resolve_sensor_shape(
+            dark_events,
+            blank_events,
+            height=height,
+            width=width,
+        )
+        dark_maps = build_rate_maps(dark_events, sensor_shape)
+        blank_maps = build_rate_maps(blank_events, sensor_shape)
     print(
         f"Building {sensor_shape[1]} x {sensor_shape[0]} calibration maps", flush=True
     )
-    dark_maps = build_rate_maps(dark_events, sensor_shape)
-    blank_maps = build_rate_maps(blank_events, sensor_shape)
     write_event_calibration(
         output_path,
         dark_maps=dark_maps,

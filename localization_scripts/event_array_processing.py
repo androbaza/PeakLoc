@@ -30,7 +30,10 @@ OPENEB_SITE_PACKAGES_ENV_VAR = "PEAKLOC_OPENEB_SITE_PACKAGES"
 EVENT_DTYPE = np.dtype(
     [("x", np.uint16), ("y", np.uint16), ("p", np.int8), ("t", np.uint64)]
 )
-RAW_READ_DURATION_US = 50_000
+# Keep decoder batches small enough for high-rate calibration recordings. This is
+# independent of PeakLoc's processing slice duration and only controls each RAW
+# decoder request.
+RAW_READ_DURATION_US = 5_000
 
 
 def openeb_site_packages() -> list[Path]:
@@ -112,20 +115,44 @@ def temporary_openeb_system_site_packages() -> Iterator[None]:
                 sys.path.remove(openeb_path)
 
 
-def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
+def iter_raw_event_chunks(
+    filename: str | Path,
+    max_events: int = 1_000_000,
+    *,
+    read_duration_us: int = RAW_READ_DURATION_US,
+) -> Iterator[np.ndarray]:
+    """Yield decoded RAW chunks without retaining the complete recording."""
+    if read_duration_us <= 0:
+        raise ValueError("read_duration_us must be positive")
+
     with temporary_openeb_system_site_packages():
         RawReader = import_module("metavision_core.event_io.raw_reader").RawReader
-        EventCD = import_module("metavision_sdk_base").EventCD
-
-        record_raw = RawReader(filename, max_events=max_events)
-        event_chunks = []
+        record_raw = RawReader(str(filename), max_events=max_events)
         while not record_raw.is_done():
-            events = record_raw.load_delta_t(RAW_READ_DURATION_US)
+            try:
+                events = record_raw.load_delta_t(read_duration_us)
+            except ValueError as error:
+                if "buffer size too small" not in str(error):
+                    raise
+                raise ValueError(
+                    "RAW reader buffer is too small for a "
+                    f"{read_duration_us:,} µs decoder chunk. Increase max_events "
+                    "or reduce the RAW read duration."
+                ) from error
             if events.size:
-                event_chunks.append(events.copy())
-        if not event_chunks:
-            return np.empty(0, dtype=EventCD)
-        return np.concatenate(event_chunks)
+                yield events
+
+
+def raw_events_to_array(filename: str, max_events: int = 1_000_000) -> np.ndarray:
+    event_chunks = [
+        np.asarray(events).copy()
+        for events in iter_raw_event_chunks(filename, max_events=max_events)
+    ]
+    with temporary_openeb_system_site_packages():
+        EventCD = import_module("metavision_sdk_base").EventCD
+    if not event_chunks:
+        return np.empty(0, dtype=EventCD)
+    return np.concatenate(event_chunks)
 
 
 def materialize_raw_events(

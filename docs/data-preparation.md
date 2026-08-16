@@ -200,7 +200,14 @@ pixi run python -m calibration_scripts.build_event_calibration \
   --width 1280
 ```
 
-The script prompts for the dark and blank `.raw` paths.
+The script prompts for the dark and blank `.raw` paths. Calibration reads each recording
+in bounded 5,000 µs decoder chunks and accumulates the rate maps incrementally when
+`--height` and `--width` are supplied. The processing settings `slice_start`,
+`slice_end`, and `slice_duration` do not limit calibration recordings; they apply only
+to experiment processing. `--max-events` is the OpenEB decoder buffer, not a cap on
+total calibration events. If a high-rate recording still exceeds the buffer, increase
+`--max-events` or reduce `RAW_READ_DURATION_US` in
+`localization_scripts/event_array_processing.py`.
 
 ## Uncalibrated mode
 
