@@ -14,6 +14,7 @@ directly to `PeakLoc.log` without timestamps.
   inside the decoder context.
 - Require CPython 3.9 in the Windows GUI build script.
 - Make the RAW-reader path-isolation test valid when the Windows activation override is set.
+- Remove PDF output, default all GUI and pipeline figures to raster output, and package SVG only for explicit opt-in.
 
 ## Validation
 
